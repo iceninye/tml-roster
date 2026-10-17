@@ -7,7 +7,7 @@ import { dutyState, mealMates } from "../lib/tml-duties.js"
 import { addDays, classify, cleanRoster, dayEntry, mondayOf, newRoster, normaliseCode, parseRoster, rowLabelFor, setOverride, weekDates, weekdayIndex } from "../lib/tml-roster.js"
 import { serviceDate, serviceSeconds } from "../lib/tml-time.js"
 
-const BUILD = { version: "0.8.2", commit: "dev" }
+const BUILD = { version: "0.8.3", commit: "dev" }
 const ROSTER_KEY = "tml-roster"
 // The key TML-traffic v0.9.0 used; a roster saved there is picked up once.
 const LEGACY_KEY = "tml-traffic-roster"

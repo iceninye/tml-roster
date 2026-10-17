@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.8.3 — unreleased
+- 編更: the HC status is labelled HC (not 待定), like TBC, to be changed by hand.
+
 ## v0.8.2 — unreleased
 - 編更: a 下載匯入範本 button gives the CSV template (141 rows, 7 cells; RD is a placeholder). The setup form and the import message show the ISO week and its dates, e.g. 第 42 週：2026/10/12 至 2026/10/18.
 
