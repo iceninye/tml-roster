@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.8.4 — unreleased
+- 編更: the 年假 button is gone. A member on AL Monday to Wednesday takes the whole annual-leave week (AL AL AL SH SH RD RD).
+- Auto-fill works on the member changed only: a preference, a leave or a block sets that member's empty days from the day trays. A week needs one RD before it fills.
+- The settings title shows the week and its dates.
+
 ## v0.8.3 — unreleased
 - 編更: the HC status is labelled HC (not 待定), like TBC, to be changed by hand.
 
