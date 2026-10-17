@@ -1,7 +1,7 @@
 // Checks lib/tml-plan.js on a made-up roster and made-up duty times
 // (real rosters and staff never go in the repo):
 //   node tools/validate_plan.mjs
-import { EMPTY, SHEETS, formatRanges, leaveToTray, namedRows, arrangeWeek, defaultSheet, mapCode, setSheet, sheetOf, assign, cleanPlan, fromTray, toTray, trayView, isoWeek, memberRow, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
+import { EMPTY, SHEETS, formatRanges, leaveToTray, namedRows, arrangeWeek, defaultSheet, mapCode, setSheet, sheetOf, assign, cleanPlan, fromTray, toTray, trayView, allToTray, isoWeek, memberRow, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
 import { newRoster, parseRoster } from "../lib/tml-roster.js"
 
 let failed = 0
@@ -55,12 +55,24 @@ const lines = weekView(roster, done, "2026-10-12")
 check(lines[0].codes[0] === "1101005" && lines[1].codes[0] === "1101001" && lines[2].codes[0] === "1101002", "Monday goes to each member's preference")
 for (let d = 0; d < 7; d += 1) {
   const before = lines.map((l) => l.std[d]).sort().join()
-  const after = lines.map((l) => l.codes[d]).filter((c) => c !== EMPTY).concat(trayView(done, "2026-10-12")[d]).sort().join()
+  const after = lines.map((l) => l.codes[d]).sort().join()
   check(before === after, `${["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][d]}: the team's duties are the same set, only handed round`)
 }
-check(lines[0].codes[2] === EMPTY && lines[2].codes[3] === EMPTY, "rest days and leave leave the row")
-check(trayView(done, "2026-10-12")[2].includes("RD") && trayView(done, "2026-10-12")[3].includes("AL"), "arranging puts them in that day's tray")
+check(lines[0].codes[2] === "RD" && lines[2].codes[3] === "AL", "rest days and leave stay with the row")
 check(restIssues(roster, done, "2026-10-12", timeOf).length === 0, "the arranged week keeps at least 11 hours of rest")
+
+// Start from scratch: everything in the tray, leave set by hand, the rest filled by preference.
+{
+  const start = allToTray(roster, plan, "2026-10-12", timeOf)
+  const v0 = weekView(roster, start, "2026-10-12")
+  check(v0.every((l) => l.codes.every((c) => c === EMPTY)), "starting over empties the team's cells")
+  check(trayView(start, "2026-10-12")[2].includes("RD"), "the Standard rest day is in that day's tray")
+  const set = setCell(roster, start, "2026-10-12", plan.members[0].row, 1, "RD")
+  const { plan: filled } = arrangeWeek(roster, set, "2026-10-12", timeOf)
+  const f = weekView(roster, filled, "2026-10-12")
+  check(f[0].codes[1] === "RD" && f[0].pins[1], "a leave set by hand is kept")
+  check(f[1].codes[0] !== EMPTY && timeOf(f[1].codes[0]), "an empty cell is filled with a duty")
+}
 
 // A night duty (off 01:40) followed by a dawn duty (on 05:10) is too little rest.
 const tight = setCell(roster, plan, "2026-10-12", 3, 1, "1101001")
