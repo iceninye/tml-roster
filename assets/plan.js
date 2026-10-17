@@ -8,7 +8,7 @@ import { EMPTY, LEAVE, PENDING, SHEETS, SHIFTS, allToTray, arrangeWeek, canRemov
 import { addDays, classify, cleanRoster, mondayOf, newRoster, normaliseCode, parseRoster, weekDates } from "../lib/tml-roster.js"
 import { serviceDate } from "../lib/tml-time.js"
 
-const BUILD = { version: "0.8.1", commit: "dev" }
+const BUILD = { version: "0.8.2", commit: "dev" }
 // The plan page keeps its own Standard Roster, apart from the personal roster of the 我的更表 page ("tml-roster").
 const ROSTER_KEY = "tml-plan-roster"
 const PLAN_KEY = "tml-roster-plan"
@@ -22,13 +22,16 @@ const S = {
   csvBtn: "由 CSV 匯入 Standard Roster",
   csvHelp: "格式：標題行 `,Name,Mon,Tue,Wed,Thu,Fri,Sat,Sun`，之後每行 行號、名稱、七日更份。有名稱嘅行就係組員；一行七格 TBC 嘅唔跟輪換，留喺原行。",
   csvEmpty: "讀唔到任何一行，請確認係 CSV",
-  csvDone: (rows, named) => `已匯入 ${rows} 行${named ? `，有名稱嘅 ${named} 位已設為組員，更份同 RD／AL／SH 已放入待定區；設好假期同喜好後按「按偏好自動編排」` : ""}`,
+  csvDone: (rows, named, week) => `已匯入 ${rows} 行${named ? `，有名稱嘅 ${named} 位已設為組員，基準${week}，更份同 RD／AL／SH 已放入待定區；設好假期同喜好後按「按偏好自動編排」` : ""}`,
+  templateBtn: "下載匯入範本",
+  templateHelp: "範本有 141 行、7 格，RD 只係示範，請換成實際更份。Name 欄填咗名嘅行就係組員。",
   csvFail: "讀取檔案失敗",
   useNamed: "用有名稱嘅行",
   namedHint: (n) => `Standard Roster 有 ${n} 行有名稱。`,
   setupTitle: "設定組員",
   setupIntro: "揀一個基準星期，填嗰個星期組員做緊嘅行號。之後每個星期，每位組員自動跳去下一行。",
   weekLabel: "基準星期（ISO 週數）",
+  weekSpanLabel: (week, span) => `第 ${week} 週：${span}`,
   yearLabel: "年份",
   rangesLabel: "組員行號（基準星期）",
   rangesHelp: "例如 31-40, 55-70。用逗號分隔，可以有多段。",
@@ -189,8 +192,12 @@ function render() {
   }
 }
 
+// The Monday to Sunday of a week, e.g. 2026/10/12 至 2026/10/18.
+const weekSpan = (monday) => `${monday.replaceAll("-", "/")} 至 ${addDays(monday, 6).replaceAll("-", "/")}`
+
 function csvImportHtml() {
-  return `<div class="csv-import"><div class="me-edit-row"><label class="btn filebtn">${S.csvBtn}<input type="file" class="p-csv-file" accept=".csv,.tsv,.txt,text/csv,text/plain" hidden></label></div><p class="fine">${S.csvHelp}</p></div>`
+  return `<div class="csv-import"><div class="me-edit-row"><label class="btn filebtn">${S.csvBtn}<input type="file" class="p-csv-file" accept=".csv,.tsv,.txt,text/csv,text/plain" hidden></label>` +
+    `<a class="btn" href="data/roster-template.csv" download="roster-template.csv">${S.templateBtn}</a></div><p class="fine">${S.csvHelp} ${S.templateHelp}</p></div>`
 }
 
 function setupHtml(inPanel = false) {
@@ -201,6 +208,7 @@ function setupHtml(inPanel = false) {
     `<form class="me-setup plan-setup" autocomplete="off">` +
     `<div class="plan-grid"><label>${S.yearLabel}<input name="year" type="number" inputmode="numeric" value="${year}" required></label>` +
     `<label>${S.weekLabel}<input name="week" type="number" inputmode="numeric" min="1" max="53" value="${week}" required></label></div>` +
+    `<p class="fine p-span">${S.weekSpanLabel(week, weekSpan(mondayOfIsoWeek(year, week)))}</p>` +
     `<label>${S.rangesLabel}<input name="ranges" value="${escapeHtml(plan?.ranges ?? (named.length ? formatRanges(named) : "31-40, 55-70"))}" spellcheck="false" required></label>` +
     `<p class="fine">${S.rangesHelp}${named.length ? ` ${S.namedHint(named.length)}<button type="button" class="link p-named">${S.useNamed}</button>` : ""}</p>` +
     `<div class="me-edit-row"><button type="submit" class="btn primary">${S.save}</button></div>` +
@@ -357,6 +365,9 @@ function submitSetup(form) {
   render()
 }
 
+// The ISO week of a plan anchor, with its dates, e.g. 42 (2026/10/12 至 2026/10/18).
+const weekNo = (monday) => `第 ${isoWeek(monday).week} 週（${weekSpan(monday)}）`
+
 // Read a CSV (or pasted rows) as the Standard Roster; rows with a name become the team.
 function importRoster(text) {
   const parsed = parseRoster(text)
@@ -377,7 +388,7 @@ function importRoster(text) {
   const named = namedRows(next)
   if (named.length) {
     const made = newPlan(plan?.anchor ?? state.monday, formatRanges(named), plan, next)
-    store(allToTray(roster, made, state.monday, timeOf), S.csvDone(parsed.rows.length, named.length))
+    store(allToTray(roster, made, state.monday, timeOf), S.csvDone(parsed.rows.length, named.length, weekNo(made.anchor)))
   } else state.message = S.csvDone(parsed.rows.length, 0)
   render()
 }
@@ -692,6 +703,12 @@ async function boot() {
   }
   view.addEventListener("click", onClick)
   view.addEventListener("submit", onSubmit)
+  view.addEventListener("input", (event) => {
+    if (!event.target.matches(".plan-setup input[name=year], .plan-setup input[name=week]")) return
+    const { year, week } = event.target.form.elements
+    const span = event.target.form.querySelector(".p-span")
+    if (span && Number(year.value) && Number(week.value) >= 1 && Number(week.value) <= 53) span.textContent = S.weekSpanLabel(Number(week.value), weekSpan(mondayOfIsoWeek(Number(year.value), Number(week.value))))
+  })
   view.addEventListener("change", (event) => {
     if (event.target.matches(".p-name")) {
       const row = Number(event.target.dataset.row)

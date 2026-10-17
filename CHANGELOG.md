@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.8.2 — unreleased
+- 編更: a 下載匯入範本 button gives the CSV template (141 rows, 7 cells; RD is a placeholder). The setup form and the import message show the ISO week and its dates, e.g. 第 42 週：2026/10/12 至 2026/10/18.
+
 ## v0.8.1 — unreleased
 - 編更: the rest between duties is fixed at 12 hours (the input is gone). Import and 全部放入待定區 put every block of the team in the tray, including HC and TBC: 7 blocks per member. TBC and HC blocks can be dropped in a cell and its duty number typed.
 
