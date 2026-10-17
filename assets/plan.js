@@ -8,7 +8,7 @@ import { EMPTY, LEAVE, PENDING, SHEETS, SHIFTS, allToTray, arrangeWeek, cleanPla
 import { addDays, classify, cleanRoster, mondayOf, newRoster, normaliseCode, parseRoster, weekDates } from "../lib/tml-roster.js"
 import { serviceDate } from "../lib/tml-time.js"
 
-const BUILD = { version: "0.7.3", commit: "dev" }
+const BUILD = { version: "0.7.4", commit: "dev" }
 // The plan page keeps its own Standard Roster, apart from the personal roster of the 我的更表 page ("tml-roster").
 const ROSTER_KEY = "tml-plan-roster"
 const PLAN_KEY = "tml-roster-plan"
@@ -96,6 +96,9 @@ const S = {
   sheetChanged: (n) => `已將週${n} 改用新 Duty Sheet`,
   noDuty: "Duty Sheet 入面冇呢個更份",
   legendHc: "HC／TBC 待定：自己改，或者將待定區嘅放入去",
+  allTray: "全部放入待定區",
+  allTrayAsk: "本週組員未手動設定嘅更份、RD、AL、SH 會全部放入待定區，確定？",
+  allTrayed: "已將本週所有更份同假期放入待定區",
   leaveTray: "假期放入待定區",
   setupDone: "已儲存組員，更份同 RD／AL／SH 已放入待定區；設好假期同喜好後按「按偏好自動編排」",
   leaveTrayed: "已將 RD／AL／SH 放入待定區",
@@ -256,7 +259,7 @@ function weekHtml() {
     `<div class="plan-actions"><button type="button" class="btn primary p-arrange">${S.arrange}</button>` +
     `<span class="p-weekbox"><label class="meta">${S.weeksBox[0]} <input type="number" class="p-weeks" min="1" max="26" value="${state.weeks}"> ${S.weeksBox[1]}</label>` +
     `<button type="button" class="btn p-arrange-more">${S.arrangeMore}</button></span>` +
-    `<button type="button" class="btn p-leave-tray">${S.leaveTray}</button><button type="button" class="btn p-csv">${S.csv}</button><button type="button" class="btn danger p-reset">${S.reset}</button></div>` +
+    `<button type="button" class="btn p-all-tray">${S.allTray}</button><button type="button" class="btn p-leave-tray">${S.leaveTray}</button><button type="button" class="btn p-csv">${S.csv}</button><button type="button" class="btn danger p-reset">${S.reset}</button></div>` +
     `<p class="me-msg" role="status">${escapeHtml(state.message)}</p>` +
     `<p class="fine plan-fit">${S.fitLine(fitNow.hit, fitNow.all, fitStd.hit, issues.size)}</p>` +
     selHtml(lines) +
@@ -459,6 +462,10 @@ function onClick(event) {
     const input = t.closest("form").elements.ranges
     input.value = formatRanges(namedRows(roster))
     return
+  } else if (t.closest(".p-all-tray")) {
+    if (!window.confirm(S.allTrayAsk)) return
+    state.sel = null
+    store(allToTray(roster, plan, state.monday, timeOf), S.allTrayed)
   } else if (t.closest(".p-leave-tray")) {
     state.sel = null
     store(leaveToTray(roster, plan, state.monday, timeOf), S.leaveTrayed)
