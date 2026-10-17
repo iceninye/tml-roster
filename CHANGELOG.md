@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.5.0 — 2026-10-17
+## v0.5.0 — 2026-10-17 (`179a751`)
 - Visual redesign: one colour system for dark and light, softer cards, clearer type scale.
 - Week page: a "today" card on top with the duty, a 24-hour strip and what the duty is doing right now; week navigation is a bar with the date range and roster row; each day card shows the day number large and a strip marking the shift.
 - Day page: a vertical timeline with a dot per kind of leg (revenue, empty, meal, ride), times above and places below; 飯腳 are tappable chips.
