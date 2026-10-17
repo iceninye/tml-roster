@@ -369,3 +369,6 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .pcell[data-leave="1"] { cursor: grab; }
 .csv-import { margin: 0 0 12px; }
 .me-setup label.filebtn, .csv-import label.filebtn { display: inline-flex; align-items: center; }
+.block .blk-x { position: absolute; top: 1px; right: 2px; width: 18px; height: 18px; display: grid; place-items: center; border-radius: 9px; font-size: 11px; line-height: 1; color: var(--muted); cursor: pointer; }
+.block .blk-x:hover { color: var(--text); background: var(--panel); }
+.pchip.p-annual { margin-right: 4px; }

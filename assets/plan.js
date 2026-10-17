@@ -4,11 +4,11 @@
 // plan (names, preferences, results), only in this browser's localStorage,
 // never uploaded. Book-on/off times come from data/duty-basic.json.
 
-import { EMPTY, LEAVE, PENDING, SHEETS, SHIFTS, allToTray, arrangeWeek, cleanPlan, clearWeek, formatRanges, fromTray, isoWeek, leaveToTray, mondayOfIsoWeek, namedRows, newPlan, parseRanges, prefDistance, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, trayView, weekView } from "../lib/tml-plan.js"
+import { EMPTY, LEAVE, PENDING, SHEETS, SHIFTS, allToTray, arrangeWeek, canRemove, cleanPlan, clearWeek, formatRanges, fromTray, isoWeek, leaveToTray, mondayOfIsoWeek, namedRows, newPlan, parseRanges, prefDistance, removeBlock, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, trayView, weekView } from "../lib/tml-plan.js"
 import { addDays, classify, cleanRoster, mondayOf, newRoster, normaliseCode, parseRoster, weekDates } from "../lib/tml-roster.js"
 import { serviceDate } from "../lib/tml-time.js"
 
-const BUILD = { version: "0.7.4", commit: "dev" }
+const BUILD = { version: "0.8.0", commit: "dev" }
 // The plan page keeps its own Standard Roster, apart from the personal roster of the 我的更表 page ("tml-roster").
 const ROSTER_KEY = "tml-plan-roster"
 const PLAN_KEY = "tml-roster-plan"
@@ -96,8 +96,14 @@ const S = {
   sheetChanged: (n) => `已將週${n} 改用新 Duty Sheet`,
   noDuty: "Duty Sheet 入面冇呢個更份",
   legendHc: "HC／TBC 待定：自己改，或者將待定區嘅放入去",
+  annual: "年假",
+  annualTip: "整行填 AL AL AL SH SH RD RD；再撳一次還原",
+  removeBlock: "刪除呢個更份積木",
   allTray: "全部放入待定區",
   allTrayAsk: "本週組員未手動設定嘅更份、RD、AL、SH 會全部放入待定區，確定？",
+  blockRemoved: "已刪除積木，其餘空格已按偏好重新編排",
+  annualOn: "已填好年假，其餘空格已按偏好重新編排",
+  annualOff: "已還原，其餘空格已按偏好重新編排",
   allTrayed: "已將本週所有更份同假期放入待定區",
   leaveTray: "假期放入待定區",
   setupDone: "已儲存組員，更份同 RD／AL／SH 已放入待定區；設好假期同喜好後按「按偏好自動編排」",
@@ -153,6 +159,16 @@ function timeOf(code) {
   const row = basic[key]
   return row ? { on: row[0], off: row[2], hours: row[4] } : cards[key] ?? null
 }
+
+// Every duty of a Duty Sheet (e.g. 8022 -> 8022101, ...), from the basic list and the duty cards.
+function sheetCodes(sheet) {
+  const all = new Set([...Object.keys(basic), ...Object.keys(cards)])
+  return [...all].filter((code) => /^\d{7}$/.test(code) && code.startsWith(sheet)).sort()
+}
+
+// Once leave and preferences are set, the empty cells are filled by preference.
+const fill = (next) => arrangeWeek(roster, next, state.monday, timeOf).plan
+const ANNUAL = ["AL", "AL", "AL", "SH", "SH", "RD", "RD"]
 
 const who = (member) => member.name || `#${member.row}`
 
@@ -234,7 +250,8 @@ function weekHtml() {
         (t ? `<small>${hhmm(t.on)}–${hhmm(t.off)}</small><span class="ptag">${S.shift[shift]}</span>` : "") +
         `</button></td>`
     }).join("")
-    const chips = SHIFTS.map((sh) => `<button type="button" class="pchip" data-row="${line.member.row}" data-shift="${sh}" aria-pressed="${line.member.prefs.includes(sh)}">${S.shift[sh]}</button>`).join("")
+    const annual = line.codes.every((code, d) => code === ANNUAL[d] && line.pins[d])
+    const chips = `<button type="button" class="pchip p-annual" data-row="${line.member.row}" aria-pressed="${annual}" title="${S.annualTip}">${S.annual}</button>` + SHIFTS.map((sh) => `<button type="button" class="pchip" data-row="${line.member.row}" data-shift="${sh}" aria-pressed="${line.member.prefs.includes(sh)}">${S.shift[sh]}</button>`).join("")
     return `<tr><th class="who"><input class="p-name" data-row="${line.member.row}" value="${escapeHtml(line.member.name)}" placeholder="#${line.member.row}" maxlength="40" aria-label="${S.member}">` +
       `<small>${S.rowNow(line.row)}</small><span class="pchips">${chips}</span></th>${cells}` +
       `<td class="sum">${work ? `${hits}/${work}` : "—"}</td><td class="sum">${hours ? hours.toFixed(1) : "—"}</td></tr>`
@@ -295,12 +312,14 @@ function selHtml(lines) {
 // 待定區: duties taken out of cells, one column per day, waiting to be dropped.
 function trayHtml() {
   const tray = trayView(plan, state.monday)
+  const removable = tray.map((_, d) => canRemove(roster, plan, state.monday, d))
   const cols = tray.map((codes, d) => {
     const blocks = codes.map((code, i) => {
       const t = timeOf(code)
       const shift = t ? shiftOf(t.on, t.off) : ""
       const sel = state.sel?.type === "block" && state.sel.day === d && state.sel.index === i
-      return `<button type="button" class="block" data-day="${d}" data-index="${i}" data-shift="${shift}" data-kind="${t ? "duty" : "leave"}"${sel ? ' data-sel="1"' : ""}>` +
+      const x = t && removable[d] ? `<span class="blk-x" role="button" tabindex="0" data-day="${d}" data-index="${i}" aria-label="${S.removeBlock}" title="${S.removeBlock}">✕</span>` : ""
+      return `<button type="button" class="block" data-day="${d}" data-index="${i}" data-shift="${shift}" data-kind="${t ? "duty" : "leave"}"${sel ? ' data-sel="1"' : ""}>${x}` +
         `<b>${escapeHtml(t ? code : code === "RD" ? `RD(${S.weekdays[d]})` : S.status[code] ?? code)}</b>${t ? `<small>${hhmm(t.on)}–${hhmm(t.off)}</small><span class="ptag">${S.shift[shift]}</span>` : ""}</button>`
     }).join("")
     return `<div class="tray-col" data-day="${d}"><span class="tray-day">${S.weekdays[d]}</span><div class="tray-blocks">${blocks || `<span class="tray-none">${S.trayNone}</span>`}</div></div>`
@@ -398,6 +417,7 @@ function act(source, target) {
     message = S.trayed
   } else if (source.type === "block" && target.type === "cell") {
     next = fromTray(roster, plan, state.monday, target.row, source.day, source.index, timeOf)
+    if (next) next = fill(next)
     message = S.placed
   } else return render()
   if (next) store(next, message)
@@ -418,6 +438,14 @@ let suppressClick = false
 function onClick(event) {
   if (suppressClick) return
   const t = event.target
+  const del = t.closest(".blk-x")
+  if (del) {
+    const next = removeBlock(roster, plan, state.monday, Number(del.dataset.day), Number(del.dataset.index))
+    state.sel = null
+    if (next) store(fill(next), S.blockRemoved)
+    render()
+    return
+  }
   const cell = t.closest(".pcell")
   const block = t.closest(".block")
   const col = t.closest(".tray-col")
@@ -442,6 +470,17 @@ function onClick(event) {
     return render()
   }
   const chip = t.closest(".pchip")
+  if (chip && chip.classList.contains("p-annual")) {
+    const row = Number(chip.dataset.row)
+    const line = weekView(roster, plan, state.monday).find((item) => item.member.row === row)
+    const on = line.codes.every((code, d) => code === ANNUAL[d] && line.pins[d])
+    let next = plan
+    ANNUAL.forEach((code, d) => { next = setCell(roster, next, state.monday, row, d, on ? null : code) })
+    state.sel = null
+    store(fill(next), on ? S.annualOff : S.annualOn)
+    render()
+    return
+  }
   if (chip) {
     const row = Number(chip.dataset.row)
     const members = plan.members.map((m) => {
@@ -449,7 +488,7 @@ function onClick(event) {
       const prefs = m.prefs.includes(chip.dataset.shift) ? m.prefs.filter((p) => p !== chip.dataset.shift) : [...m.prefs, chip.dataset.shift]
       return { ...m, prefs: SHIFTS.filter((sh) => prefs.includes(sh)) }
     })
-    store({ ...plan, members })
+    store(fill({ ...plan, members }))
     return render()
   }
   if (t.closest(".p-prev")) state.monday = addDays(state.monday, -7)
@@ -471,7 +510,7 @@ function onClick(event) {
     store(leaveToTray(roster, plan, state.monday, timeOf), S.leaveTrayed)
   } else if (t.closest(".p-to-tray")) return act(state.sel, { type: "tray", day: state.sel.day })
   else if (t.closest(".p-cell-reset")) {
-    store(setCell(roster, plan, state.monday, state.sel.row, state.sel.day, null))
+    store(fill(setCell(roster, plan, state.monday, state.sel.row, state.sel.day, null)))
     state.sel = null
   } else if (t.closest(".p-reset")) {
     if (!window.confirm(S.resetAsk)) return
@@ -506,7 +545,7 @@ function onSubmit(event) {
       state.message = S.badCode
       return render()
     }
-    store(setCell(roster, plan, state.monday, state.sel.row, state.sel.day, code))
+    store(fill(setCell(roster, plan, state.monday, state.sel.row, state.sel.day, code)))
     state.sel = null
     return render()
   }
@@ -623,6 +662,7 @@ const onPointerCancel = (event) => {
 
 function onPointerDown(event) {
   if (press || (event.pointerType === "mouse" && event.button !== 0)) return
+  if (event.target.closest(".blk-x")) return
   const el = event.target.closest(".block, .pcell[data-kind='duty'], .pcell[data-leave='1']")
   if (!el) return
   press = {
@@ -673,7 +713,7 @@ async function boot() {
     } else if (event.target.matches(".p-sheet")) {
       const day = Number(event.target.dataset.day)
       state.sel = null
-      store(setSheet(plan, state.monday, day, event.target.value), S.sheetChanged(S.weekdays[day]))
+      store(fill(setSheet(roster, plan, state.monday, day, event.target.value, sheetCodes(event.target.value))), S.sheetChanged(S.weekdays[day]))
       render()
     } else if (event.target.matches(".p-weeks")) {
       state.weeks = Math.min(26, Math.max(1, Number(event.target.value) || 1))
