@@ -7,7 +7,7 @@ import { dutyState, mealMates } from "../lib/tml-duties.js"
 import { addDays, classify, cleanRoster, dayEntry, mondayOf, newRoster, normaliseCode, parseRoster, rowLabelFor, setOverride, weekDates, weekdayIndex } from "../lib/tml-roster.js"
 import { serviceDate, serviceSeconds } from "../lib/tml-time.js"
 
-const BUILD = { version: "0.2.0", commit: "050b0cb" }
+const BUILD = { version: "0.3.0", commit: "050b0cb" }
 const ROSTER_KEY = "tml-roster"
 // The key TML-traffic v0.9.0 used; a roster saved there is picked up once.
 const LEGACY_KEY = "tml-traffic-roster"
@@ -77,13 +77,24 @@ const S = {
   step1: "貼上你嘅 roster",
   step2: "講低今個星期係第幾行",
   howTitle: "應該貼成點樣？",
-  howBody: "每行代表一個星期，由週一至週日共 7 格。行頭可以有行號。用逗號、Tab 或空格分隔都得，直接由 Excel 複製貼上就可以。",
+  howBody: "每行代表一個星期，由週一至週日共 7 格。行頭可以有行號（冇都得）。用逗號、Tab 或空格分隔都得，直接由 Excel 複製貼上就可以。",
   howCodes: [
     ["1101179", "7 位更份編號（頭 4 位係 Duty Sheet 編號）"],
     ["RD · AL · SH · HC", "休息日 · 年假 · 法定假日 · 待定"],
     ["HSP1 · KSP3", "後備更（冇上下班時間）"],
   ],
   howExample: "1,1101101,1101102,RD,1101104,1101105,6091101,RD\n2,AL,AL,AL,SH,SH,RD,RD",
+  fileBtn: "由檔案匯入",
+  fileHelp: "支援 .csv、.tsv、.txt。直接貼上都得。",
+  fileFail: "讀取檔案失敗",
+  previewTitle: "即時預覽",
+  previewOk: (n, a, b) => `讀到 ${n} 行（行號 ${a}–${b}）`,
+  previewKeep: (n) => `而家用緊嘅 roster：${n} 行`,
+  previewHint: "貼上之後，呢度會即時顯示讀到嘅 roster。",
+  previewRowMiss: (row, a, b) => `你填嘅第 ${row} 行喺呢份 roster 入面冇（有 ${a}–${b}），請修改第 2 步。`,
+  rosterTitle: (n) => `我嘅 roster（${n} 行）`,
+  rosterHelp: "紅色係今個星期，紅框係今日。",
+  rowHead: "行",
   pasteLabel: "Roster 內容",
   pastePlaceholder: "喺度貼上，每行一個星期",
   pasteKeep: "留空就保留現有更表；貼上新內容會取代舊嘅，但你手動改過嘅日子會保留",
@@ -345,6 +356,59 @@ function dutyDetailHtml({ sheet, id }, liveOn) {
     rows.map((row) => `<li data-now="${row.now ? 1 : 0}">${row.html}</li>`).join("") + `</ol><p class="fine">${source}</p>`
 }
 
+/* ------------------------------------------------------- roster table */
+
+// Every row of a roster as a table. cur = label of the row to mark (this
+// week), today = a date whose cell gets a frame. Pass a parsed { rows, numbers }.
+function rosterTableHtml({ rows, numbers }, cur = null, todayIndex = -1) {
+  const head = `<tr><th>${S.rowHead}</th>${S.weekdays.map((d) => `<th>${d.replace("週", "")}</th>`).join("")}</tr>`
+  const body = rows.map((row, i) => {
+    const now = numbers[i] === cur
+    return `<tr${now ? ' class="cur"' : ""}><th>${numbers[i]}</th>` +
+      row.map((code, d) => {
+        const kind = classify(code).kind
+        return `<td data-kind="${kind}"${now && d === todayIndex ? ' class="today"' : ""}>${escapeHtml(code)}</td>`
+      }).join("") + "</tr>"
+  }).join("")
+  return `<div class="rtable"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>`
+}
+
+// The setup page's live preview of what is typed, or of the saved roster.
+function previewHtml(text, row) {
+  const t = text.trim()
+  if (!t) {
+    return roster
+      ? `<p class="fine">${S.previewKeep(roster.rows.length)}</p>${rosterTableHtml(roster, rowLabelFor(roster, mondayOf(serviceDate(Date.now()))))}`
+      : `<p class="fine">${S.previewHint}</p>`
+  }
+  if (t.startsWith("{")) {
+    let backup = null
+    try {
+      backup = cleanRoster(JSON.parse(t))
+    } catch {
+      backup = null
+    }
+    return backup
+      ? `<p class="fine ok">${S.previewKeep(backup.rows.length)}</p>${rosterTableHtml(backup, backup.anchor.row)}`
+      : `<p class="fine bad">${S.badBackup}</p>`
+  }
+  const parsed = parseRoster(t)
+  const a = parsed.numbers[0]
+  const b = parsed.numbers[parsed.numbers.length - 1]
+  let out = parsed.issues.length ? `<ul class="issues">${parsed.issues.slice(0, 6).map((i) => `<li>${escapeHtml(i)}</li>`).join("")}</ul>` : ""
+  if (parsed.rows.length) {
+    out += `<p class="fine ${parsed.issues.length ? "" : "ok"}">${S.previewOk(parsed.rows.length, a, b)}</p>`
+    if (row && !parsed.numbers.includes(row)) out += `<p class="fine bad">${S.previewRowMiss(row, a, b)}</p>`
+    out += rosterTableHtml(parsed, row || null)
+  }
+  return out
+}
+
+function refreshPreview(form) {
+  const box = document.getElementById("setup-preview")
+  if (box) box.innerHTML = previewHtml(form.elements.text.value, Number(form.elements.row.value) || null)
+}
+
 /* --------------------------------------------------------------- pages */
 
 function open() {
@@ -389,8 +453,11 @@ function render() {
     `<button type="button" class="btn me-next">${S.next}</button></div>` +
     `<div class="duty-sum"><b>${S.weekOf(meDate(dates[0]), meDate(dates[6]))}</b> <span class="badge plain">${S.rowOf(rowLabelFor(roster, state.monday))}</span></div>` +
     `<div id="me-data"></div><p class="fine">${S.weekHint}</p>` +
+    `<details class="panel roster-box" open><summary>${S.rosterTitle(roster.rows.length)}</summary><p class="fine">${S.rosterHelp}</p>` +
+    rosterTableHtml(roster, rowLabelFor(roster, state.monday), dates.indexOf(serviceDate(Date.now()))) + `</details>` +
     `<div class="me-foot"><button type="button" class="btn me-settings">${S.settings}</button></div>`
   paintData()
+  view.querySelector(".rtable tr.cur")?.scrollIntoView({ block: "nearest" })
 }
 
 // The part that depends on loaded duty data or the clock: repainted when a
@@ -441,7 +508,9 @@ function setupHtml() {
     `<section class="panel"><h3><span class="step">1</span>${S.step1}</h3>` +
     `<details class="how"><summary>${S.howTitle}</summary><p class="fine">${S.howBody}</p><ul class="how-codes">${codes}</ul>` +
     `<pre>${escapeHtml(S.howExample).replace(/\n/g, "<br>")}</pre></details>` +
-    `<label><span class="sr">${S.pasteLabel}</span><textarea name="text" rows="6" spellcheck="false" placeholder="${roster ? S.pasteKeep : S.pastePlaceholder}"></textarea></label></section>` +
+    `<label><span class="sr">${S.pasteLabel}</span><textarea name="text" rows="6" spellcheck="false" placeholder="${roster ? S.pasteKeep : S.pastePlaceholder}"></textarea></label>` +
+    `<div class="me-edit-row"><label class="btn filebtn">${S.fileBtn}<input type="file" class="me-file" accept=".csv,.tsv,.txt,text/plain,text/csv" hidden></label><span class="meta">${S.fileHelp}</span></div>` +
+    `<h4 class="prev-title">${S.previewTitle}</h4><div id="setup-preview">${previewHtml("", row)}</div></section>` +
     `<section class="panel"><h3><span class="step">2</span>${S.step2}</h3>` +
     `<label>${S.rowLabel(monday)}<input name="row" type="number" inputmode="numeric" min="1" value="${row}" required></label>` +
     `<p class="fine">${S.rowHelp}</p></section>` +
@@ -545,6 +614,23 @@ async function boot() {
     stations = {}
   }
   view.addEventListener("click", onClick)
+  view.addEventListener("input", (event) => {
+    const form = event.target.closest?.(".me-setup")
+    if (form) refreshPreview(form)
+  })
+  view.addEventListener("change", (event) => {
+    if (!event.target.matches(".me-file")) return
+    const file = event.target.files?.[0]
+    const form = event.target.closest(".me-setup")
+    if (!file || !form) return
+    file.text().then((text) => {
+      form.elements.text.value = text
+      refreshPreview(form)
+    }).catch(() => {
+      state.message = S.fileFail
+      render()
+    })
+  })
   view.addEventListener("submit", (event) => {
     event.preventDefault()
     if (event.target.matches(".me-setup")) submitSetup(event.target)

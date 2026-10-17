@@ -204,3 +204,30 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .hero b { font-size: 24px; }
   .how-codes li { grid-template-columns: 1fr; gap: 0; }
 }
+
+/* ---- v0.3: roster table, preview, file import ---- */
+.filebtn { cursor: pointer; display: inline-flex; align-items: center; }
+.prev-title { margin: 14px 0 6px; font-size: 13px; color: var(--muted); font-weight: 600; }
+.fine.ok { color: #2f9e6b; }
+.fine.bad, .issues { color: #e5604d; }
+.issues { margin: 6px 0; padding-left: 18px; font-size: 12.5px; }
+.roster-box { margin-top: 14px; }
+.rtable { max-height: 340px; overflow: auto; margin-top: 8px; border: 1px solid var(--edge); border-radius: 10px; }
+.rtable table { width: 100%; border-collapse: collapse; font-size: 11.5px; font-variant-numeric: tabular-nums; text-align: center; }
+.rtable th, .rtable td { padding: 5px 3px; border-bottom: 1px solid var(--edge); white-space: nowrap; }
+.rtable thead th { position: sticky; top: 0; background: var(--panel-2); color: var(--muted); font-weight: 600; z-index: 1; }
+.rtable tbody th { position: sticky; left: 0; background: var(--panel-2); color: var(--muted); font-weight: 600; padding: 5px 7px; }
+.rtable tr:last-child th, .rtable tr:last-child td { border-bottom: 0; }
+.rtable td[data-kind="status"], .rtable td[data-kind="spare"], .rtable td[data-kind="other"] { color: var(--muted); }
+.rtable tr.cur td { background: color-mix(in srgb, var(--tml-lite) 18%, transparent); font-weight: 600; }
+.rtable tr.cur th { background: var(--tml); color: #fff; }
+.rtable td.today { outline: 2px solid var(--tml-lite); outline-offset: -2px; border-radius: 4px; }
+.me-setup > *, .panel, #setup-preview { min-width: 0; max-width: 100%; }
+.rtable { max-width: 100%; }
+.rtable table { font-size: 10px; letter-spacing: -0.01em; }
+.rtable th, .rtable td { padding: 5px 2px; }
+.rtable tbody th { padding: 5px 5px; }
+.roster-box { padding: 12px 10px; }
+.rtable table { font-size: 9.5px; letter-spacing: -0.02em; }
+.rtable th, .rtable td { padding: 6px 1px; }
+.rtable tbody th { padding: 6px 4px; }
