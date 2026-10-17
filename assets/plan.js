@@ -8,7 +8,7 @@ import { EMPTY, LEAVE, PENDING, SHEETS, SHIFTS, allToTray, arrangeWeek, canRemov
 import { addDays, classify, cleanRoster, mondayOf, newRoster, normaliseCode, parseRoster, weekDates } from "../lib/tml-roster.js"
 import { serviceDate } from "../lib/tml-time.js"
 
-const BUILD = { version: "0.8.2", commit: "dev" }
+const BUILD = { version: "0.8.3", commit: "dev" }
 // The plan page keeps its own Standard Roster, apart from the personal roster of the 我的更表 page ("tml-roster").
 const ROSTER_KEY = "tml-plan-roster"
 const PLAN_KEY = "tml-roster-plan"
@@ -17,7 +17,7 @@ const S = {
   weekdays: ["一", "二", "三", "四", "五", "六", "日"],
   shift: { dawn: "死早", early: "早", mid: "中", late: "夜", night: "死夜" },
   shiftHelp: { dawn: "06:30 前上班", early: "10:00 前上班", mid: "10:00–15:00 上班", late: "15:00 後上班", night: "00:30 後下班" },
-  status: { RD: "休息", AL: "年假", SH: "法定假", HC: "待定" },
+  status: { RD: "休息", AL: "年假", SH: "法定假", HC: "HC" },
   noRoster: "未有 Standard Roster。請匯入 CSV（有「名稱」欄嗰份）。",
   csvBtn: "由 CSV 匯入 Standard Roster",
   csvHelp: "格式：標題行 `,Name,Mon,Tue,Wed,Thu,Fri,Sat,Sun`，之後每行 行號、名稱、七日更份。有名稱嘅行就係組員；一行七格 TBC 嘅唔跟輪換，留喺原行。",
@@ -96,7 +96,7 @@ const S = {
   sheetHelp: "每日可以揀 Duty Sheet（1101 / 6091 / 7091 / 8022 / 8023）：該日 Standard Roster 嘅更份編號會跟住轉，例如 6091124 揀 8022 就變 8022124。",
   sheetChanged: (n) => `已將週${n} 改用新 Duty Sheet`,
   noDuty: "Duty Sheet 入面冇呢個更份",
-  legendHc: "HC／TBC 待定：自己改，或者將待定區嘅放入去",
+  legendHc: "HC／TBC：自己改編號，或者將待定區嘅放入去",
   annual: "年假",
   annualTip: "整行填 AL AL AL SH SH RD RD；再撳一次還原",
   removeBlock: "刪除呢個更份積木",
