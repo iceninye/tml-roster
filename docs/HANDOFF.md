@@ -12,10 +12,12 @@ Ice WONG first asked (2026-10-15, TML-traffic project thread) for an admin back 
 - Cell codes: 7-digit duty number (first four digits = Duty Sheet), RD rest day, AL annual leave, SH statutory holiday, HC pending (undecided), HSP1/HSP3/KSP1 to KSP4 spare duties (no times).
 - Special days (for example 8022 on 2026-10-24 and 8023 on 2026-10-25): use the default roster cell and let Ice change the day by hand; no automatic mapping from 6091xxx to 8022xxx.
 - The CSV Ice pasted had shifted rows; the import parser reports lines with the wrong number of cells instead of guessing. Cells that name a duty missing from a sheet (Ice skips 1101185 and 7091150) show "找不到更份 … 資料".
+- 編更 (2026-10-17, Ice): team = rows of a base week (Week 42: 31–40 and 55–70), +1 row a week. 死早 = book on before 06:30, 死夜 = book off after 00:30. Defaults picked by Claude, open to change: swaps only within one day's team cells, RD/AL/SH/HC stay with the row, 11 h minimum rest as a warning (the Standard Roster itself has a few gaps under 11 h), times from `data/duty-basic.json`.
 - Service day changes at 04:00 Hong Kong time (`lib/tml-time.js`).
 
 ## Where things are
 - `lib/tml-roster.js`: parse, weekly cycle, per-day overrides, backup validation (pure; `tools/validate_roster.mjs` checks it on a made-up roster).
+- `lib/tml-plan.js`: 編更 (team plan): members by anchor-week row, preference fit, per-day assignment (Hungarian method), rest check. `assets/plan.js` is its page; `tools/validate_plan.mjs` checks it. Plans (names, preferences) stay in the browser under `tml-roster-plan`, never in the repo.
 - `lib/tml-duties.js`: duty state at a time, 飯腳 (meal mates), copied from TML-traffic.
 - `assets/app.js`: the page. `data/duties/`: copied cards (`node tools/sync-duties.mjs`).
 - Duty cards hold no crew names; keep it that way.

@@ -1,14 +1,17 @@
 // Offline shell. Only same-origin GETs are cached; a file is revalidated every
 // time the network is up, so a release never pairs a new app.js with old libs.
 
-const CACHE = "tml-roster-shell-v5"
+const CACHE = "tml-roster-shell-v6"
 const SHELL = [
   "./",
   "index.html",
+  "plan.html",
   "assets/app.css",
   "assets/app.js",
+  "assets/plan.js",
   "assets/icon.svg",
   "lib/tml-duties.js",
+  "lib/tml-plan.js",
   "lib/tml-roster.js",
   "lib/tml-time.js",
   "data/stations.json",

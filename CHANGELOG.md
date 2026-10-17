@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.6.0 — unreleased
+- New 編更 page (`plan.html`): pick a base week and the team's rows (for example Week 42, rows 31–40 and 55–70); every later week each member moves one row down, wrapping after the last row.
+- Each member gets a name and preferred shifts: 死早 (book on before 06:30), 早, 中, 夜, 死夜 (book off after 00:30).
+- 按偏好自動編排 hands round the team's duties of each day (never across days; rest days and leave stay) to match preferences, spread misses fairly and keep the minimum rest (11 h by default, flagged in red when short). It can run over several weeks in a row.
+- Swap two cells of the same day by drag and drop, or tap one then the other; tap a cell to change that one date. Hand-made changes are pinned and kept by the next arrangement.
+- Plan kept only in this browser; export / import as JSON and the week as CSV. Link to it from the week page.
+
 ## v0.5.0 — 2026-10-17 (`179a751`)
 - Visual redesign: one colour system for dark and light, softer cards, clearer type scale.
 - Week page: a "today" card on top with the duty, a 24-hour strip and what the duty is doing right now; week navigation is a bar with the date range and roster row; each day card shows the day number large and a strip marking the shift.
