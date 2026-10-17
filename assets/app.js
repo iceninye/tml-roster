@@ -7,7 +7,7 @@ import { dutyState, mealMates } from "../lib/tml-duties.js"
 import { addDays, classify, cleanRoster, dayEntry, mondayOf, newRoster, normaliseCode, parseRoster, rowLabelFor, setOverride, weekDates, weekdayIndex } from "../lib/tml-roster.js"
 import { serviceDate, serviceSeconds } from "../lib/tml-time.js"
 
-const BUILD = { version: "0.4.0", commit: "de04c8f" }
+const BUILD = { version: "0.5.0", commit: "de04c8f" }
 const ROSTER_KEY = "tml-roster"
 // The key TML-traffic v0.9.0 used; a roster saved there is picked up once.
 const LEGACY_KEY = "tml-traffic-roster"
@@ -65,6 +65,7 @@ const S = {
   changed: "已手動改",
   settings: "設定／備份",
   back: "‹ 返回",
+  backThis: "回到本週",
   weekOf: (a, b) => `${a} – ${b}`,
   rowOf: (n) => `roster 第 ${n} 行`,
   weekHint: "撳任何一日睇全日行程；特別日子（例如 8022、8023）可以喺該日入面手動改。",
@@ -326,13 +327,14 @@ function dayLines(cell) {
   const d = cell.duty
   if (cell.status === "ok") {
     return {
+      span: [d.on[0], d.off[0]],
       times: `${clockHtml(d.on[0])} – ${clockHtml(d.off[0])}`,
       note: `${placeName(d.on[1])} → ${placeName(d.off[1])}` + (d.meal ? ` · ${S.meal} ${hhmm(d.meal[0])}` : ""),
     }
   }
   if (cell.status === "basic") {
     const b = cell.basic
-    return { times: `${clockHtml(b.on)} – ${clockHtml(b.off)}`, note: [b.onAt && b.offAt ? `${b.onAt} → ${b.offAt}` : "", S.hours(b.hours)].filter(Boolean).join(" · ") }
+    return { span: [b.on, b.off], times: `${clockHtml(b.on)} – ${clockHtml(b.off)}`, note: [b.onAt && b.offAt ? `${b.onAt} → ${b.offAt}` : "", S.hours(b.hours)].filter(Boolean).join(" · ") }
   }
   return { times: "", note: summary(cell) }
 }
@@ -353,9 +355,9 @@ function summary(cell) {
 function mealMatesHtml(duty, duties, sheet) {
   const mates = mealMates(duty, duties)
   if (!mates.length) return `<span class="meta">${S.matesNone}</span>`
-  return mates.map(({ duty: other, from, to }) =>
-    `<button type="button" class="link duty-mate" data-duty="${other.id}" data-sheet="${sheet}">${other.id}</button>` +
-    `<span class="meta"> ${hhmm(from)}–${hhmm(to)}（${Math.round((to - from) / 60)} 分）</span>`).join("<br>")
+  return `<span class="mates">` + mates.map(({ duty: other, from, to }) =>
+    `<button type="button" class="duty-mate" data-duty="${other.id}" data-sheet="${sheet}"><b>${other.id}</b>` +
+    `<small>${hhmm(from)}–${hhmm(to)} · ${Math.round((to - from) / 60)} 分</small></button>`).join("") + `</span>`
 }
 
 // A duty without leg-by-leg data (spare duties, sheets not copied here).
@@ -382,20 +384,20 @@ function dutyDetailHtml({ sheet, id }, liveOn) {
   const nowBox = live
     ? `<div class="duty-nowbox"><span class="badge now">${S.now}</span> ${escapeHtml(dutyPhaseText(live))} <span class="meta">${S.until(hhmm(live.until))}</span></div>`
     : ""
-  const rows = [{ at: duty.on[0], html: `<span class="duty-t">${hhmm(duty.on[0])}</span><span>${S.bookOn}</span><span>${placeName(duty.on[1])}</span>` }]
+  const rows = [{ kind: "book", at: duty.on[0], html: `<span class="duty-t">${hhmm(duty.on[0])}</span><span>${S.bookOn}</span><span>${placeName(duty.on[1])}</span>` }]
   duty.legs.forEach((leg, i) => {
     const [kind, run, from, at, to, until] = leg
     rows.push({
-      at, now: live?.leg === i && live.phase === kind,
+      kind, at, now: live?.leg === i && live.phase === kind,
       html: `<span class="duty-t">${secClock(at)}</span><span>${S.kind[kind] ?? kind}${run == null ? "" : ` Run ${run}`}</span>` +
         `<span>${placeName(from)}${to ? ` → ${placeName(to)}${until != null ? ` ${hhmm(until)}` : ""}` : ""}</span>`,
     })
   })
   if (duty.meal) {
-    rows.push({ at: duty.meal[0], now: live?.phase === "meal", html: `<span class="duty-t">${hhmm(duty.meal[0])}</span><span>${S.meal}</span><span>${mealPlace(duty.meal)} ${hhmm(duty.meal[0])}–${hhmm(duty.meal[1])}</span>` })
+    rows.push({ kind: "meal", at: duty.meal[0], now: live?.phase === "meal", html: `<span class="duty-t">${hhmm(duty.meal[0])}</span><span>${S.meal}</span><span>${mealPlace(duty.meal)} ${hhmm(duty.meal[0])}–${hhmm(duty.meal[1])}</span>` })
   }
   rows.sort((a, b) => a.at - b.at)
-  rows.push({ at: duty.off[0], html: `<span class="duty-t">${hhmm(duty.off[0])}</span><span>${S.bookOff}</span><span>${placeName(duty.off[1])}</span>` })
+  rows.push({ kind: "book", at: duty.off[0], html: `<span class="duty-t">${hhmm(duty.off[0])}</span><span>${S.bookOff}</span><span>${placeName(duty.off[1])}</span>` })
   return `<div class="duty-sub"><span class="badge plain">${duty.group}</span> Duty Sheet ${sheet}</div>` +
     `<div class="hero"><div><small>${S.on}</small><b>${hhmm(duty.on[0])}</b><span>${placeName(duty.on[1])}</span></div>` +
     `<i aria-hidden="true">→</i><div><small>${S.off}</small><b>${clockHtml(duty.off[0])}</b><span>${placeName(duty.off[1])}</span></div></div>` +
@@ -404,7 +406,34 @@ function dutyDetailHtml({ sheet, id }, liveOn) {
     (duty.meal ? `<dt>${S.meal}</dt><dd>${hhmm(duty.meal[0])}–${hhmm(duty.meal[1])} ${mealPlace(duty.meal)}</dd>` +
       `<dt>${S.mates}</dt><dd>${mealMatesHtml(duty, book.data.duties, sheet)}</dd>` : "") +
     `</dl>${duty.meal ? `<p class="fine">${S.matesHelp}</p>` : ""}${nowBox}<div class="stops-head">${S.legs}</div><ol class="duty-legs">` +
-    rows.map((row) => `<li data-now="${row.now ? 1 : 0}">${row.html}</li>`).join("") + `</ol><p class="fine">${source}</p>`
+    rows.map((row) => `<li data-now="${row.now ? 1 : 0}" data-kind="${row.kind}">${row.html}</li>`).join("") + `</ol><p class="fine">${source}</p>`
+}
+
+/* ------------------------------------------------------------ day views */
+
+// A thin 24 h strip (04:00 to 04:00) with the shift marked on it.
+function barHtml(span) {
+  if (!span) return ""
+  const pct = (sec) => Math.min(100, Math.max(0, ((sec - 14400) / 86400) * 100))
+  const left = pct(span[0])
+  return `<span class="bar" aria-hidden="true"><i style="left:${left.toFixed(1)}%;width:${Math.max(2, pct(span[1]) - left).toFixed(1)}%"></i></span>`
+}
+
+// Today, big, with what the duty is doing right now.
+function todayHtml(date, entry, cell) {
+  const lines = dayLines(cell)
+  const shift = cell.on != null ? shiftOf(cell.on) : ""
+  const live = cell.status === "ok" ? dutyState(cell.duty, serviceSeconds(Date.now())) : null
+  const tags = (cell.group ? `<span class="badge plain">${cell.group}</span>` : "") + (cell.tag ? `<span class="badge plain">${cell.tag}</span>` : "") +
+    (shift ? `<span class="badge shift">${S.shift[shift]}</span>` : "") +
+    (entry.source === "override" ? `<span class="badge plain">${S.changed}</span>` : "")
+  return `<button type="button" class="today me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}">` +
+    `<span class="today-label">${S.today} · ${S.weekdays[weekdayIndex(date)]} ${meDate(date)}</span>` +
+    `<span class="today-title">${escapeHtml(cell.label)}${tags}</span>` +
+    (lines.times ? `<span class="today-times">${lines.times}</span>${barHtml(lines.span)}` : "") +
+    (lines.note ? `<span class="today-note">${escapeHtml(lines.note)}</span>` : "") +
+    (live ? `<span class="today-live"><i class="pulse"></i><span>${S.now}：${escapeHtml(dutyPhaseText(live))} <small>${S.until(hhmm(live.until))}</small></span></span>` : "") +
+    `</button>`
 }
 
 /* ------------------------------------------------------- roster table */
@@ -418,7 +447,7 @@ function rosterTableHtml({ rows, numbers }, cur = null, todayIndex = -1) {
     return `<tr${now ? ' class="cur"' : ""}><th>${numbers[i]}</th>` +
       row.map((code, d) => {
         const kind = classify(code).kind
-        return `<td data-kind="${kind}"${now && d === todayIndex ? ' class="today"' : ""}>${escapeHtml(code)}</td>`
+        return `<td data-kind="${kind}"${now && d === todayIndex ? ' class="todaycell"' : ""}>${escapeHtml(code)}</td>`
       }).join("") + "</tr>"
   }).join("")
   return `<div class="rtable"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>`
@@ -499,10 +528,10 @@ function render() {
   const dates = weekDates(state.monday)
   const current = mondayOf(serviceDate(Date.now()))
   view.innerHTML =
-    `<div class="me-nav"><button type="button" class="btn me-prev">${S.prev}</button>` +
-    `<button type="button" class="btn me-this" ${state.monday === current ? "disabled" : ""}>${S.thisWeek}</button>` +
-    `<button type="button" class="btn me-next">${S.next}</button></div>` +
-    `<div class="duty-sum"><b>${S.weekOf(meDate(dates[0]), meDate(dates[6]))}</b> <span class="badge plain">${S.rowOf(rowLabelFor(roster, state.monday))}</span></div>` +
+    `<div class="me-nav"><button type="button" class="btn me-prev" aria-label="${S.prev}">‹</button>` +
+    `<div class="weeklabel"><b>${S.weekOf(meDate(dates[0]), meDate(dates[6]))}</b>` +
+    `<span>${S.rowOf(rowLabelFor(roster, state.monday))}${state.monday === current ? ` · ${S.thisWeek}` : ` · <button type="button" class="link me-this">${S.backThis}</button>`}</span></div>` +
+    `<button type="button" class="btn me-next" aria-label="${S.next}">›</button></div>` +
     `<div id="me-data"></div>` +
     `<p class="legend"><span><i style="background:#d9a23b"></i>${S.shift.early}（10:00 前上班）</span><span><i style="background:#4f9fd6"></i>${S.shift.mid}</span><span><i style="background:#8a6fd1"></i>${S.shift.late}（15:00 後上班）</span></p>` +
     `<p class="fine">${S.weekHint}</p>` +
@@ -510,7 +539,10 @@ function render() {
     rosterTableHtml(roster, rowLabelFor(roster, state.monday), dates.indexOf(serviceDate(Date.now()))) + `</details>` +
     `<div class="me-foot"><button type="button" class="btn me-settings">${S.settings}</button></div>`
   paintData()
-  view.querySelector(".rtable tr.cur")?.scrollIntoView({ block: "nearest" })
+  // Show this week's row inside the table without moving the page.
+  const table = view.querySelector(".rtable")
+  const cur = table?.querySelector("tr.cur")
+  if (cur) table.scrollTop = Math.max(0, cur.offsetTop - table.clientHeight / 2)
 }
 
 // The part that depends on loaded duty data or the clock: repainted when a
@@ -531,7 +563,9 @@ function paintData() {
     else html = dutyDetailHtml({ sheet: cell.c.sheet, id: cell.c.id }, state.date === serviceDate(Date.now()))
   } else if (state.page === "week") {
     const today = serviceDate(Date.now())
-    html = `<ul class="day-list">${weekDates(state.monday).map((date) => {
+    const week = weekDates(state.monday)
+    const heroHtml = week.includes(today) ? todayHtml(today, dayEntry(roster, today), cellInfo(dayEntry(roster, today).code)) : ""
+    html = heroHtml + `<ul class="day-list">${week.map((date) => {
       const entry = dayEntry(roster, date)
       const cell = cellInfo(entry.code)
       const lines = dayLines(cell)
@@ -541,11 +575,11 @@ function paintData() {
       const tags = (cell.group ? `<span class="badge plain">${cell.group}</span>` : "") + (cell.tag ? `<span class="badge plain">${cell.tag}</span>` : "") +
         (shift ? `<span class="badge shift">${S.shift[shift]}</span>` : "")
       return `<li><button type="button" class="day me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}" data-today="${date === today ? 1 : 0}">` +
-        `<span class="day-date"><b>${S.weekdays[weekdayIndex(date)]}</b><small>${meDate(date)}</small></span>` +
+        `<span class="day-date"><small>${S.weekdays[weekdayIndex(date)]}</small><b>${Number(date.slice(8))}</b></span>` +
         `<span class="day-main"><span class="day-title">${escapeHtml(cell.label)}${tags}${badges}</span>` +
-        (lines.times ? `<span class="day-times">${lines.times}</span>` : "") +
+        (lines.times ? `<span class="day-times">${lines.times}</span>${barHtml(lines.span)}` : "") +
         (lines.note ? `<span class="meta">${escapeHtml(lines.note)}</span>` : "") +
-        `</span><span class="day-go" aria-hidden="true">›</span></button></li>`
+        `</span></button></li>`
     }).join("")}</ul>`
   } else {
     return
