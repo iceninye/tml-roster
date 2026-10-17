@@ -1,15 +1,16 @@
 // 編更: arrange a team's duties over the Standard Roster by preference.
-// Hand-written, no build step. The Standard Roster is the one saved on the
-// 我的更表 page of this browser; the plan (names, preferences, results) is kept
-// only in this browser's localStorage and never uploaded. Book-on/off times
-// come from data/duty-basic.json.
+// Hand-written, no build step. This page is separate from the personal
+// roster page: it imports its own Standard Roster (CSV) and keeps it, and the
+// plan (names, preferences, results), only in this browser's localStorage,
+// never uploaded. Book-on/off times come from data/duty-basic.json.
 
 import { EMPTY, LEAVE, PENDING, SHEETS, SHIFTS, arrangeWeek, cleanPlan, clearWeek, formatRanges, fromTray, isoWeek, leaveToTray, mondayOfIsoWeek, namedRows, newPlan, parseRanges, prefDistance, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, trayView, weekView } from "../lib/tml-plan.js"
 import { addDays, classify, cleanRoster, mondayOf, newRoster, normaliseCode, parseRoster, weekDates } from "../lib/tml-roster.js"
 import { serviceDate } from "../lib/tml-time.js"
 
-const BUILD = { version: "0.7.0", commit: "dev" }
-const ROSTER_KEY = "tml-roster"
+const BUILD = { version: "0.7.1", commit: "dev" }
+// The plan page keeps its own Standard Roster, apart from the personal roster of the 我的更表 page ("tml-roster").
+const ROSTER_KEY = "tml-plan-roster"
 const PLAN_KEY = "tml-roster-plan"
 
 const S = {
@@ -17,7 +18,7 @@ const S = {
   shift: { dawn: "死早", early: "早", mid: "中", late: "夜", night: "死夜" },
   shiftHelp: { dawn: "06:30 前上班", early: "10:00 前上班", mid: "10:00–15:00 上班", late: "15:00 後上班", night: "00:30 後下班" },
   status: { RD: "休息", AL: "年假", SH: "法定假", HC: "待定" },
-  noRoster: "未有 Standard Roster。請匯入 CSV（例如有「名稱」欄嗰份），或者喺「我的更表」貼上。",
+  noRoster: "未有 Standard Roster。請匯入 CSV（有「名稱」欄嗰份）。",
   csvBtn: "由 CSV 匯入 Standard Roster",
   csvHelp: "格式：標題行 `,Name,Mon,Tue,Wed,Thu,Fri,Sat,Sun`，之後每行 行號、名稱、七日更份。有名稱嘅行就係組員；一行七格 TBC 嘅唔跟輪換，留喺原行。",
   csvEmpty: "讀唔到任何一行，請確認係 CSV",
@@ -25,7 +26,6 @@ const S = {
   csvFail: "讀取檔案失敗",
   useNamed: "用有名稱嘅行",
   namedHint: (n) => `Standard Roster 有 ${n} 行有名稱。`,
-  toRoster: "去我的更表",
   setupTitle: "設定組員",
   setupIntro: "揀一個基準星期，填嗰個星期組員做緊嘅行號。之後每個星期，每位組員自動跳去下一行。",
   weekLabel: "基準星期（ISO 週數）",
@@ -98,7 +98,6 @@ const S = {
   legendHc: "HC／TBC 待定：自己改，或者將待定區嘅放入去",
   leaveTray: "假期放入待定區",
   leaveTrayed: "已將 RD／AL／SH 放入待定區",
-  back: "‹ 我的更表",
 }
 
 const view = document.getElementById("view")
@@ -157,7 +156,7 @@ const who = (member) => member.name || `#${member.row}`
 
 function render() {
   if (!roster) {
-    view.innerHTML = `<p class="empty">${S.noRoster}</p><section class="panel">${csvImportHtml()}<p class="me-msg" role="status">${escapeHtml(state.message)}</p></section><div class="me-foot"><a class="btn" href="./">${S.toRoster}</a></div>`
+    view.innerHTML = `<p class="empty">${S.noRoster}</p><section class="panel">${csvImportHtml()}<p class="me-msg" role="status">${escapeHtml(state.message)}</p></section>`
     return
   }
   // Repainting must not throw the reader back to the top of a long table.
@@ -682,7 +681,7 @@ async function boot() {
     if (event.target.closest(".pcell, .block")) event.preventDefault()
   })
   document.getElementById("foot").innerHTML =
-    `<a href="./">${S.back}</a> · v${BUILD.version} · ${BUILD.commit === "dev" ? "dev" : `commit ${escapeHtml(BUILD.commit)}`} · 編更資料只存喺呢部機`
+    `v${BUILD.version} · ${BUILD.commit === "dev" ? "dev" : `commit ${escapeHtml(BUILD.commit)}`} · 編更資料只存喺呢部機`
   render()
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {})
 }
