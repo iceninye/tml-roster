@@ -7,7 +7,7 @@ import { dutyState, mealMates } from "../lib/tml-duties.js"
 import { addDays, classify, cleanRoster, dayEntry, mondayOf, newRoster, normaliseCode, parseRoster, rowLabelFor, setOverride, weekDates, weekdayIndex } from "../lib/tml-roster.js"
 import { serviceDate, serviceSeconds } from "../lib/tml-time.js"
 
-const BUILD = { version: "0.1.0", commit: "336a40d" }
+const BUILD = { version: "0.2.0", commit: "dev" }
 const ROSTER_KEY = "tml-roster"
 // The key TML-traffic v0.9.0 used; a roster saved there is picked up once.
 const LEGACY_KEY = "tml-traffic-roster"
@@ -16,17 +16,18 @@ const S = {
   weekdays: ["週一", "週二", "週三", "週四", "週五", "週六", "週日"],
   status: { RD: "休息日", AL: "年假", SH: "法定假日", HC: "待定" },
   spare: (code) => `後備更 ${code}`,
-  spareNote: "後備更沒有上下班時間",
-  noCard: "此更份暫時沒有上下班資料",
-  noSheet: (id) => `找不到更份 ${id} 所屬的 Duty Sheet 資料`,
-  noDuty: (id) => `Duty Sheet 冇更份 ${id} 嘅卡片資料`,
+  spareNote: "後備更冇固定上下班時間",
+  noCard: "呢個更份暫時冇上下班資料",
+  noSheet: (id) => `搵唔到更份 ${id} 所屬嘅 Duty Sheet 資料`,
+  noDuty: (id) => `Duty Sheet 入面冇更份 ${id} 嘅資料`,
   loading: "讀取更份資料中…",
-  failed: "讀取更份資料失敗，稍後再試",
+  failed: "讀取更份資料失敗，請稍後再試",
   on: "上班",
   off: "下班",
   meal: "用膳",
   mates: "飯腳",
-  matesNone: "冇（同車站重疊未夠 45 分鐘）",
+  matesNone: "冇（同一車站食飯重疊未夠 45 分鐘）",
+  matesHelp: "飯腳：同你喺同一個車站、食飯時間重疊至少 45 分鐘嘅更份。撳更份編號可以睇佢嘅行程。",
   work: "工時",
   workMin: (m) => `${Math.floor(m / 60)} 小時${m % 60 ? ` ${m % 60} 分` : ""}`,
   legs: "全日行程",
@@ -49,37 +50,57 @@ const S = {
   },
   cls: { weekday: "平日", saturday: "星期六", sunday: "星期日", special: "特別日" },
   source: (code, tab, issued, dates, cls, full) =>
-    `來源：Duty Sheet ${code}（${cls}${dates ? `，只用於 ${dates}` : ""}）${tab ? `、工作表 ${tab}` : ""}${issued ? `、發佈 ${issued}` : ""}。${full ? "只收編號、上下班、用膳、各腿 Run 及時間，備註原文不收錄；接班時間準確到秒，離班時間為到站時間（按分鐘）。" : "此份只有更份編號。"}`,
+    `資料來源：Duty Sheet ${code}（${cls}${dates ? `，只用於 ${dates}` : ""}）${tab ? `、工作表 ${tab}` : ""}${issued ? `、${issued} 發佈` : ""}。${full ? "只收更份編號、上下班、用膳同每段 Run 嘅時間，唔收備註原文。接班時間準確到秒，離班時間係到站時間（只計到分鐘）。" : "呢份資料只有更份編號。"}`,
   title: "我的更表",
   row: (n) => `第 ${n} 行`,
   prev: "‹ 上週",
   next: "下週 ›",
   thisWeek: "本週",
   today: "今日",
-  changed: "已改",
-  settings: "設定",
+  changed: "已手動改",
+  settings: "設定／備份",
   back: "‹ 返回",
-  editLabel: "改呢日嘅更份",
-  editHint: "更份編號（例如 8022131）或 RD、AL、SH、HC、HSP1、KSP3",
+  weekOf: (a, b) => `${a} – ${b}`,
+  rowOf: (n) => `roster 第 ${n} 行`,
+  weekHint: "撳任何一日睇全日行程；特別日子（例如 8022、8023）可以喺該日入面手動改。",
+  editTitle: "改呢日嘅更份",
+  editLabel: "更份編號或代號",
+  editHint: "例如 8022131、RD、AL",
+  editHelp: "特別日子（例如 8022、8023）想換成另一個更份就喺度改。改完只影響呢一日。",
   save: "儲存",
-  reset: "還原預設",
-  defaultIs: (code) => `預設：${code}`,
-  badCode: "格式唔啱：請輸入 7 位更份編號或 RD、AL、SH、HC、HSP1、KSP3 之類代號",
+  reset: "還原做預設",
+  defaultIs: (code) => `預設係 ${code}`,
+  badCode: "格式唔啱：請輸入 7 位更份編號，或者 RD、AL、SH、HC、HSP1、KSP3 呢類代號",
   setupTitle: "設定我的更表",
-  setupIntro: "貼上你嘅 roster（每行一星期，週一至週日 7 格，可以連行號；CSV、Tab 分隔都得）。更表只存喺呢部機嘅瀏覽器，唔會上傳，其他人睇唔到。",
+  settingsTitle: "更表設定",
+  setupIntro: "第一次使用，請完成下面兩步。你嘅更表只會儲存喺呢部機嘅瀏覽器，唔會上傳，其他人睇唔到。",
+  step1: "貼上你嘅 roster",
+  step2: "講低今個星期係第幾行",
+  howTitle: "應該貼成點樣？",
+  howBody: "每行代表一個星期，由週一至週日共 7 格。行頭可以有行號。用逗號、Tab 或空格分隔都得，直接由 Excel 複製貼上就可以。",
+  howCodes: [
+    ["1101179", "7 位更份編號（頭 4 位係 Duty Sheet 編號）"],
+    ["RD · AL · SH · HC", "休息日 · 年假 · 法定假日 · 待定"],
+    ["HSP1 · KSP3", "後備更（冇上下班時間）"],
+  ],
+  howExample: "1,1101101,1101102,RD,1101104,1101105,6091101,RD\n2,AL,AL,AL,SH,SH,RD,RD",
   pasteLabel: "Roster 內容",
-  pasteKeep: "留空就保留現有更表；貼上新內容會取代，但保留你手動改過嘅日子",
-  rowLabel: (monday) => `本週（${monday} 起）係第幾行`,
-  rowBad: (nums) => `呢個行號喺 roster 入面搵唔到（有 ${nums}）`,
+  pastePlaceholder: "喺度貼上，每行一個星期",
+  pasteKeep: "留空就保留現有更表；貼上新內容會取代舊嘅，但你手動改過嘅日子會保留",
+  rowLabel: (monday) => `今個星期（${monday} 起）係第幾行？`,
+  rowHelp: "填你 roster 嘅行號。之後每過一個星期會自動跳去下一行，最後一行之後返去第一行。",
+  rowBad: (nums) => `喺你嘅 roster 入面搵唔到呢個行號（有 ${nums}）`,
   saved: "已儲存",
   notStored: "已讀入，但呢部機儲存唔到，關閉頁面後會冇咗",
+  backupTitle: "備份同清除",
+  backupHelp: "換手機或者清除瀏覽器資料之前，先匯出備份。要還原就將備份內容貼返入上面「Roster 內容」再儲存。",
   export: "匯出備份",
-  exportNote: "複製下面內容存好；之後可以貼返入上面欄位還原。",
+  exportNote: "複製下面成段內容，存喺安全嘅地方。",
   clear: "清除我的更表",
   clearAsk: "清除之後要重新貼上 roster，確定？",
-  noRoster: "未有 roster",
-  badBackup: "備份內容讀唔到",
-  dutyData: (issued) => `更份資料發佈於 ${issued}`,
+  noRoster: "未有 roster，請先貼上",
+  badBackup: "備份內容讀唔到，請確認複製完整",
+  dutyData: (issued) => `更份資料 ${issued} 發佈`,
 }
 
 // Depot and siding codes as the sheets print them (read from the sheets' own
@@ -242,15 +263,27 @@ function dutyPhaseText(st) {
 // { label, status: none | ok | loading | nosheet | noduty | nocard, duty, c, note }.
 function cellInfo(code) {
   const c = classify(code)
-  if (c.kind === "status") return { label: `${S.status[c.code]} ${c.code}`, status: "none" }
-  if (c.kind === "spare") return { label: S.spare(c.code), status: "none", note: S.spareNote }
-  if (c.kind === "other") return { label: c.code, status: "none" }
+  if (c.kind === "status") return { label: `${S.status[c.code]} ${c.code}`, status: "none", tone: c.code === "HC" ? "tbd" : "rest" }
+  if (c.kind === "spare") return { label: S.spare(c.code), status: "none", note: S.spareNote, tone: "spare" }
+  if (c.kind === "other") return { label: c.code, status: "none", tone: "spare" }
   const book = dutyBook(c.sheet)
   if (book.status === "loading") return { label: c.id, status: "loading", c }
   if (book.status !== "ok") return { label: c.id, status: "nosheet", c }
   const duty = book.data.duties.find((item) => item.id === c.id)
   if (!duty) return { label: c.id, status: "noduty", c }
-  return { label: `${c.id} · ${duty.group}`, status: duty.on ? "ok" : "nocard", duty, c }
+  return { label: c.id, group: duty.group, status: duty.on ? "ok" : "nocard", duty, c, tone: "duty" }
+}
+
+// The week list's three lines for one day: title, times and a quiet note.
+function dayLines(cell) {
+  const d = cell.duty
+  if (cell.status === "ok") {
+    return {
+      times: `${hhmm(d.on[0])} – ${hhmm(d.off[0])}`,
+      note: `${placeName(d.on[1])} → ${placeName(d.off[1])}` + (d.meal ? ` · ${S.meal} ${hhmm(d.meal[0])}` : ""),
+    }
+  }
+  return { times: "", note: summary(cell) }
 }
 
 function summary(cell) {
@@ -302,12 +335,13 @@ function dutyDetailHtml({ sheet, id }, liveOn) {
   rows.sort((a, b) => a.at - b.at)
   rows.push({ at: duty.off[0], html: `<span class="duty-t">${hhmm(duty.off[0])}</span><span>${S.bookOff}</span><span>${placeName(duty.off[1])}</span>` })
   return `<div class="duty-sub"><span class="badge plain">${duty.group}</span> Duty Sheet ${sheet}</div>` +
-    `<dl class="kv"><dt>${S.on}</dt><dd>${hhmm(duty.on[0])} ${placeName(duty.on[1])}</dd>` +
-    `<dt>${S.off}</dt><dd>${hhmm(duty.off[0])} ${placeName(duty.off[1])}</dd>` +
+    `<div class="hero"><div><small>${S.on}</small><b>${hhmm(duty.on[0])}</b><span>${placeName(duty.on[1])}</span></div>` +
+    `<i aria-hidden="true">→</i><div><small>${S.off}</small><b>${hhmm(duty.off[0])}</b><span>${placeName(duty.off[1])}</span></div></div>` +
+    `<dl class="kv">` +
     (duty.work != null ? `<dt>${S.work}</dt><dd>${S.workMin(duty.work)}</dd>` : "") +
     (duty.meal ? `<dt>${S.meal}</dt><dd>${hhmm(duty.meal[0])}–${hhmm(duty.meal[1])} ${mealPlace(duty.meal)}</dd>` +
       `<dt>${S.mates}</dt><dd>${mealMatesHtml(duty, book.data.duties, sheet)}</dd>` : "") +
-    `</dl>${nowBox}<div class="stops-head">${S.legs}</div><ol class="duty-legs">` +
+    `</dl>${duty.meal ? `<p class="fine">${S.matesHelp}</p>` : ""}${nowBox}<div class="stops-head">${S.legs}</div><ol class="duty-legs">` +
     rows.map((row) => `<li data-now="${row.now ? 1 : 0}">${row.html}</li>`).join("") + `</ol><p class="fine">${source}</p>`
 }
 
@@ -336,12 +370,14 @@ function render() {
     const entry = dayEntry(roster, state.date)
     view.innerHTML =
       `<div class="duty-head"><button type="button" class="btn me-back">${S.back}</button><h2>${S.weekdays[weekdayIndex(state.date)]} ${meDate(state.date)}</h2></div>` +
-      `<form class="me-edit" autocomplete="off"><label>${S.editLabel}` +
-      `<input name="code" value="${escapeHtml(entry.code)}" maxlength="10" autocapitalize="characters" spellcheck="false" aria-label="${S.editHint}" placeholder="${S.editHint}"></label>` +
-      `<div class="me-edit-row"><button type="submit" class="btn">${S.save}</button>` +
+      `<div id="me-data"></div>` +
+      `<details class="panel me-editbox" ${state.message || entry.source === "override" ? "open" : ""}><summary>${S.editTitle}${entry.source === "override" ? ` <span class="badge plain">${S.changed}</span>` : ""}</summary>` +
+      `<form class="me-edit" autocomplete="off"><p class="fine">${S.editHelp}</p><label>${S.editLabel}` +
+      `<input name="code" value="${escapeHtml(entry.code)}" maxlength="10" autocapitalize="characters" spellcheck="false" placeholder="${S.editHint}"></label>` +
+      `<div class="me-edit-row"><button type="submit" class="btn primary">${S.save}</button>` +
       `${entry.source === "override" ? `<button type="button" class="btn me-reset">${S.reset}</button>` : ""}` +
       `<span class="meta">${S.defaultIs(entry.defaultCode)}</span></div>` +
-      `<p class="me-msg" role="status">${escapeHtml(state.message)}</p></form><div id="me-data"></div>`
+      `<p class="me-msg" role="status">${escapeHtml(state.message)}</p></form></details>`
     paintData()
     return
   }
@@ -351,8 +387,9 @@ function render() {
     `<div class="me-nav"><button type="button" class="btn me-prev">${S.prev}</button>` +
     `<button type="button" class="btn me-this" ${state.monday === current ? "disabled" : ""}>${S.thisWeek}</button>` +
     `<button type="button" class="btn me-next">${S.next}</button></div>` +
-    `<div class="duty-sum"><b>${meDate(dates[0])} – ${meDate(dates[6])}</b> <span class="meta">${S.row(rowLabelFor(roster, state.monday))}</span></div>` +
-    `<div id="me-data"></div><div class="me-foot"><button type="button" class="btn me-settings">${S.settings}</button></div>`
+    `<div class="duty-sum"><b>${S.weekOf(meDate(dates[0]), meDate(dates[6]))}</b> <span class="badge plain">${S.rowOf(rowLabelFor(roster, state.monday))}</span></div>` +
+    `<div id="me-data"></div><p class="fine">${S.weekHint}</p>` +
+    `<div class="me-foot"><button type="button" class="btn me-settings">${S.settings}</button></div>`
   paintData()
 }
 
@@ -373,15 +410,18 @@ function paintData() {
     else html = dutyDetailHtml({ sheet: cell.c.sheet, id: cell.c.id }, state.date === serviceDate(Date.now()))
   } else if (state.page === "week") {
     const today = serviceDate(Date.now())
-    html = `<ul class="duty-list">${weekDates(state.monday).map((date) => {
+    html = `<ul class="day-list">${weekDates(state.monday).map((date) => {
       const entry = dayEntry(roster, date)
       const cell = cellInfo(entry.code)
-      const badges = (date === today ? ` <span class="badge now">${S.today}</span>` : "") +
-        (entry.source === "override" ? ` <span class="badge plain">${S.changed}</span>` : "")
-      return `<li><button type="button" class="duty-row me-day" data-date="${date}">` +
-        `<span class="duty-no">${S.weekdays[weekdayIndex(date)]} ${meDate(date)}${badges}</span>` +
-        `<span class="me-code">${escapeHtml(cell.label)}</span>` +
-        `<span class="meta">${escapeHtml(summary(cell))}</span></button></li>`
+      const lines = dayLines(cell)
+      const badges = (date === today ? `<span class="badge now">${S.today}</span>` : "") +
+        (entry.source === "override" ? `<span class="badge plain">${S.changed}</span>` : "")
+      return `<li><button type="button" class="day me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-today="${date === today ? 1 : 0}">` +
+        `<span class="day-date"><b>${S.weekdays[weekdayIndex(date)]}</b><small>${meDate(date)}</small></span>` +
+        `<span class="day-main"><span class="day-title">${escapeHtml(cell.label)}${cell.group ? ` <span class="badge plain">${cell.group}</span>` : ""}${badges}</span>` +
+        (lines.times ? `<span class="day-times">${lines.times}</span>` : "") +
+        (lines.note ? `<span class="meta">${escapeHtml(lines.note)}</span>` : "") +
+        `</span><span class="day-go" aria-hidden="true">›</span></button></li>`
     }).join("")}</ul>`
   } else {
     return
@@ -394,17 +434,24 @@ function paintData() {
 function setupHtml() {
   const monday = mondayOf(serviceDate(Date.now()))
   const row = roster ? rowLabelFor(roster, monday) : ""
-  return `<div class="duty-head"><h2>${S.setupTitle}</h2></div>` +
-    `<form class="me-setup" autocomplete="off"><p class="fine">${S.setupIntro}</p>` +
-    `<label>${S.pasteLabel}<textarea name="text" rows="6" spellcheck="false" placeholder="${roster ? S.pasteKeep : ""}"></textarea></label>` +
+  const codes = S.howCodes.map(([code, what]) => `<li><code>${code}</code><span>${what}</span></li>`).join("")
+  return `<div class="duty-head">${roster ? `<button type="button" class="btn me-back">${S.back}</button>` : ""}<h2>${roster ? S.settingsTitle : S.setupTitle}</h2></div>` +
+    (roster ? "" : `<p class="lead">${S.setupIntro}</p>`) +
+    `<form class="me-setup" autocomplete="off">` +
+    `<section class="panel"><h3><span class="step">1</span>${S.step1}</h3>` +
+    `<details class="how"><summary>${S.howTitle}</summary><p class="fine">${S.howBody}</p><ul class="how-codes">${codes}</ul>` +
+    `<pre>${escapeHtml(S.howExample).replace(/\n/g, "<br>")}</pre></details>` +
+    `<label><span class="sr">${S.pasteLabel}</span><textarea name="text" rows="6" spellcheck="false" placeholder="${roster ? S.pasteKeep : S.pastePlaceholder}"></textarea></label></section>` +
+    `<section class="panel"><h3><span class="step">2</span>${S.step2}</h3>` +
     `<label>${S.rowLabel(monday)}<input name="row" type="number" inputmode="numeric" min="1" value="${row}" required></label>` +
-    `<div class="me-edit-row"><button type="submit" class="btn">${S.save}</button>` +
-    `${roster ? `<button type="button" class="btn me-back">${S.back}</button>` : ""}</div>` +
+    `<p class="fine">${S.rowHelp}</p></section>` +
+    `<div class="me-edit-row"><button type="submit" class="btn primary">${S.save}</button></div>` +
     `<p class="me-msg" role="status">${escapeHtml(state.message)}</p></form>` +
     (roster
-      ? `<div class="me-foot"><button type="button" class="btn me-export">${S.export}</button> ` +
-        `<button type="button" class="btn me-clear">${S.clear}</button></div>` +
-        (state.exportText ? `<p class="fine">${S.exportNote}</p><textarea class="me-export-box" readonly rows="5">${escapeHtml(state.exportText)}</textarea>` : "")
+      ? `<section class="panel"><h3>${S.backupTitle}</h3><p class="fine">${S.backupHelp}</p>` +
+        `<div class="me-foot"><button type="button" class="btn me-export">${S.export}</button> ` +
+        `<button type="button" class="btn danger me-clear">${S.clear}</button></div>` +
+        (state.exportText ? `<p class="fine">${S.exportNote}</p><textarea class="me-export-box" readonly rows="5">${escapeHtml(state.exportText)}</textarea>` : "") + `</section>`
       : "")
 }
 
