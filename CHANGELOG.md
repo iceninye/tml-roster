@@ -6,6 +6,7 @@
 - Member names and preferred shifts are set right in the table; the separate members panel is gone.
 - HC (pending) cells are never touched by auto-arrange; fill them by hand or with a block.
 - The table keeps its scroll position after each change.
+- Each date can be set to a Duty Sheet (1101 / 6091 / 7091 / 8022 / 8023) from a menu under the day: that day's Standard Roster duty numbers keep their last three digits and take the sheet's (6091124 on 8022 reads 8022124). Duties already planned follow; 8022 / 8023 times come from the duty cards, and a number the sheet lacks shows in red.
 
 ## v0.6.0 — 2026-10-17
 - New 編更 page (`plan.html`): pick a base week and the team's rows (for example Week 42, rows 31–40 and 55–70); every later week each member moves one row down, wrapping after the last row.

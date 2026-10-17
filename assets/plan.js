@@ -4,7 +4,7 @@
 // only in this browser's localStorage and never uploaded. Book-on/off times
 // come from data/duty-basic.json.
 
-import { EMPTY, SHIFTS, arrangeWeek, cleanPlan, clearWeek, fromTray, isoWeek, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, restIssues, setCell, shiftOf, swapCells, toTray, trayView, weekView } from "../lib/tml-plan.js"
+import { EMPTY, SHEETS, SHIFTS, arrangeWeek, cleanPlan, clearWeek, fromTray, isoWeek, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, trayView, weekView } from "../lib/tml-plan.js"
 import { addDays, classify, cleanRoster, mondayOf, normaliseCode, weekDates } from "../lib/tml-roster.js"
 import { serviceDate } from "../lib/tml-time.js"
 
@@ -83,6 +83,11 @@ const S = {
   legendRest: "紅框：休息唔夠鐘",
   legendPin: "📌 手動改",
   legendMiss: "• 唔係偏好",
+  sheetLabel: "Duty Sheet",
+  sheetTitle: (day, dates) => `週${day} 用嘅 Duty Sheet${dates ? `（${dates} 發佈）` : ""}`,
+  sheetHelp: "每日可以揀 Duty Sheet（1101 / 6091 / 7091 / 8022 / 8023）：該日 Standard Roster 嘅更份編號會跟住轉，例如 6091124 揀 8022 就變 8022124。",
+  sheetChanged: (n) => `已將週${n} 改用新 Duty Sheet`,
+  noDuty: "Duty Sheet 入面冇呢個更份",
   legendHc: "HC 待定：自己改，或者放積木入去",
   back: "‹ 我的更表",
 }
@@ -93,6 +98,8 @@ const state = { monday: null, sel: null, message: "", exportText: "", weeks: 4 }
 let roster = null
 let plan = null
 let basic = {}
+let cards = {} // book-on/off of the duties on the special sheets (8022, 8023 ...), from data/duties
+let sheetDates = {} // sheet -> dates it is issued for, from data/duties/index.json
 
 /* ------------------------------------------------------------- storage */
 
@@ -130,8 +137,9 @@ const meDate = (date) => `${Number(date.slice(5, 7))}/${Number(date.slice(8))}`
 
 // Book-on/off of a code from data/duty-basic.json, or null (RD, AL, unknown duty).
 function timeOf(code) {
-  const row = code ? basic[String(code).toUpperCase()] : null
-  return row ? { on: row[0], off: row[2], hours: row[4] } : null
+  const key = code ? String(code).toUpperCase() : ""
+  const row = basic[key]
+  return row ? { on: row[0], off: row[2], hours: row[4] } : cards[key] ?? null
 }
 
 const who = (member) => member.name || `#${member.row}`
@@ -178,7 +186,12 @@ function weekHtml() {
   const lines = weekView(roster, plan, state.monday)
   const issues = new Map(restIssues(roster, plan, state.monday, timeOf).map((x) => [`${x.row}:${x.day}`, x.rest]))
   const { week } = isoWeek(state.monday)
-  const head = `<tr><th class="who">${S.member}</th>${dates.map((d, i) => `<th>${S.weekdays[i]}<small>${meDate(d)}</small></th>`).join("")}<th>${S.fit}</th><th>${S.hours}</th></tr>`
+  const sheetSelect = (date, i) => {
+    const now = sheetOf(plan, date)
+    const opts = SHEETS.map((sh) => `<option value="${sh}"${sh === now ? " selected" : ""}>${sh}</option>`).join("")
+    return `<select class="p-sheet" data-day="${i}" aria-label="${S.sheetTitle(S.weekdays[i], "")}" title="${S.sheetTitle(S.weekdays[i], (sheetDates[now] ?? []).join("、"))}"${plan.sheets?.[date] ? ' data-set="1"' : ""}>${opts}</select>`
+  }
+  const head = `<tr><th class="who">${S.member}</th>${dates.map((d, i) => `<th>${S.weekdays[i]}<small>${meDate(d)}</small>${sheetSelect(d, i)}</th>`).join("")}<th>${S.fit}</th><th>${S.hours}</th></tr>`
   const body = lines.map((line) => {
     let hits = 0
     let work = 0
@@ -196,9 +209,10 @@ function weekHtml() {
       const short = issues.get(`${line.member.row}:${d}`)
       const sel = state.sel && state.sel.row === line.member.row && state.sel.day === d
       const blank = code === EMPTY
+      const missing = !t && /^\d{7}$/.test(code)
       const label = blank ? S.empty : c.kind === "status" ? S.status[c.code] ?? c.code : code
       return `<td><button type="button" class="pcell" data-row="${line.member.row}" data-day="${d}"` +
-        ` data-shift="${shift}" data-kind="${t ? "duty" : blank ? "empty" : c.kind}"${code === "HC" ? ' data-hc="1"' : ""}${sel ? ' data-sel="1"' : ""}${short != null ? ` data-short="1" title="${S.tooShort((short / 3600).toFixed(1))}"` : ""}>` +
+        ` data-shift="${shift}" data-kind="${t ? "duty" : blank ? "empty" : c.kind}"${code === "HC" ? ' data-hc="1"' : ""}${missing ? ` data-missing="1" title="${S.noDuty}"` : ""}${sel ? ' data-sel="1"' : ""}${short != null ? ` data-short="1" title="${S.tooShort((short / 3600).toFixed(1))}"` : ""}>` +
         `<b>${escapeHtml(label)}${line.pins[d] ? `<i class="pin" title="${S.pinned}">📌</i>` : ""}${miss ? `<i class="miss" aria-label="唔係偏好">•</i>` : ""}</b>` +
         (t ? `<small>${hhmm(t.on)}–${hhmm(t.off)}</small><span class="ptag">${S.shift[shift]}</span>` : "") +
         `</button></td>`
@@ -235,7 +249,7 @@ function weekHtml() {
     `<div class="ptable"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>` +
     trayHtml() +
     `<p class="legend plan-legend">${legend}<span>${S.legendRest}</span><span>${S.legendPin}</span><span>${S.legendMiss}</span><span>${S.legendHc}</span></p>` +
-    `<p class="fine">${S.arrangeHelp}</p>` +
+    `<p class="fine">${S.sheetHelp}</p><p class="fine">${S.arrangeHelp}</p>` +
     (state.exportText ? `<textarea class="me-export-box" readonly rows="6">${escapeHtml(state.exportText)}</textarea>` : "")
 }
 
@@ -578,12 +592,28 @@ async function boot() {
   } catch {
     basic = {}
   }
+  try {
+    const index = await (await fetch("data/duties/index.json")).json()
+    await Promise.all(index.sheets.map(async (sheet) => {
+      sheetDates[sheet.code] = sheet.dates ?? []
+      if (sheet.class !== "special") return
+      const book = await (await fetch(`data/duties/${sheet.file}`)).json()
+      for (const duty of book.duties) if (duty.on && duty.off) cards[duty.id] = { on: duty.on[0], off: duty.off[0], hours: (duty.work ?? 0) / 60 }
+    }))
+  } catch {
+    // The page works without the special sheets' cards; their duties just show no times.
+  }
   view.addEventListener("click", onClick)
   view.addEventListener("submit", onSubmit)
   view.addEventListener("change", (event) => {
     if (event.target.matches(".p-name")) {
       const row = Number(event.target.dataset.row)
       store({ ...plan, members: plan.members.map((m) => (m.row === row ? { ...m, name: event.target.value.trim().slice(0, 40) } : m)) })
+      render()
+    } else if (event.target.matches(".p-sheet")) {
+      const day = Number(event.target.dataset.day)
+      state.sel = null
+      store(setSheet(plan, state.monday, day, event.target.value), S.sheetChanged(S.weekdays[day]))
       render()
     } else if (event.target.matches(".p-weeks")) {
       state.weeks = Math.min(26, Math.max(1, Number(event.target.value) || 1))
