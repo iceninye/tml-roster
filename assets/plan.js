@@ -4,11 +4,11 @@
 // plan (names, preferences, results), only in this browser's localStorage,
 // never uploaded. Book-on/off times come from data/duty-basic.json.
 
-import { EMPTY, LEAVE, PENDING, SHEETS, SHIFTS, arrangeWeek, cleanPlan, clearWeek, formatRanges, fromTray, isoWeek, leaveToTray, mondayOfIsoWeek, namedRows, newPlan, parseRanges, prefDistance, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, trayView, weekView } from "../lib/tml-plan.js"
+import { EMPTY, LEAVE, PENDING, SHEETS, SHIFTS, allToTray, arrangeWeek, cleanPlan, clearWeek, formatRanges, fromTray, isoWeek, leaveToTray, mondayOfIsoWeek, namedRows, newPlan, parseRanges, prefDistance, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, trayView, weekView } from "../lib/tml-plan.js"
 import { addDays, classify, cleanRoster, mondayOf, newRoster, normaliseCode, parseRoster, weekDates } from "../lib/tml-roster.js"
 import { serviceDate } from "../lib/tml-time.js"
 
-const BUILD = { version: "0.7.1", commit: "dev" }
+const BUILD = { version: "0.7.3", commit: "dev" }
 // The plan page keeps its own Standard Roster, apart from the personal roster of the 我的更表 page ("tml-roster").
 const ROSTER_KEY = "tml-plan-roster"
 const PLAN_KEY = "tml-roster-plan"
@@ -22,7 +22,7 @@ const S = {
   csvBtn: "由 CSV 匯入 Standard Roster",
   csvHelp: "格式：標題行 `,Name,Mon,Tue,Wed,Thu,Fri,Sat,Sun`，之後每行 行號、名稱、七日更份。有名稱嘅行就係組員；一行七格 TBC 嘅唔跟輪換，留喺原行。",
   csvEmpty: "讀唔到任何一行，請確認係 CSV",
-  csvDone: (rows, named) => `已匯入 ${rows} 行${named ? `，有名稱嘅 ${named} 位已設為組員` : ""}`,
+  csvDone: (rows, named) => `已匯入 ${rows} 行${named ? `，有名稱嘅 ${named} 位已設為組員，更份同 RD／AL／SH 已放入待定區；設好假期同喜好後按「按偏好自動編排」` : ""}`,
   csvFail: "讀取檔案失敗",
   useNamed: "用有名稱嘅行",
   namedHint: (n) => `Standard Roster 有 ${n} 行有名稱。`,
@@ -97,6 +97,7 @@ const S = {
   noDuty: "Duty Sheet 入面冇呢個更份",
   legendHc: "HC／TBC 待定：自己改，或者將待定區嘅放入去",
   leaveTray: "假期放入待定區",
+  setupDone: "已儲存組員，更份同 RD／AL／SH 已放入待定區；設好假期同喜好後按「按偏好自動編排」",
   leaveTrayed: "已將 RD／AL／SH 放入待定區",
 }
 
@@ -223,7 +224,7 @@ function weekHtml() {
       const sel = state.sel && state.sel.row === line.member.row && state.sel.day === d
       const blank = code === EMPTY
       const missing = !t && /^\d{7}$/.test(code)
-      const label = blank ? S.empty : c.kind === "status" ? S.status[c.code] ?? c.code : code
+      const label = blank ? S.empty : code === "RD" ? `RD(${S.weekdays[d]})` : c.kind === "status" ? S.status[c.code] ?? c.code : code
       return `<td><button type="button" class="pcell" data-row="${line.member.row}" data-day="${d}"` +
         ` data-shift="${shift}" data-kind="${t ? "duty" : blank ? "empty" : c.kind}"${PENDING.includes(code) ? ' data-hc="1"' : ""}${LEAVE.includes(code) ? ' data-leave="1"' : ""}${missing ? ` data-missing="1" title="${S.noDuty}"` : ""}${sel ? ' data-sel="1"' : ""}${short != null ? ` data-short="1" title="${S.tooShort((short / 3600).toFixed(1))}"` : ""}>` +
         `<b>${escapeHtml(label)}${line.pins[d] ? `<i class="pin" title="${S.pinned}">📌</i>` : ""}${miss ? `<i class="miss" aria-label="唔係偏好">•</i>` : ""}</b>` +
@@ -297,7 +298,7 @@ function trayHtml() {
       const shift = t ? shiftOf(t.on, t.off) : ""
       const sel = state.sel?.type === "block" && state.sel.day === d && state.sel.index === i
       return `<button type="button" class="block" data-day="${d}" data-index="${i}" data-shift="${shift}" data-kind="${t ? "duty" : "leave"}"${sel ? ' data-sel="1"' : ""}>` +
-        `<b>${escapeHtml(t ? code : S.status[code] ?? code)}</b>${t ? `<small>${hhmm(t.on)}–${hhmm(t.off)}</small><span class="ptag">${S.shift[shift]}</span>` : ""}</button>`
+        `<b>${escapeHtml(t ? code : code === "RD" ? `RD(${S.weekdays[d]})` : S.status[code] ?? code)}</b>${t ? `<small>${hhmm(t.on)}–${hhmm(t.off)}</small><span class="ptag">${S.shift[shift]}</span>` : ""}</button>`
     }).join("")
     return `<div class="tray-col" data-day="${d}"><span class="tray-day">${S.weekdays[d]}</span><div class="tray-blocks">${blocks || `<span class="tray-none">${S.trayNone}</span>`}</div></div>`
   }).join("")
@@ -335,8 +336,8 @@ function submitSetup(form) {
   const next = newPlan(mondayOfIsoWeek(year, week), ranges, plan)
   const rest = Number(form.elements.rest.value)
   if (rest >= 0 && rest <= 24) next.rest = rest
-  store(next)
   state.monday = next.anchor === plan?.anchor ? state.monday : next.anchor
+  store(allToTray(roster, next, state.monday, timeOf), S.setupDone)
   render()
 }
 
@@ -360,7 +361,7 @@ function importRoster(text) {
   const named = namedRows(next)
   if (named.length) {
     const made = newPlan(plan?.anchor ?? state.monday, formatRanges(named), plan, next)
-    store(made, S.csvDone(parsed.rows.length, named.length))
+    store(allToTray(roster, made, state.monday, timeOf), S.csvDone(parsed.rows.length, named.length))
   } else state.message = S.csvDone(parsed.rows.length, 0)
   render()
 }

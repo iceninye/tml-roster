@@ -1,7 +1,7 @@
 // Offline shell. Only same-origin GETs are cached; a file is revalidated every
 // time the network is up, so a release never pairs a new app.js with old libs.
 
-const CACHE = "tml-roster-shell-v6"
+const CACHE = "tml-roster-shell-v7"
 const SHELL = [
   "./",
   "index.html",
