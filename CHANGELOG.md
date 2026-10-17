@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.3.0 — 2026-10-17
+## v0.3.0 — 2026-10-17 (`200bd61`)
 - Import: pick a .csv / .tsv / .txt file besides pasting; tab-separated rows with no row numbers (copied from Excel) read as rows 1, 2, 3 …
 - Live preview on the setup page: as you paste or pick a file it shows the rows read, any bad lines, and whether the row number you gave exists.
 - The imported roster is shown as a table on the week page and on the settings page, with this week's row and today's cell marked.
