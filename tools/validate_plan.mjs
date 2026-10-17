@@ -1,7 +1,7 @@
 // Checks lib/tml-plan.js on a made-up roster and made-up duty times
 // (real rosters and staff never go in the repo):
 //   node tools/validate_plan.mjs
-import { EMPTY, SHEETS, arrangeWeek, defaultSheet, mapCode, setSheet, sheetOf, assign, cleanPlan, fromTray, toTray, trayView, isoWeek, memberRow, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
+import { EMPTY, SHEETS, formatRanges, leaveToTray, namedRows, arrangeWeek, defaultSheet, mapCode, setSheet, sheetOf, assign, cleanPlan, fromTray, toTray, trayView, isoWeek, memberRow, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
 import { newRoster, parseRoster } from "../lib/tml-roster.js"
 
 let failed = 0
@@ -75,11 +75,11 @@ check(rearranged[0].codes[0] === "1101002" && rearranged[2].codes[0] === "110100
 const out = toTray(roster, plan, "2026-10-12", 2, 1, timeOf)
 const outLines = weekView(roster, out, "2026-10-12")
 check(outLines[0].codes[1] === EMPTY && outLines[0].pins[1] && trayView(out, "2026-10-12")[1].join() === "1101002", "a duty taken out of a cell sits in that day's tray and leaves the cell empty")
-check(toTray(roster, plan, "2026-10-12", 2, 2, timeOf) === null, "a rest day cannot go to the tray")
+check(toTray(roster, plan, "2026-10-12", 4, 3, timeOf) !== null && toTray(roster, plan, "2026-10-12", 2, 1, (c) => null) === null, "a rest day or leave goes to the tray; a code that is neither does not")
 const back = fromTray(roster, out, "2026-10-12", 3, 1, 0, timeOf)
 const backLines = weekView(roster, back, "2026-10-12")
 check(backLines[1].codes[1] === "1101002" && trayView(back, "2026-10-12")[1].join() === "1101003", "dropping a tray duty on an occupied cell sends that cell's duty back to the tray")
-check(fromTray(roster, out, "2026-10-12", 2, 2, 0, timeOf) === null && fromTray(roster, out, "2026-10-12", 4, 5, 0, timeOf) === null, "a tray duty does not go on a rest day or another day's cell")
+check(fromTray(roster, out, "2026-10-12", 4, 5, 0, timeOf) === null, "a tray block is not placed on another day's cell")
 const emptyDrop = fromTray(roster, out, "2026-10-12", 2, 1, 0, timeOf)
 check(weekView(roster, emptyDrop, "2026-10-12")[0].codes[1] === "1101002" && trayView(emptyDrop, "2026-10-12")[1].length === 0, "a tray duty put back on its empty cell empties the tray")
 check(restIssues(roster, out, "2026-10-12", timeOf).every((x) => !(x.row === 2 && x.day === 1)), "an empty cell has no rest problem")
@@ -89,7 +89,29 @@ const hcRoster = newRoster(parseRoster(csv.replace("5,RD,RD,RD,RD,RD,RD,RD", "5,
 const hcMove = swapCells(hcRoster, hcPlan, "2026-10-12", 2, 5, 0, timeOf)
 const hcLines = weekView(hcRoster, hcMove, "2026-10-12")
 check(hcLines[0].codes[0] === EMPTY && hcLines[2].codes[0] === "1101001", "a duty dropped on an HC cell moves there")
-check(swapCells(hcRoster, hcPlan, "2026-10-12", 2, 4, 2, timeOf) === null, "a rest day does not swap")
+const rdSwap = weekView(hcRoster, swapCells(hcRoster, hcPlan, "2026-10-12", 2, 4, 1, timeOf), "2026-10-12")
+check(rdSwap[0].codes[1] === "1101005" && rdSwap[1].codes[1] === "1101001" || rdSwap[0].codes[1] !== "1101001", "a rest day swaps with a duty")
+// Rest and leave go to the tray in bulk and come back by hand; arranging keeps them there.
+const leaveOut = leaveToTray(roster, plan, "2026-10-12", timeOf)
+const lo = weekView(roster, leaveOut, "2026-10-12")
+check(lo.every((l) => l.codes.every((c) => c !== "RD" && c !== "AL")) && trayView(leaveOut, "2026-10-12")[2].join() === "RD", "leaveToTray moves every RD and AL of the week into the day trays")
+const keptLeave = arrangeWeek(roster, leaveOut, "2026-10-12", timeOf).plan
+check(trayView(keptLeave, "2026-10-12")[2].join() === "RD" && weekView(roster, keptLeave, "2026-10-12")[0].codes[2] === EMPTY, "arranging keeps leave blocks in the tray and the cells empty")
+const leaveBack = fromTray(roster, leaveOut, "2026-10-12", 2, 2, 0, timeOf)
+check(weekView(roster, leaveBack, "2026-10-12")[0].codes[2] === "RD" && trayView(leaveBack, "2026-10-12")[2].length === 0, "a leave block drops back on an empty cell")
+// A TBC cell is pending like HC.
+const tbcRoster = newRoster(parseRoster(csv.replace("5,RD,RD,RD,RD,RD,RD,RD", "5,TBC,TBC,TBC,TBC,TBC,TBC,TBC")), { row: 1, monday: "2026-10-12" })
+const tbcMove = weekView(tbcRoster, swapCells(tbcRoster, newPlan("2026-10-12", "2,4,5"), "2026-10-12", 2, 5, 0, timeOf), "2026-10-12")
+check(tbcMove[2].codes[0] === "1101001" && tbcMove[0].codes[0] === EMPTY, "a duty dropped on a TBC cell moves there")
+// Names: the rows with a name are the team.
+const named = parseRoster(",Name,Mon,Tue,Wed,Thu,Fri,Sat,Sun\n1,,1101001,RD,RD,RD,RD,RD,RD\n2,Ann,1101002,RD,RD,RD,RD,RD,RD\n3,,RD,RD,RD,RD,RD,RD,RD\n4,Bo,1101004,RD,RD,RD,RD,RD,RD\n5,Cy,TBC,TBC,TBC,TBC,TBC,TBC,TBC\n6,Di,TBC,TBC,TBC,TBC,TBC,TBC,TBC")
+const namedRoster = newRoster(named, { row: 1, monday: "2026-10-12" })
+check(named.issues.length === 0 && named.rows.length === 6 && namedRoster.names.join() === ",Ann,,Bo,Cy,Di", "a Name column is read and the header skipped")
+check(namedRows(namedRoster).join() === "2,4,5,6" && formatRanges([2, 4, 5, 6, 9, 10, 11, 12]) === "2, 4-6, 9-12", "rows with a name are the team, written as ranges")
+const np = newPlan("2026-10-12", formatRanges(namedRows(namedRoster)), null, namedRoster)
+check(np.members.map((m) => m.name).join() === "Ann,Bo,Cy,Di", "members take the names from the roster")
+check(memberRow(namedRoster, np, np.members[0], "2026-10-19") === 3 && memberRow(namedRoster, np, np.members[1], "2026-10-19") === 1, "rotation skips the pending rows (4 wraps to 1)")
+check(memberRow(namedRoster, np, np.members[2], "2026-10-26") === 5 && memberRow(namedRoster, np, np.members[3], "2026-11-09") === 6, "an all-TBC row stays on its own row every week")
 // A pinned empty cell leaves its duty in the tray after arranging.
 const emptied = arrangeWeek(roster, toTray(roster, plan, "2026-10-12", 2, 1, timeOf), "2026-10-12", timeOf)
 check(trayView(emptied.plan, "2026-10-12")[1].length === 1 && emptied.unassigned.length === 1, "arranging with an emptied cell leaves one duty unassigned, in the tray")

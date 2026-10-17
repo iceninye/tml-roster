@@ -364,3 +364,8 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .p-sheet { display: block; width: 100%; margin: 3px 0 0; padding: 1px 0; font: inherit; font-size: 11px; font-weight: 700; color: var(--muted); text-align: center; background: var(--panel); border: 1px solid var(--edge); border-radius: 7px; }
 .p-sheet[data-set="1"] { color: #fff; background: var(--tml); border-color: var(--tml); }
 .pcell[data-missing="1"] { color: var(--bad); outline: 1px dashed var(--bad); outline-offset: -3px; background: transparent; }
+.block[data-kind="leave"] { color: var(--muted); }
+.block[data-kind="leave"] b { font-weight: 500; }
+.pcell[data-leave="1"] { cursor: grab; }
+.csv-import { margin: 0 0 12px; }
+.me-setup label.filebtn, .csv-import label.filebtn { display: inline-flex; align-items: center; }
