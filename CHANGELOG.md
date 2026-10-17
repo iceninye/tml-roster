@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.2.0 — 2026-10-17
+## v0.2.0 — 2026-10-17 (`050b0cb`)
 - Layout: the week is a list of day cards (big book-on/off times, duty number, meal), today highlighted; the day page leads with book-on/off and puts the edit box below; setup is two numbered steps with a format guide and example.
 - Wording rewritten in one plain Cantonese voice, with help text for the row number, 飯腳, backup and day edits.
 - Deployed to GitHub Pages (`.github/workflows/pages.yml`); README rewritten as a quick start.
