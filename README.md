@@ -33,7 +33,7 @@
 | --- | --- |
 | `1101179` | 7 位更份編號，頭 4 位係 Duty Sheet 編號（`1101` 平日、`6091` 星期六、`7091` 星期日） |
 | `RD` `AL` `SH` `HC` | 休息日、年假、法定假日、待定 |
-| `HSP1` `HSP3` `KSP1`–`KSP4` | 後備更（冇上下班時間） |
+| `HSP1` `HSP3` `KSP1`–`KSP4` | 後備更（有上下班時間同地點，冇逐段行程） |
 
 如果某一行格數唔啱，系統會指出邊一行有問題，唔會自己估。如果更份編號喺資料入面冇，會顯示「搵唔到更份 … 資料」。
 
@@ -49,6 +49,7 @@
 python3 -m http.server 8000      # 開 http://localhost:8000
 node tools/validate_roster.mjs   # roster 邏輯檢查（用虛構 roster）
 node tools/sync-duties.mjs       # 由 TML-traffic 同步更份資料
+python3 tools/index-to-basic.py Duty.xlsx   # 由 Duty 總表嘅 Index 工作表更新後備更等上下班時間
 ```
 
 TML-traffic 解析新 Duty Sheet 後，執行 `sync-duties.mjs`，再將 `sw.js` 嘅 `CACHE` 版本加一（新增 sheet 要同時加入 `SHELL`），然後發佈。

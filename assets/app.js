@@ -7,7 +7,7 @@ import { dutyState, mealMates } from "../lib/tml-duties.js"
 import { addDays, classify, cleanRoster, dayEntry, mondayOf, newRoster, normaliseCode, parseRoster, rowLabelFor, setOverride, weekDates, weekdayIndex } from "../lib/tml-roster.js"
 import { serviceDate, serviceSeconds } from "../lib/tml-time.js"
 
-const BUILD = { version: "0.3.0", commit: "200bd61" }
+const BUILD = { version: "0.4.0", commit: "200bd61" }
 const ROSTER_KEY = "tml-roster"
 // The key TML-traffic v0.9.0 used; a roster saved there is picked up once.
 const LEGACY_KEY = "tml-traffic-roster"
@@ -18,6 +18,11 @@ const S = {
   spare: (code) => `後備更 ${code}`,
   spareNote: "後備更冇固定上下班時間",
   noCard: "呢個更份暫時冇上下班資料",
+  spareTag: "後備更",
+  basicNote: "呢個更份冇逐段行程資料，只有上下班時間同地點。",
+  shift: { early: "早更", mid: "中更", late: "夜更" },
+  nextDay: "翌日",
+  hours: (h) => `${h} 小時`,
   noSheet: (id) => `搵唔到更份 ${id} 所屬嘅 Duty Sheet 資料`,
   noDuty: (id) => `Duty Sheet 入面冇更份 ${id} 嘅資料`,
   loading: "讀取更份資料中…",
@@ -131,6 +136,7 @@ const state = {
 
 let roster = null
 let stations = {}
+let basic = null // data/duty-basic.json: book-on/off of every duty, incl. spare duties
 let dutyIndex = null
 let dutySheets = null
 const dutyBooks = new Map()
@@ -194,6 +200,17 @@ async function fetchJson(url) {
   return response.json()
 }
 
+function loadBasic() {
+  fetchJson("data/duty-basic.json")
+    .then((data) => {
+      basic = data.duties
+      paintData()
+    })
+    .catch(() => {
+      basic = {}
+    })
+}
+
 function dutyIndexPromise() {
   dutyIndex ??= fetchJson("data/duties/index.json")
     .then((index) => {
@@ -244,6 +261,20 @@ function secClock(sec) {
 
 const hhmm = (sec) => secClock(sec).slice(0, 5)
 
+// A clock time for display: past 24:00 it is the next calendar day, marked 翌日.
+const clockHtml = (sec) => `${hhmm(sec)}${sec >= 86400 ? `<small class="nd">${S.nextDay}</small>` : ""}`
+
+// Early (on before 10:00), middle, or late (on from 15:00) duty.
+function shiftOf(onSec) {
+  return onSec < 36000 ? "early" : onSec < 54000 ? "mid" : "late"
+}
+
+// A duty known only by its book-on/off row: [on, place, off, place, hours, DE/DL].
+function basicOf(code) {
+  const row = basic?.[String(code).toUpperCase()]
+  return row ? { on: row[0], onAt: row[1], off: row[2], offAt: row[3], hours: row[4], flag: row[5] } : null
+}
+
 // "KSR2" is platform 2 of 錦上路; a code that is no station keeps its letters.
 function placeName(code) {
   if (!code) return "—"
@@ -275,24 +306,33 @@ function dutyPhaseText(st) {
 function cellInfo(code) {
   const c = classify(code)
   if (c.kind === "status") return { label: `${S.status[c.code]} ${c.code}`, status: "none", tone: c.code === "HC" ? "tbd" : "rest" }
+  const known = c.kind === "duty" ? null : basicOf(c.code)
+  if (known) return { label: c.code, tag: c.kind === "spare" ? S.spareTag : "", status: "basic", basic: known, on: known.on, tone: "duty" }
   if (c.kind === "spare") return { label: S.spare(c.code), status: "none", note: S.spareNote, tone: "spare" }
   if (c.kind === "other") return { label: c.code, status: "none", tone: "spare" }
   const book = dutyBook(c.sheet)
   if (book.status === "loading") return { label: c.id, status: "loading", c }
-  if (book.status !== "ok") return { label: c.id, status: "nosheet", c }
-  const duty = book.data.duties.find((item) => item.id === c.id)
-  if (!duty) return { label: c.id, status: "noduty", c }
-  return { label: c.id, group: duty.group, status: duty.on ? "ok" : "nocard", duty, c, tone: "duty" }
+  const duty = book.status === "ok" ? book.data.duties.find((item) => item.id === c.id) : null
+  if (!duty) {
+    const fallback = basicOf(c.id)
+    if (fallback) return { label: c.id, tag: "", status: "basic", basic: fallback, on: fallback.on, tone: "duty", c }
+    return { label: c.id, status: book.status === "ok" ? "noduty" : "nosheet", c }
+  }
+  return { label: c.id, group: duty.group, status: duty.on ? "ok" : "nocard", duty, c, tone: "duty", on: duty.on?.[0] }
 }
 
-// The week list's three lines for one day: title, times and a quiet note.
+// The week list's lines for one day: times and a quiet note.
 function dayLines(cell) {
   const d = cell.duty
   if (cell.status === "ok") {
     return {
-      times: `${hhmm(d.on[0])} – ${hhmm(d.off[0])}`,
+      times: `${clockHtml(d.on[0])} – ${clockHtml(d.off[0])}`,
       note: `${placeName(d.on[1])} → ${placeName(d.off[1])}` + (d.meal ? ` · ${S.meal} ${hhmm(d.meal[0])}` : ""),
     }
+  }
+  if (cell.status === "basic") {
+    const b = cell.basic
+    return { times: `${clockHtml(b.on)} – ${clockHtml(b.off)}`, note: [b.onAt && b.offAt ? `${b.onAt} → ${b.offAt}` : "", S.hours(b.hours)].filter(Boolean).join(" · ") }
   }
   return { times: "", note: summary(cell) }
 }
@@ -316,6 +356,17 @@ function mealMatesHtml(duty, duties, sheet) {
   return mates.map(({ duty: other, from, to }) =>
     `<button type="button" class="link duty-mate" data-duty="${other.id}" data-sheet="${sheet}">${other.id}</button>` +
     `<span class="meta"> ${hhmm(from)}–${hhmm(to)}（${Math.round((to - from) / 60)} 分）</span>`).join("<br>")
+}
+
+// A duty without leg-by-leg data (spare duties, sheets not copied here).
+function basicDetailHtml(cell) {
+  const b = cell.basic
+  const place = (at) => (at ? escapeHtml(at) : "")
+  return `<div class="duty-sub">${cell.tag ? `<span class="badge plain">${cell.tag}</span> ` : ""}<span class="badge plain">${S.shift[shiftOf(b.on)]}</span></div>` +
+    `<div class="hero"><div><small>${S.on}</small><b>${hhmm(b.on)}</b><span>${place(b.onAt)}</span></div>` +
+    `<i aria-hidden="true">→</i><div><small>${S.off}</small><b>${clockHtml(b.off)}</b><span>${place(b.offAt)}</span></div></div>` +
+    `<dl class="kv"><dt>${S.work}</dt><dd>${S.hours(b.hours)}</dd>` + (b.flag ? `<dt>DE/DL</dt><dd>${escapeHtml(b.flag)}</dd>` : "") + `</dl>` +
+    `<p class="fine">${S.basicNote}</p>`
 }
 
 // The full card of one duty. liveOn marks what it is doing now, for today only.
@@ -347,7 +398,7 @@ function dutyDetailHtml({ sheet, id }, liveOn) {
   rows.push({ at: duty.off[0], html: `<span class="duty-t">${hhmm(duty.off[0])}</span><span>${S.bookOff}</span><span>${placeName(duty.off[1])}</span>` })
   return `<div class="duty-sub"><span class="badge plain">${duty.group}</span> Duty Sheet ${sheet}</div>` +
     `<div class="hero"><div><small>${S.on}</small><b>${hhmm(duty.on[0])}</b><span>${placeName(duty.on[1])}</span></div>` +
-    `<i aria-hidden="true">→</i><div><small>${S.off}</small><b>${hhmm(duty.off[0])}</b><span>${placeName(duty.off[1])}</span></div></div>` +
+    `<i aria-hidden="true">→</i><div><small>${S.off}</small><b>${clockHtml(duty.off[0])}</b><span>${placeName(duty.off[1])}</span></div></div>` +
     `<dl class="kv">` +
     (duty.work != null ? `<dt>${S.work}</dt><dd>${S.workMin(duty.work)}</dd>` : "") +
     (duty.meal ? `<dt>${S.meal}</dt><dd>${hhmm(duty.meal[0])}–${hhmm(duty.meal[1])} ${mealPlace(duty.meal)}</dd>` +
@@ -452,7 +503,9 @@ function render() {
     `<button type="button" class="btn me-this" ${state.monday === current ? "disabled" : ""}>${S.thisWeek}</button>` +
     `<button type="button" class="btn me-next">${S.next}</button></div>` +
     `<div class="duty-sum"><b>${S.weekOf(meDate(dates[0]), meDate(dates[6]))}</b> <span class="badge plain">${S.rowOf(rowLabelFor(roster, state.monday))}</span></div>` +
-    `<div id="me-data"></div><p class="fine">${S.weekHint}</p>` +
+    `<div id="me-data"></div>` +
+    `<p class="legend"><span><i style="background:#d9a23b"></i>${S.shift.early}（10:00 前上班）</span><span><i style="background:#4f9fd6"></i>${S.shift.mid}</span><span><i style="background:#8a6fd1"></i>${S.shift.late}（15:00 後上班）</span></p>` +
+    `<p class="fine">${S.weekHint}</p>` +
     `<details class="panel roster-box" open><summary>${S.rosterTitle(roster.rows.length)}</summary><p class="fine">${S.rosterHelp}</p>` +
     rosterTableHtml(roster, rowLabelFor(roster, state.monday), dates.indexOf(serviceDate(Date.now()))) + `</details>` +
     `<div class="me-foot"><button type="button" class="btn me-settings">${S.settings}</button></div>`
@@ -472,6 +525,7 @@ function paintData() {
     const entry = dayEntry(roster, state.date)
     const cell = cellInfo(entry.code)
     if (cell.status === "none") html = `<p class="empty">${escapeHtml(cell.label)}${cell.note ? ` · ${cell.note}` : ""}</p>`
+    else if (cell.status === "basic") html = basicDetailHtml(cell)
     else if (cell.status === "loading") html = `<p class="empty">${S.loading}</p>`
     else if (cell.status === "nosheet") html = `<p class="empty">${S.noSheet(cell.c.id)}</p>`
     else html = dutyDetailHtml({ sheet: cell.c.sheet, id: cell.c.id }, state.date === serviceDate(Date.now()))
@@ -483,9 +537,12 @@ function paintData() {
       const lines = dayLines(cell)
       const badges = (date === today ? `<span class="badge now">${S.today}</span>` : "") +
         (entry.source === "override" ? `<span class="badge plain">${S.changed}</span>` : "")
-      return `<li><button type="button" class="day me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-today="${date === today ? 1 : 0}">` +
+      const shift = cell.on != null ? shiftOf(cell.on) : ""
+      const tags = (cell.group ? `<span class="badge plain">${cell.group}</span>` : "") + (cell.tag ? `<span class="badge plain">${cell.tag}</span>` : "") +
+        (shift ? `<span class="badge shift">${S.shift[shift]}</span>` : "")
+      return `<li><button type="button" class="day me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}" data-today="${date === today ? 1 : 0}">` +
         `<span class="day-date"><b>${S.weekdays[weekdayIndex(date)]}</b><small>${meDate(date)}</small></span>` +
-        `<span class="day-main"><span class="day-title">${escapeHtml(cell.label)}${cell.group ? ` <span class="badge plain">${cell.group}</span>` : ""}${badges}</span>` +
+        `<span class="day-main"><span class="day-title">${escapeHtml(cell.label)}${tags}${badges}</span>` +
         (lines.times ? `<span class="day-times">${lines.times}</span>` : "") +
         (lines.note ? `<span class="meta">${escapeHtml(lines.note)}</span>` : "") +
         `</span><span class="day-go" aria-hidden="true">›</span></button></li>`
@@ -639,6 +696,7 @@ async function boot() {
   document.getElementById("foot").innerHTML =
     `v${BUILD.version} · ${BUILD.commit === "dev" ? "dev" : `commit ${escapeHtml(BUILD.commit)}`} · ` +
     `更份資料來自 <a href="https://github.com/iceninye/TML-traffic">TML-traffic</a>`
+  loadBasic()
   open()
   dutyIndexPromise().then((index) => {
     if (index) document.getElementById("foot").insertAdjacentHTML("beforeend", ` · ${S.dutyData(index.sheets.map((s) => s.issued).sort().pop())}`)
