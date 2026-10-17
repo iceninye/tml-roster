@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.8.1 — unreleased
+- 編更: the rest between duties is fixed at 12 hours (the input is gone). Import and 全部放入待定區 put every block of the team in the tray, including HC and TBC: 7 blocks per member. TBC and HC blocks can be dropped in a cell and its duty number typed.
+
 ## v0.8.0 — unreleased
 - 編更: importing (or 全部放入待定區) puts every duty, RD, AL and SH of the team in the 待定區 and empties the cells. Setting a preference, leave, a block or a Duty Sheet fills the empty cells by preference straight away; RD blocks show their weekday, e.g. RD(四).
 - 年假 chip on each member: fills the row AL AL AL SH SH RD RD (pinned); tap again to undo.

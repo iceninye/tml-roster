@@ -8,7 +8,7 @@ import { EMPTY, LEAVE, PENDING, SHEETS, SHIFTS, allToTray, arrangeWeek, canRemov
 import { addDays, classify, cleanRoster, mondayOf, newRoster, normaliseCode, parseRoster, weekDates } from "../lib/tml-roster.js"
 import { serviceDate } from "../lib/tml-time.js"
 
-const BUILD = { version: "0.8.0", commit: "dev" }
+const BUILD = { version: "0.8.1", commit: "dev" }
 // The plan page keeps its own Standard Roster, apart from the personal roster of the 我的更表 page ("tml-roster").
 const ROSTER_KEY = "tml-plan-roster"
 const PLAN_KEY = "tml-roster-plan"
@@ -32,8 +32,6 @@ const S = {
   yearLabel: "年份",
   rangesLabel: "組員行號（基準星期）",
   rangesHelp: "例如 31-40, 55-70。用逗號分隔，可以有多段。",
-  restLabel: "兩更之間最少休息（小時）",
-  restHelp: "唔夠鐘會標紅。Standard Roster 本身都有少數唔夠鐘嘅地方，所以只係提示。",
   save: "儲存",
   week: (w) => `Week ${w}`,
   weekOf: (a, b) => `${a} – ${b}`,
@@ -205,8 +203,6 @@ function setupHtml(inPanel = false) {
     `<label>${S.weekLabel}<input name="week" type="number" inputmode="numeric" min="1" max="53" value="${week}" required></label></div>` +
     `<label>${S.rangesLabel}<input name="ranges" value="${escapeHtml(plan?.ranges ?? (named.length ? formatRanges(named) : "31-40, 55-70"))}" spellcheck="false" required></label>` +
     `<p class="fine">${S.rangesHelp}${named.length ? ` ${S.namedHint(named.length)}<button type="button" class="link p-named">${S.useNamed}</button>` : ""}</p>` +
-    `<label>${S.restLabel}<input name="rest" type="number" inputmode="decimal" min="0" max="24" step="0.5" value="${plan?.rest ?? 11}"></label>` +
-    `<p class="fine">${S.restHelp}</p>` +
     `<div class="me-edit-row"><button type="submit" class="btn primary">${S.save}</button></div>` +
     (inPanel ? "" : `<p class="me-msg" role="status">${escapeHtml(state.message)}</p>`) + `</form>`
   if (inPanel) return body
@@ -356,8 +352,6 @@ function submitSetup(form) {
     return render()
   }
   const next = newPlan(mondayOfIsoWeek(year, week), ranges, plan)
-  const rest = Number(form.elements.rest.value)
-  if (rest >= 0 && rest <= 24) next.rest = rest
   state.monday = next.anchor === plan?.anchor ? state.monday : next.anchor
   store(allToTray(roster, next, state.monday, timeOf), S.setupDone)
   render()
