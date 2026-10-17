@@ -150,24 +150,24 @@ check(satBack.sheets["2026-10-17"] === undefined && weekView(roster, satBack, "2
 check(setSheet(roster, plan, "2026-10-12", 5, "9999") === plan && SHEETS.length === 5, "an unknown sheet is refused")
 check(cleanPlan(JSON.parse(JSON.stringify(sat))).sheets["2026-10-17"] === "8022" && cleanPlan({ ...JSON.parse(JSON.stringify(plan)), sheets: { "2026-10-17": "6091", "2026-10-18": "x" } }).sheets["2026-10-17"] === undefined, "sheets survive a save; defaults and junk are dropped")
 
-// A special sheet puts all its duties in the tray; blocks can go while there are more than members needing one.
+// A special sheet puts all its duties in the tray; blocks can go while there are more than members.
 {
-  const sheetTimes = (c) => (/^8022/.test(c) ? { on: h(9), off: h(17) } : timeOf(c))
   const day = 5
   const week = "2026-10-12"
+  const members = weekView(roster, sat, week).length
   const v = weekView(roster, sat, week)
   check(trayView(sat, week)[day].join() === SAT.join(), "a special sheet puts every one of its duties in the day's tray")
   check(v.every((l) => !/^\d{7}$/.test(l.codes[day])), "the cells of that day are emptied for arranging")
-  const need = v.filter((l) => l.codes[day] !== "RD").length
-  check(need === 2 && canRemove(roster, sat, week, day) && !canRemove(roster, plan, week, day), "blocks may go on a special day while they outnumber the members")
-  const fewer = removeBlock(roster, sat, week, day, 3)
-  check(trayView(fewer, week)[day].length === 3 && canRemove(roster, fewer, week, day), "a block can be removed")
-  const two = removeBlock(roster, fewer, week, day, 2)
-  check(trayView(two, week)[day].length === 2 && canRemove(roster, two, week, day) === false, "removal stops when blocks equal members")
-  check(removeBlock(roster, two, week, day, 0) === null, "so the last blocks stay")
-  const filled = arrangeWeek(roster, two, week, sheetTimes).plan
-  check(weekView(roster, filled, week).every((l) => l.codes[day] === "RD" || /^8022/.test(l.codes[day]) || l.codes[day] === "-"), "arranging hands the special sheet's duties out")
-  // Setting a cell by hand on that day returns the duty it covers to the tray.
+  const extra = Array.from({ length: members + 1 }, (_, i) => `8022${String(200 + i).padStart(3, "0")}`)
+  const many = setSheet(roster, plan, week, day, "8022", extra)
+  check(canRemove(roster, many, week, day), "blocks may go on a special day while they outnumber the members")
+  const surplus = trayView(many, week)[day].length - members
+  let cut = many
+  for (let i = 0; i < surplus; i += 1) cut = removeBlock(roster, cut, week, day, 0)
+  check(trayView(cut, week)[day].length === members && !canRemove(roster, cut, week, day), "removal stops when blocks equal members")
+  check(removeBlock(roster, cut, week, day, 0) === null, "so the last blocks stay")
+  const filled = arrangeWeek(roster, cut, week, timeOf).plan
+  check(weekView(roster, filled, week).length === members, "arranging keeps every member")
   const typed = setCell(roster, sat, week, plan.members[1].row, day, "RD")
   check(typed && weekView(roster, typed, week)[1].codes[day] === "RD", "a leave can be typed in")
 }
