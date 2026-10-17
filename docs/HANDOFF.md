@@ -13,6 +13,7 @@ Ice WONG first asked (2026-10-15, TML-traffic project thread) for an admin back 
 - Special days (for example 8022 on 2026-10-24 and 8023 on 2026-10-25): use the default roster cell and let Ice change the day by hand; no automatic mapping from 6091xxx to 8022xxx.
 - The CSV Ice pasted had shifted rows; the import parser reports lines with the wrong number of cells instead of guessing. Cells that name a duty missing from a sheet (Ice skips 1101185 and 7091150) show "找不到更份 … 資料".
 - 編更 (2026-10-17, Ice): team = rows of a base week (Week 42: 31–40 and 55–70), +1 row a week. 死早 = book on before 06:30, 死夜 = book off after 00:30. Defaults picked by Claude, open to change: swaps only within one day's team cells, RD/AL/SH/HC stay with the row, 11 h minimum rest as a warning (the Standard Roster itself has a few gaps under 11 h), times from `data/duty-basic.json`.
+- 編更 v0.7.0 (Ice's feedback, 2026-10-17): 11 h minimum rest confirmed; HC is edited by Ice by hand (auto-arrange never touches it); preferences set inline per member; drag and drop swaps; a 積木區 tray holds duties taken out of cells. An emptied cell holds `EMPTY` ("-"); trays live in the plan under `trays`.
 - Service day changes at 04:00 Hong Kong time (`lib/tml-time.js`).
 
 ## Where things are

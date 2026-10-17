@@ -4,11 +4,11 @@
 // only in this browser's localStorage and never uploaded. Book-on/off times
 // come from data/duty-basic.json.
 
-import { SHIFTS, arrangeWeek, cleanPlan, clearWeek, isoWeek, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
+import { EMPTY, SHIFTS, arrangeWeek, cleanPlan, clearWeek, fromTray, isoWeek, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, restIssues, setCell, shiftOf, swapCells, toTray, trayView, weekView } from "../lib/tml-plan.js"
 import { addDays, classify, cleanRoster, mondayOf, normaliseCode, weekDates } from "../lib/tml-roster.js"
 import { serviceDate } from "../lib/tml-time.js"
 
-const BUILD = { version: "0.6.0", commit: "dev" }
+const BUILD = { version: "0.7.0", commit: "dev" }
 const ROSTER_KEY = "tml-roster"
 const PLAN_KEY = "tml-roster-plan"
 
@@ -50,7 +50,7 @@ const S = {
   pinned: "手動改",
   tooShort: (h) => `休息只有 ${h} 小時`,
   selected: (who, day, code) => `${who} · 週${day}：${code}`,
-  selHelp: "再撳同一日另一格就對調；電腦可以直接拖放。",
+  selHelp: "再撳同一日另一格就對調；電腦直接拖放，手機長按後拖。",
   editLabel: "改做",
   editSave: "改",
   editReset: "還原 Standard",
@@ -58,10 +58,17 @@ const S = {
   badCode: "格式唔啱：請輸入 7 位更份編號，或者 RD、AL、SH、HC、HSP1 呢類代號",
   sameDay: "只可以同一日嘅格對調",
   swapped: "已對調",
-  arranged: (n, miss) => `已編排 ${n} 週${miss ? `；有 ${miss} 個更份冇人接，請手動處理` : ""}`,
-  membersTitle: "組員同偏好",
-  membersHelp: "填名同揀想做嘅更（可以揀多個；唔揀即係冇所謂）。行號係基準星期嗰行。",
-  namePh: "名",
+  arranged: (n, miss) => `已編排 ${n} 週${miss ? `；有 ${miss} 個更份冇人接，已放入積木區` : ""}`,
+  tray: "積木區",
+  trayHelp: "暫放更份嘅地方：將格仔拖入嚟，再拖去同一日嘅格仔。冇人接嘅更份會自動放呢度。",
+  trayNone: "—",
+  empty: "空",
+  toTray: "放入積木區",
+  blockSel: (day, code) => `積木 ${code} · 週${day}`,
+  blockHelp: "撳同一日一格放入去（該格原有更份會返去積木區）。",
+  trayed: "已放入積木區",
+  placed: "已放入",
+  noMove: "呢樣唔可以咁調（休息日、假期唔郁；HC 可以放入更份）",
   settingsTitle: "設定／備份",
   backupHelp: "編更資料只存喺呢部機。換機或者交俾其他人之前，先匯出。",
   exportJson: "匯出備份",
@@ -76,6 +83,7 @@ const S = {
   legendRest: "紅框：休息唔夠鐘",
   legendPin: "📌 手動改",
   legendMiss: "• 唔係偏好",
+  legendHc: "HC 待定：自己改，或者放積木入去",
   back: "‹ 我的更表",
 }
 
@@ -135,7 +143,16 @@ function render() {
     view.innerHTML = `<p class="empty">${S.noRoster}</p><div class="me-foot"><a class="btn" href="./">${S.toRoster}</a></div>`
     return
   }
-  view.innerHTML = plan ? weekHtml() + membersHtml() + settingsHtml() : setupHtml()
+  // Repainting must not throw the reader back to the top of a long table.
+  const table = view.querySelector(".ptable")
+  const keep = table ? [table.scrollLeft, table.scrollTop, window.scrollY] : null
+  view.innerHTML = plan ? weekHtml() + settingsHtml() : setupHtml()
+  const fresh = view.querySelector(".ptable")
+  if (keep && fresh) {
+    fresh.scrollLeft = keep[0]
+    fresh.scrollTop = keep[1]
+    window.scrollTo(0, keep[2])
+  }
 }
 
 function setupHtml(inPanel = false) {
@@ -178,15 +195,17 @@ function weekHtml() {
       const c = classify(code)
       const short = issues.get(`${line.member.row}:${d}`)
       const sel = state.sel && state.sel.row === line.member.row && state.sel.day === d
-      const label = c.kind === "status" ? S.status[c.code] ?? c.code : code
-      return `<td><button type="button" class="pcell" draggable="true" data-row="${line.member.row}" data-day="${d}"` +
-        ` data-shift="${shift}" data-kind="${t ? "duty" : c.kind}"${sel ? ' data-sel="1"' : ""}${short != null ? ` data-short="1" title="${S.tooShort((short / 3600).toFixed(1))}"` : ""}>` +
+      const blank = code === EMPTY
+      const label = blank ? S.empty : c.kind === "status" ? S.status[c.code] ?? c.code : code
+      return `<td><button type="button" class="pcell" data-row="${line.member.row}" data-day="${d}"` +
+        ` data-shift="${shift}" data-kind="${t ? "duty" : blank ? "empty" : c.kind}"${code === "HC" ? ' data-hc="1"' : ""}${sel ? ' data-sel="1"' : ""}${short != null ? ` data-short="1" title="${S.tooShort((short / 3600).toFixed(1))}"` : ""}>` +
         `<b>${escapeHtml(label)}${line.pins[d] ? `<i class="pin" title="${S.pinned}">📌</i>` : ""}${miss ? `<i class="miss" aria-label="唔係偏好">•</i>` : ""}</b>` +
         (t ? `<small>${hhmm(t.on)}–${hhmm(t.off)}</small><span class="ptag">${S.shift[shift]}</span>` : "") +
         `</button></td>`
     }).join("")
-    const prefs = line.member.prefs.map((p) => `<span class="ptag" data-shift="${p}">${S.shift[p]}</span>`).join("")
-    return `<tr><th class="who"><b>${escapeHtml(who(line.member))}</b><small>${S.rowNow(line.row)}</small><span class="prefs">${prefs}</span></th>${cells}` +
+    const chips = SHIFTS.map((sh) => `<button type="button" class="pchip" data-row="${line.member.row}" data-shift="${sh}" aria-pressed="${line.member.prefs.includes(sh)}">${S.shift[sh]}</button>`).join("")
+    return `<tr><th class="who"><input class="p-name" data-row="${line.member.row}" value="${escapeHtml(line.member.name)}" placeholder="#${line.member.row}" maxlength="40" aria-label="${S.member}">` +
+      `<small>${S.rowNow(line.row)}</small><span class="pchips">${chips}</span></th>${cells}` +
       `<td class="sum">${work ? `${hits}/${work}` : "—"}</td><td class="sum">${hours ? hours.toFixed(1) : "—"}</td></tr>`
   }).join("")
   // How many duty days match a preference, now and in the Standard Roster.
@@ -214,31 +233,48 @@ function weekHtml() {
     `<p class="fine plan-fit">${S.fitLine(fitNow.hit, fitNow.all, fitStd.hit, issues.size)}</p>` +
     selHtml(lines) +
     `<div class="ptable"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>` +
-    `<p class="legend plan-legend">${legend}<span>${S.legendRest}</span><span>${S.legendPin}</span><span>${S.legendMiss}</span></p>` +
+    trayHtml() +
+    `<p class="legend plan-legend">${legend}<span>${S.legendRest}</span><span>${S.legendPin}</span><span>${S.legendMiss}</span><span>${S.legendHc}</span></p>` +
     `<p class="fine">${S.arrangeHelp}</p>` +
     (state.exportText ? `<textarea class="me-export-box" readonly rows="6">${escapeHtml(state.exportText)}</textarea>` : "")
 }
 
-// The bar for the selected cell: change it, put it back, or tap another to swap.
+// The bar for the selected cell or block: change it, put it away, or tap another to place it.
 function selHtml(lines) {
-  if (!state.sel) return ""
-  const line = lines.find((item) => item.member.row === state.sel.row)
+  const sel = state.sel
+  if (!sel) return ""
+  if (sel.type === "block") {
+    const code = trayView(plan, state.monday)[sel.day][sel.index]
+    if (code == null) return ""
+    return `<form class="plan-sel panel" autocomplete="off"><div><b>${escapeHtml(S.blockSel(S.weekdays[sel.day], code))}</b><span class="meta">${S.blockHelp}</span></div>` +
+      `<div class="me-edit-row"><button type="button" class="btn p-cancel">${S.cancel}</button></div></form>`
+  }
+  const line = lines.find((item) => item.member.row === sel.row)
   if (!line) return ""
-  const d = state.sel.day
-  return `<form class="plan-sel panel" autocomplete="off"><div><b>${escapeHtml(S.selected(who(line.member), S.weekdays[d], line.codes[d]))}</b>` +
+  const d = sel.day
+  return `<form class="plan-sel panel" autocomplete="off"><div><b>${escapeHtml(S.selected(who(line.member), S.weekdays[d], line.codes[d] === EMPTY ? S.empty : line.codes[d]))}</b>` +
     `<span class="meta">Standard：${escapeHtml(line.std[d])} · ${S.selHelp}</span></div>` +
-    `<div class="me-edit-row"><label class="meta">${S.editLabel} <input name="code" value="${escapeHtml(line.codes[d])}" maxlength="10" autocapitalize="characters" spellcheck="false"></label>` +
+    `<div class="me-edit-row"><label class="meta">${S.editLabel} <input name="code" value="${line.codes[d] === EMPTY ? "" : escapeHtml(line.codes[d])}" maxlength="10" autocapitalize="characters" spellcheck="false"></label>` +
     `<button type="submit" class="btn primary">${S.editSave}</button>` +
+    (timeOf(line.codes[d]) ? `<button type="button" class="btn p-to-tray">${S.toTray}</button>` : "") +
     (line.pins[d] ? `<button type="button" class="btn p-cell-reset">${S.editReset}</button>` : "") +
     `<button type="button" class="btn p-cancel">${S.cancel}</button></div></form>`
 }
 
-function membersHtml() {
-  const rows = plan.members.map((m) =>
-    `<li><span class="mrow">#${m.row}</span><input class="p-name" data-row="${m.row}" value="${escapeHtml(m.name)}" placeholder="${S.namePh}" maxlength="40">` +
-    `<span class="pchips">${SHIFTS.map((s) => `<button type="button" class="pchip" data-row="${m.row}" data-shift="${s}" aria-pressed="${m.prefs.includes(s)}">${S.shift[s]}</button>`).join("")}</span></li>`).join("")
-  return `<details class="panel plan-members"${plan.members.some((m) => m.prefs.length) ? "" : " open"}><summary>${S.membersTitle}（${plan.members.length}）</summary>` +
-    `<p class="fine">${S.membersHelp}</p><ul class="mlist">${rows}</ul></details>`
+// 積木區: duties taken out of cells, one column per day, waiting to be dropped.
+function trayHtml() {
+  const tray = trayView(plan, state.monday)
+  const cols = tray.map((codes, d) => {
+    const blocks = codes.map((code, i) => {
+      const t = timeOf(code)
+      const shift = t ? shiftOf(t.on, t.off) : ""
+      const sel = state.sel?.type === "block" && state.sel.day === d && state.sel.index === i
+      return `<button type="button" class="block" data-day="${d}" data-index="${i}" data-shift="${shift}" data-kind="duty"${sel ? ' data-sel="1"' : ""}>` +
+        `<b>${escapeHtml(code)}</b>${t ? `<small>${hhmm(t.on)}–${hhmm(t.off)}</small><span class="ptag">${S.shift[shift]}</span>` : ""}</button>`
+    }).join("")
+    return `<div class="tray-col" data-day="${d}"><span class="tray-day">${S.weekdays[d]}</span><div class="tray-blocks">${blocks || `<span class="tray-none">${S.trayNone}</span>`}</div></div>`
+  }).join("")
+  return `<section class="tray panel" aria-label="${S.tray}"><div class="tray-head"><b>${S.tray}</b><span class="meta">${S.trayHelp}</span></div><div class="tray-cols">${cols}</div></section>`
 }
 
 function settingsHtml() {
@@ -290,13 +326,26 @@ function arrange(weeks) {
   render()
 }
 
-function swap(a, b) {
-  if (a.day !== b.day) {
+// One move, from a drag or from two taps. source: a cell or a tray block;
+// target: a cell or a day's tray. Everything happens within one day.
+function act(source, target) {
+  state.sel = null
+  if (source.day !== target.day) {
     state.message = S.sameDay
     return render()
   }
-  state.sel = null
-  store(swapCells(roster, plan, state.monday, a.row, b.row, a.day), S.swapped)
+  let next = null
+  let message = S.swapped
+  if (source.type === "cell" && target.type === "cell") next = swapCells(roster, plan, state.monday, source.row, target.row, source.day, timeOf)
+  else if (source.type === "cell" && target.type === "tray") {
+    next = toTray(roster, plan, state.monday, source.row, source.day, timeOf)
+    message = S.trayed
+  } else if (source.type === "block" && target.type === "cell") {
+    next = fromTray(roster, plan, state.monday, target.row, source.day, source.index, timeOf)
+    message = S.placed
+  } else return render()
+  if (next) store(next, message)
+  else state.message = S.noMove
   render()
 }
 
@@ -308,15 +357,32 @@ function weekCsv() {
   return out.join("\n")
 }
 
+let suppressClick = false
+
 function onClick(event) {
+  if (suppressClick) return
   const t = event.target
   const cell = t.closest(".pcell")
-  if (cell) {
-    const here = { row: Number(cell.dataset.row), day: Number(cell.dataset.day) }
-    if (state.sel && state.sel.row === here.row && state.sel.day === here.day) state.sel = null
-    else if (state.sel && state.sel.day === here.day) return swap(state.sel, here)
-    else state.sel = here
+  const block = t.closest(".block")
+  const col = t.closest(".tray-col")
+  if (cell || block || col) {
+    const sel = state.sel
+    const here = cell
+      ? { type: "cell", row: Number(cell.dataset.row), day: Number(cell.dataset.day) }
+      : block
+        ? { type: "block", day: Number(block.dataset.day), index: Number(block.dataset.index) }
+        : { type: "tray", day: Number(col.dataset.day) }
     state.message = ""
+    const same = sel && sel.type === here.type && sel.day === here.day && sel.row === here.row && sel.index === here.index
+    if (!sel) state.sel = here.type === "tray" ? null : here
+    else if (same) state.sel = null
+    else if (here.type === "tray") {
+      if (sel.type === "cell") return act(sel, here)
+      state.sel = null
+    } else if (sel.type === "cell" && here.type === "block") return act(here, sel)
+    else if (sel.type === "block" && here.type === "cell") return act(sel, here)
+    else if (sel.type === "cell" && here.type === "cell") return act(sel, here)
+    else state.sel = here
     return render()
   }
   const chip = t.closest(".pchip")
@@ -325,12 +391,10 @@ function onClick(event) {
     const members = plan.members.map((m) => {
       if (m.row !== row) return m
       const prefs = m.prefs.includes(chip.dataset.shift) ? m.prefs.filter((p) => p !== chip.dataset.shift) : [...m.prefs, chip.dataset.shift]
-      return { ...m, prefs: SHIFTS.filter((s) => prefs.includes(s)) }
+      return { ...m, prefs: SHIFTS.filter((sh) => prefs.includes(sh)) }
     })
     store({ ...plan, members })
-    render()
-    view.querySelector(".plan-members")?.setAttribute("open", "")
-    return
+    return render()
   }
   if (t.closest(".p-prev")) state.monday = addDays(state.monday, -7)
   else if (t.closest(".p-next")) state.monday = addDays(state.monday, 7)
@@ -338,6 +402,7 @@ function onClick(event) {
   else if (t.closest(".p-arrange")) return arrange(1)
   else if (t.closest(".p-arrange-more")) return arrange(state.weeks)
   else if (t.closest(".p-cancel")) state.sel = null
+  else if (t.closest(".p-to-tray")) return act(state.sel, { type: "tray", day: state.sel.day })
   else if (t.closest(".p-cell-reset")) {
     store(setCell(roster, plan, state.monday, state.sel.row, state.sel.day, null))
     state.sel = null
@@ -394,28 +459,113 @@ function onSubmit(event) {
   }
 }
 
-// Drag a cell onto another cell of the same day to swap them (mouse / pen).
-let dragFrom = null
-function onDrag(event) {
-  const cell = event.target.closest?.(".pcell")
-  if (event.type === "dragstart") {
-    if (!cell) return
-    dragFrom = { row: Number(cell.dataset.row), day: Number(cell.dataset.day) }
-    event.dataTransfer.effectAllowed = "move"
-    event.dataTransfer.setData("text/plain", `${dragFrom.row}:${dragFrom.day}`)
-    view.classList.add("dragging")
-    view.querySelectorAll(`.pcell[data-day="${dragFrom.day}"]`).forEach((el) => el.setAttribute("data-target", "1"))
-  } else if (event.type === "dragover") {
-    if (cell && dragFrom && Number(cell.dataset.day) === dragFrom.day) event.preventDefault()
-  } else if (event.type === "drop") {
-    event.preventDefault()
-    if (cell && dragFrom) swap(dragFrom, { row: Number(cell.dataset.row), day: Number(cell.dataset.day) })
-    dragFrom = null
-  } else if (event.type === "dragend") {
-    dragFrom = null
-    view.classList.remove("dragging")
-    view.querySelectorAll(".pcell[data-target]").forEach((el) => el.removeAttribute("data-target"))
+// Drag and drop with pointer events, so mouse, pen and touch all work. A mouse
+// starts dragging after a few pixels; a finger after a short hold (moving
+// sooner just scrolls). Duty cells and tray blocks can be picked up; cells of
+// the same day and that day's tray column are the places to drop.
+let press = null
+
+const sourceOf = (el) => (el.classList.contains("block")
+  ? { type: "block", day: Number(el.dataset.day), index: Number(el.dataset.index) }
+  : { type: "cell", row: Number(el.dataset.row), day: Number(el.dataset.day) })
+
+function targetAt(x, y) {
+  const el = document.elementFromPoint(x, y)?.closest(".pcell[data-target], .tray-col[data-target]")
+  if (!el) return null
+  return el.classList.contains("tray-col")
+    ? { type: "tray", day: Number(el.dataset.day), el }
+    : { type: "cell", row: Number(el.dataset.row), day: Number(el.dataset.day), el }
+}
+
+function startDrag() {
+  const { el, src } = press
+  press.started = true
+  const box = el.getBoundingClientRect()
+  press.ghost = el.cloneNode(true)
+  press.ghost.classList.add("pghost")
+  press.ghost.style.width = `${box.width}px`
+  document.body.append(press.ghost)
+  view.classList.add("dragging")
+  view.querySelectorAll(`.pcell[data-day="${src.day}"], .tray-col[data-day="${src.day}"]`).forEach((node) => node.setAttribute("data-target", "1"))
+  el.setAttribute("data-lifted", "1")
+  press.scroller = setInterval(autoScroll, 40)
+  moveGhost()
+}
+
+function moveGhost() {
+  const { ghost, x, y } = press
+  ghost.style.left = `${x - ghost.offsetWidth / 2}px`
+  ghost.style.top = `${y - ghost.offsetHeight / 2}px`
+  view.querySelectorAll("[data-over]").forEach((node) => node.removeAttribute("data-over"))
+  targetAt(x, y)?.el.setAttribute("data-over", "1")
+}
+
+// Near the top or bottom edge of the table, keep it scrolling while the pointer is held there.
+function autoScroll() {
+  const table = view.querySelector(".ptable")
+  if (!table || !press) return
+  const box = table.getBoundingClientRect()
+  if (press.x < box.left || press.x > box.right) return
+  if (press.y < box.top + 36 && press.y > box.top - 40) table.scrollTop -= 14
+  else if (press.y > box.bottom - 36 && press.y < box.bottom + 40) table.scrollTop += 14
+}
+
+function endPress(drop) {
+  const done = press
+  press = null
+  document.removeEventListener("pointermove", onPointerMove)
+  document.removeEventListener("pointerup", onPointerUp)
+  document.removeEventListener("pointercancel", onPointerCancel)
+  clearTimeout(done.timer)
+  if (!done.started) return
+  clearInterval(done.scroller)
+  done.ghost.remove()
+  view.classList.remove("dragging")
+  const target = drop ? targetAt(done.x, done.y) : null
+  view.querySelectorAll("[data-target], [data-over], [data-lifted]").forEach((node) => {
+    node.removeAttribute("data-target")
+    node.removeAttribute("data-over")
+    node.removeAttribute("data-lifted")
+  })
+  // The click that follows a drag must not also select a cell.
+  suppressClick = true
+  setTimeout(() => { suppressClick = false }, 60)
+  if (target) act(done.src, target)
+}
+
+function onPointerMove(event) {
+  if (!press || event.pointerId !== press.id) return
+  const far = Math.hypot(event.clientX - press.startX, event.clientY - press.startY)
+  press.x = event.clientX
+  press.y = event.clientY
+  if (!press.started) {
+    if (press.touch) {
+      if (far > 8) endPress(false)
+    } else if (far >= 5) startDrag()
+    return
   }
+  moveGhost()
+}
+
+const onPointerUp = (event) => {
+  if (press && event.pointerId === press.id) endPress(true)
+}
+const onPointerCancel = (event) => {
+  if (press && event.pointerId === press.id) endPress(false)
+}
+
+function onPointerDown(event) {
+  if (press || (event.pointerType === "mouse" && event.button !== 0)) return
+  const el = event.target.closest(".block, .pcell[data-kind='duty']")
+  if (!el) return
+  press = {
+    el, src: sourceOf(el), id: event.pointerId, touch: event.pointerType !== "mouse",
+    startX: event.clientX, startY: event.clientY, x: event.clientX, y: event.clientY, started: false,
+  }
+  if (press.touch) press.timer = setTimeout(() => { if (press) startDrag() }, 320)
+  document.addEventListener("pointermove", onPointerMove)
+  document.addEventListener("pointerup", onPointerUp)
+  document.addEventListener("pointercancel", onPointerCancel)
 }
 
 async function boot() {
@@ -435,13 +585,19 @@ async function boot() {
       const row = Number(event.target.dataset.row)
       store({ ...plan, members: plan.members.map((m) => (m.row === row ? { ...m, name: event.target.value.trim().slice(0, 40) } : m)) })
       render()
-      view.querySelector(".plan-members")?.setAttribute("open", "")
     } else if (event.target.matches(".p-weeks")) {
       state.weeks = Math.min(26, Math.max(1, Number(event.target.value) || 1))
       render()
     }
   })
-  for (const type of ["dragstart", "dragover", "drop", "dragend"]) view.addEventListener(type, onDrag)
+  view.addEventListener("pointerdown", onPointerDown)
+  // Once a held finger has picked something up, the page must not scroll under it.
+  document.addEventListener("touchmove", (event) => {
+    if (press?.started) event.preventDefault()
+  }, { passive: false })
+  view.addEventListener("contextmenu", (event) => {
+    if (event.target.closest(".pcell, .block")) event.preventDefault()
+  })
   document.getElementById("foot").innerHTML =
     `<a href="./">${S.back}</a> · v${BUILD.version} · ${BUILD.commit === "dev" ? "dev" : `commit ${escapeHtml(BUILD.commit)}`} · 編更資料只存喺呢部機`
   render()

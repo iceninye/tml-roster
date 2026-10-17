@@ -1,7 +1,7 @@
 // Checks lib/tml-plan.js on a made-up roster and made-up duty times
 // (real rosters and staff never go in the repo):
 //   node tools/validate_plan.mjs
-import { arrangeWeek, assign, cleanPlan, isoWeek, memberRow, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
+import { EMPTY, arrangeWeek, assign, cleanPlan, fromTray, toTray, trayView, isoWeek, memberRow, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
 import { newRoster, parseRoster } from "../lib/tml-roster.js"
 
 let failed = 0
@@ -65,12 +65,35 @@ check(restIssues(roster, done, "2026-10-12", timeOf).length === 0, "the arranged
 const tight = setCell(roster, plan, "2026-10-12", 3, 1, "1101001")
 check(restIssues(roster, tight, "2026-10-12", timeOf).some((x) => x.row === 3 && x.day === 1), "night then dawn is flagged as too little rest")
 
-const swapped = swapCells(roster, plan, "2026-10-12", 2, 4, 0)
+const swapped = swapCells(roster, plan, "2026-10-12", 2, 4, 0, timeOf)
 const sw = weekView(roster, swapped, "2026-10-12")
 check(sw[0].codes[0] === "1101002" && sw[2].codes[0] === "1101001" && sw[0].pins[0] && sw[2].pins[0], "a swap trades the two cells and pins both")
 const rearranged = weekView(roster, arrangeWeek(roster, swapped, "2026-10-12", timeOf).plan, "2026-10-12")
 check(rearranged[0].codes[0] === "1101002" && rearranged[2].codes[0] === "1101001", "arranging again keeps pinned cells")
 
+// Tray: take a duty out of a cell, drop it on another.
+const out = toTray(roster, plan, "2026-10-12", 2, 1, timeOf)
+const outLines = weekView(roster, out, "2026-10-12")
+check(outLines[0].codes[1] === EMPTY && outLines[0].pins[1] && trayView(out, "2026-10-12")[1].join() === "1101002", "a duty taken out of a cell sits in that day's tray and leaves the cell empty")
+check(toTray(roster, plan, "2026-10-12", 2, 2, timeOf) === null, "a rest day cannot go to the tray")
+const back = fromTray(roster, out, "2026-10-12", 3, 1, 0, timeOf)
+const backLines = weekView(roster, back, "2026-10-12")
+check(backLines[1].codes[1] === "1101002" && trayView(back, "2026-10-12")[1].join() === "1101003", "dropping a tray duty on an occupied cell sends that cell's duty back to the tray")
+check(fromTray(roster, out, "2026-10-12", 2, 2, 0, timeOf) === null && fromTray(roster, out, "2026-10-12", 4, 5, 0, timeOf) === null, "a tray duty does not go on a rest day or another day's cell")
+const emptyDrop = fromTray(roster, out, "2026-10-12", 2, 1, 0, timeOf)
+check(weekView(roster, emptyDrop, "2026-10-12")[0].codes[1] === "1101002" && trayView(emptyDrop, "2026-10-12")[1].length === 0, "a tray duty put back on its empty cell empties the tray")
+check(restIssues(roster, out, "2026-10-12", timeOf).every((x) => !(x.row === 2 && x.day === 1)), "an empty cell has no rest problem")
+// HC (pending) is filled by hand: a duty moved there leaves its old cell empty.
+const hcPlan = newPlan("2026-10-12", "2,4,5")
+const hcRoster = newRoster(parseRoster(csv.replace("5,RD,RD,RD,RD,RD,RD,RD", "5,HC,RD,RD,RD,RD,RD,RD")), { row: 1, monday: "2026-10-12" })
+const hcMove = swapCells(hcRoster, hcPlan, "2026-10-12", 2, 5, 0, timeOf)
+const hcLines = weekView(hcRoster, hcMove, "2026-10-12")
+check(hcLines[0].codes[0] === EMPTY && hcLines[2].codes[0] === "1101001", "a duty dropped on an HC cell moves there")
+check(swapCells(hcRoster, hcPlan, "2026-10-12", 2, 4, 2, timeOf) === null, "a rest day does not swap")
+// A pinned empty cell leaves its duty in the tray after arranging.
+const emptied = arrangeWeek(roster, toTray(roster, plan, "2026-10-12", 2, 1, timeOf), "2026-10-12", timeOf)
+check(trayView(emptied.plan, "2026-10-12")[1].length === 1 && emptied.unassigned.length === 1, "arranging with an emptied cell leaves one duty unassigned, in the tray")
+check(cleanPlan(JSON.parse(JSON.stringify(emptied.plan)))?.trays["2026-10-12"]?.[1]?.length === 1, "trays survive a save")
 check(cleanPlan(JSON.parse(JSON.stringify(done)))?.members.length === 3, "a saved plan reads back")
 check(cleanPlan({ v: 1, anchor: "2026-10-12", members: [{ row: 1 }, { row: 1 }] }) === null, "a plan with a member twice is refused")
 const moved = newPlan("2026-10-12", "3-5", done)

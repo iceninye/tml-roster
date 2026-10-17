@@ -1,6 +1,13 @@
 # Changelog
 
-## v0.6.0 — unreleased
+## v0.7.0 — unreleased
+- 編更: a 積木區 (tray) under the table. Drag a duty out of a cell into its day's column, then drop it on any cell of the same day; a duty already there goes back to the tray. Duties nobody can take after auto-arranging land there too.
+- Drag and drop now uses pointer events: mouse drags at once, touch after a short hold (moving sooner scrolls the table); drop targets light up, the table scrolls near its edges, and cells of the same day swap. Tapping a cell then another cell, a block or a tray column does the same.
+- Member names and preferred shifts are set right in the table; the separate members panel is gone.
+- HC (pending) cells are never touched by auto-arrange; fill them by hand or with a block.
+- The table keeps its scroll position after each change.
+
+## v0.6.0 — 2026-10-17
 - New 編更 page (`plan.html`): pick a base week and the team's rows (for example Week 42, rows 31–40 and 55–70); every later week each member moves one row down, wrapping after the last row.
 - Each member gets a name and preferred shifts: 死早 (book on before 06:30), 早, 中, 夜, 死夜 (book off after 00:30).
 - 按偏好自動編排 hands round the team's duties of each day (never across days; rest days and leave stay) to match preferences, spread misses fairly and keep the minimum rest (11 h by default, flagged in red when short). It can run over several weeks in a row.
