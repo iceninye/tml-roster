@@ -23,6 +23,8 @@ check(parseRoster("1101101 RD RD 1101104 1101105 RD RD").rows.length === 1, "whi
 check(parseRoster("1,1101101,RD").issues.length === 1, "a short line is reported, not guessed")
 check(parseRoster("1,1101101,RD,RD,RD,RD,RD,??").issues.length === 1, "a cell that is no duty or status is reported")
 
+const withNames = parseRoster(",Name,Mon,Tue,Wed,Thu,Fri,Sat,Sun\n1,,1101101,RD,RD,RD,RD,RD,RD\n2,Chan Tai Man,1101102,RD,RD,RD,RD,RD,RD")
+check(withNames.issues.length === 0 && withNames.rows.length === 2 && withNames.names.join("|") === "|Chan Tai Man" && withNames.numbers.join() === "1,2", "a Name column is read and its header line skipped")
 const roster = newRoster(parsed, { row: 8, monday: "2026-10-12" })
 check(weekdayIndex("2026-10-12") === 0 && weekdayIndex("2026-10-18") === 6, "12 Oct 2026 is a Monday and 18 Oct a Sunday")
 check(mondayOf("2026-10-18") === "2026-10-12" && mondayOf("2026-10-19") === "2026-10-19", "a week runs Monday to Sunday")

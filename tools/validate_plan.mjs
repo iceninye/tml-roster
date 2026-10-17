@@ -1,7 +1,7 @@
 // Checks lib/tml-plan.js on a made-up roster and made-up duty times
 // (real rosters and staff never go in the repo):
 //   node tools/validate_plan.mjs
-import { arrangeWeek, assign, cleanPlan, isoWeek, memberRow, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
+import { EMPTY, SHEETS, formatRanges, leaveToTray, namedRows, arrangeWeek, defaultSheet, mapCode, setSheet, sheetOf, assign, cleanPlan, fromTray, toTray, trayView, isoWeek, memberRow, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
 import { newRoster, parseRoster } from "../lib/tml-roster.js"
 
 let failed = 0
@@ -65,16 +65,76 @@ check(restIssues(roster, done, "2026-10-12", timeOf).length === 0, "the arranged
 const tight = setCell(roster, plan, "2026-10-12", 3, 1, "1101001")
 check(restIssues(roster, tight, "2026-10-12", timeOf).some((x) => x.row === 3 && x.day === 1), "night then dawn is flagged as too little rest")
 
-const swapped = swapCells(roster, plan, "2026-10-12", 2, 4, 0)
+const swapped = swapCells(roster, plan, "2026-10-12", 2, 4, 0, timeOf)
 const sw = weekView(roster, swapped, "2026-10-12")
 check(sw[0].codes[0] === "1101002" && sw[2].codes[0] === "1101001" && sw[0].pins[0] && sw[2].pins[0], "a swap trades the two cells and pins both")
 const rearranged = weekView(roster, arrangeWeek(roster, swapped, "2026-10-12", timeOf).plan, "2026-10-12")
 check(rearranged[0].codes[0] === "1101002" && rearranged[2].codes[0] === "1101001", "arranging again keeps pinned cells")
 
+// Tray: take a duty out of a cell, drop it on another.
+const out = toTray(roster, plan, "2026-10-12", 2, 1, timeOf)
+const outLines = weekView(roster, out, "2026-10-12")
+check(outLines[0].codes[1] === EMPTY && outLines[0].pins[1] && trayView(out, "2026-10-12")[1].join() === "1101002", "a duty taken out of a cell sits in that day's tray and leaves the cell empty")
+check(toTray(roster, plan, "2026-10-12", 4, 3, timeOf) !== null && toTray(roster, plan, "2026-10-12", 2, 1, (c) => null) === null, "a rest day or leave goes to the tray; a code that is neither does not")
+const back = fromTray(roster, out, "2026-10-12", 3, 1, 0, timeOf)
+const backLines = weekView(roster, back, "2026-10-12")
+check(backLines[1].codes[1] === "1101002" && trayView(back, "2026-10-12")[1].join() === "1101003", "dropping a tray duty on an occupied cell sends that cell's duty back to the tray")
+check(fromTray(roster, out, "2026-10-12", 4, 5, 0, timeOf) === null, "a tray block is not placed on another day's cell")
+const emptyDrop = fromTray(roster, out, "2026-10-12", 2, 1, 0, timeOf)
+check(weekView(roster, emptyDrop, "2026-10-12")[0].codes[1] === "1101002" && trayView(emptyDrop, "2026-10-12")[1].length === 0, "a tray duty put back on its empty cell empties the tray")
+check(restIssues(roster, out, "2026-10-12", timeOf).every((x) => !(x.row === 2 && x.day === 1)), "an empty cell has no rest problem")
+// HC (pending) is filled by hand: a duty moved there leaves its old cell empty.
+const hcPlan = newPlan("2026-10-12", "2,4,5")
+const hcRoster = newRoster(parseRoster(csv.replace("5,RD,RD,RD,RD,RD,RD,RD", "5,HC,RD,RD,RD,RD,RD,RD")), { row: 1, monday: "2026-10-12" })
+const hcMove = swapCells(hcRoster, hcPlan, "2026-10-12", 2, 5, 0, timeOf)
+const hcLines = weekView(hcRoster, hcMove, "2026-10-12")
+check(hcLines[0].codes[0] === EMPTY && hcLines[2].codes[0] === "1101001", "a duty dropped on an HC cell moves there")
+const rdSwap = weekView(hcRoster, swapCells(hcRoster, hcPlan, "2026-10-12", 2, 4, 1, timeOf), "2026-10-12")
+check(rdSwap[0].codes[1] === "1101005" && rdSwap[1].codes[1] === "1101001" || rdSwap[0].codes[1] !== "1101001", "a rest day swaps with a duty")
+// Rest and leave go to the tray in bulk and come back by hand; arranging keeps them there.
+const leaveOut = leaveToTray(roster, plan, "2026-10-12", timeOf)
+const lo = weekView(roster, leaveOut, "2026-10-12")
+check(lo.every((l) => l.codes.every((c) => c !== "RD" && c !== "AL")) && trayView(leaveOut, "2026-10-12")[2].join() === "RD", "leaveToTray moves every RD and AL of the week into the day trays")
+const keptLeave = arrangeWeek(roster, leaveOut, "2026-10-12", timeOf).plan
+check(trayView(keptLeave, "2026-10-12")[2].join() === "RD" && weekView(roster, keptLeave, "2026-10-12")[0].codes[2] === EMPTY, "arranging keeps leave blocks in the tray and the cells empty")
+const leaveBack = fromTray(roster, leaveOut, "2026-10-12", 2, 2, 0, timeOf)
+check(weekView(roster, leaveBack, "2026-10-12")[0].codes[2] === "RD" && trayView(leaveBack, "2026-10-12")[2].length === 0, "a leave block drops back on an empty cell")
+// A TBC cell is pending like HC.
+const tbcRoster = newRoster(parseRoster(csv.replace("5,RD,RD,RD,RD,RD,RD,RD", "5,TBC,TBC,TBC,TBC,TBC,TBC,TBC")), { row: 1, monday: "2026-10-12" })
+const tbcMove = weekView(tbcRoster, swapCells(tbcRoster, newPlan("2026-10-12", "2,4,5"), "2026-10-12", 2, 5, 0, timeOf), "2026-10-12")
+check(tbcMove[2].codes[0] === "1101001" && tbcMove[0].codes[0] === EMPTY, "a duty dropped on a TBC cell moves there")
+// Names: the rows with a name are the team.
+const named = parseRoster(",Name,Mon,Tue,Wed,Thu,Fri,Sat,Sun\n1,,1101001,RD,RD,RD,RD,RD,RD\n2,Ann,1101002,RD,RD,RD,RD,RD,RD\n3,,RD,RD,RD,RD,RD,RD,RD\n4,Bo,1101004,RD,RD,RD,RD,RD,RD\n5,Cy,TBC,TBC,TBC,TBC,TBC,TBC,TBC\n6,Di,TBC,TBC,TBC,TBC,TBC,TBC,TBC")
+const namedRoster = newRoster(named, { row: 1, monday: "2026-10-12" })
+check(named.issues.length === 0 && named.rows.length === 6 && namedRoster.names.join() === ",Ann,,Bo,Cy,Di", "a Name column is read and the header skipped")
+check(namedRows(namedRoster).join() === "2,4,5,6" && formatRanges([2, 4, 5, 6, 9, 10, 11, 12]) === "2, 4-6, 9-12", "rows with a name are the team, written as ranges")
+const np = newPlan("2026-10-12", formatRanges(namedRows(namedRoster)), null, namedRoster)
+check(np.members.map((m) => m.name).join() === "Ann,Bo,Cy,Di", "members take the names from the roster")
+check(memberRow(namedRoster, np, np.members[0], "2026-10-19") === 3 && memberRow(namedRoster, np, np.members[1], "2026-10-19") === 1, "rotation skips the pending rows (4 wraps to 1)")
+check(memberRow(namedRoster, np, np.members[2], "2026-10-26") === 5 && memberRow(namedRoster, np, np.members[3], "2026-11-09") === 6, "an all-TBC row stays on its own row every week")
+// A pinned empty cell leaves its duty in the tray after arranging.
+const emptied = arrangeWeek(roster, toTray(roster, plan, "2026-10-12", 2, 1, timeOf), "2026-10-12", timeOf)
+check(trayView(emptied.plan, "2026-10-12")[1].length === 1 && emptied.unassigned.length === 1, "arranging with an emptied cell leaves one duty unassigned, in the tray")
+check(cleanPlan(JSON.parse(JSON.stringify(emptied.plan)))?.trays["2026-10-12"]?.[1]?.length === 1, "trays survive a save")
 check(cleanPlan(JSON.parse(JSON.stringify(done)))?.members.length === 3, "a saved plan reads back")
 check(cleanPlan({ v: 1, anchor: "2026-10-12", members: [{ row: 1 }, { row: 1 }] }) === null, "a plan with a member twice is refused")
 const moved = newPlan("2026-10-12", "3-5", done)
 check(moved.members[0].prefs.join() === "dawn" && moved.members[2].prefs.length === 0, "changing the rows keeps the preferences of rows still in the team")
+
+// Duty Sheet per date: 6091124 on a date set to 8022 reads 8022124.
+check(defaultSheet("2026-10-14") === "1101" && defaultSheet("2026-10-17") === "6091" && defaultSheet("2026-10-18") === "7091", "default sheets: 1101 weekdays, 6091 Saturday, 7091 Sunday")
+check(mapCode("6091001", "8022") === "8022001" && mapCode("RD", "8022") === "RD" && mapCode("HSP1", "8022") === "HSP1", "only 7-digit duty numbers change sheet")
+const sat = setSheet(plan, "2026-10-12", 5, "8022")
+check(sheetOf(sat, "2026-10-17") === "8022" && sheetOf(sat, "2026-10-16") === "1101", "a date takes the sheet it was set to, others keep theirs")
+check(weekView(roster, sat, "2026-10-12")[0].std[5] === "RD" && weekView(roster, sat, "2026-10-12")[1].std[5] === "8022005", "the Standard duty numbers of that date move to the sheet")
+check(weekView(roster, sat, "2026-10-12")[2].std[4] === "1101004", "the other days are untouched")
+const satArranged = arrangeWeek(roster, sat, "2026-10-12", (c) => (TIMES[c] ? timeOf(c) : /^8022/.test(c) ? { on: h(9), off: h(17) } : null)).plan
+const satLines = weekView(roster, satArranged, "2026-10-12")
+check(satLines.every((l) => !/^6091/.test(l.codes[5])), "arranging keeps the new sheet")
+const satBack = setSheet(satArranged, "2026-10-12", 5, "6091")
+check(satBack.sheets["2026-10-17"] === undefined && weekView(roster, satBack, "2026-10-12").every((l) => !/^8022/.test(l.codes[5])), "setting the default sheet again clears it and moves the planned duties back")
+check(setSheet(plan, "2026-10-12", 5, "9999") === plan && SHEETS.length === 5, "an unknown sheet is refused")
+check(cleanPlan(JSON.parse(JSON.stringify(sat))).sheets["2026-10-17"] === "8022" && cleanPlan({ ...JSON.parse(JSON.stringify(plan)), sheets: { "2026-10-17": "6091", "2026-10-18": "x" } }).sheets["2026-10-17"] === undefined, "sheets survive a save; defaults and junk are dropped")
 
 if (failed) {
   console.error(`${failed} check(s) failed`)
