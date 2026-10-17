@@ -55,10 +55,11 @@ const lines = weekView(roster, done, "2026-10-12")
 check(lines[0].codes[0] === "1101005" && lines[1].codes[0] === "1101001" && lines[2].codes[0] === "1101002", "Monday goes to each member's preference")
 for (let d = 0; d < 7; d += 1) {
   const before = lines.map((l) => l.std[d]).sort().join()
-  const after = lines.map((l) => l.codes[d]).sort().join()
+  const after = lines.map((l) => l.codes[d]).filter((c) => c !== EMPTY).concat(trayView(done, "2026-10-12")[d]).sort().join()
   check(before === after, `${["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][d]}: the team's duties are the same set, only handed round`)
 }
-check(lines[0].codes[2] === "RD" && lines[2].codes[3] === "AL", "rest days and leave stay with the row")
+check(lines[0].codes[2] === EMPTY && lines[2].codes[3] === EMPTY, "rest days and leave leave the row")
+check(trayView(done, "2026-10-12")[2].includes("RD") && trayView(done, "2026-10-12")[3].includes("AL"), "arranging puts them in that day's tray")
 check(restIssues(roster, done, "2026-10-12", timeOf).length === 0, "the arranged week keeps at least 11 hours of rest")
 
 // A night duty (off 01:40) followed by a dawn duty (on 05:10) is too little rest.
