@@ -4,11 +4,11 @@
 // plan (names, preferences, results), only in this browser's localStorage,
 // never uploaded. Book-on/off times come from data/duty-basic.json.
 
-import { EMPTY, LEAVE, PENDING, SHEETS, SHIFTS, allToTray, arrangeWeek, canRemove, cleanPlan, clearWeek, formatRanges, fromTray, isoWeek, leaveToTray, mondayOfIsoWeek, namedRows, newPlan, parseRanges, prefDistance, removeBlock, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, trayView, weekView } from "../lib/tml-plan.js"
+import { EMPTY, LEAVE, PENDING, SHEETS, SHIFTS, allToTray, arrangeWeek, canRemove, cleanPlan, clearWeek, fillMember, formatRanges, fromTray, isoWeek, leaveToTray, mondayOfIsoWeek, namedRows, newPlan, parseRanges, prefDistance, removeBlock, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, trayView, weekView } from "../lib/tml-plan.js"
 import { addDays, classify, cleanRoster, mondayOf, newRoster, normaliseCode, parseRoster, weekDates } from "../lib/tml-roster.js"
 import { serviceDate } from "../lib/tml-time.js"
 
-const BUILD = { version: "0.8.3", commit: "dev" }
+const BUILD = { version: "0.8.4", commit: "dev" }
 // The plan page keeps its own Standard Roster, apart from the personal roster of the 我的更表 page ("tml-roster").
 const ROSTER_KEY = "tml-plan-roster"
 const PLAN_KEY = "tml-roster-plan"
@@ -97,14 +97,11 @@ const S = {
   sheetChanged: (n) => `已將週${n} 改用新 Duty Sheet`,
   noDuty: "Duty Sheet 入面冇呢個更份",
   legendHc: "HC／TBC：自己改編號，或者將待定區嘅放入去",
-  annual: "年假",
-  annualTip: "整行填 AL AL AL SH SH RD RD；再撳一次還原",
   removeBlock: "刪除呢個更份積木",
   allTray: "全部放入待定區",
   allTrayAsk: "本週組員未手動設定嘅更份、RD、AL、SH 會全部放入待定區，確定？",
   blockRemoved: "已刪除積木，其餘空格已按偏好重新編排",
-  annualOn: "已填好年假，其餘空格已按偏好重新編排",
-  annualOff: "已還原，其餘空格已按偏好重新編排",
+  needRd: "每位組員一星期要有一日 RD，未有 RD 就唔會自動填更份",
   allTrayed: "已將本週所有更份同假期放入待定區",
   leaveTray: "假期放入待定區",
   setupDone: "已儲存組員，更份同 RD／AL／SH 已放入待定區；設好假期同喜好後按「按偏好自動編排」",
@@ -168,8 +165,17 @@ function sheetCodes(sheet) {
 }
 
 // Once leave and preferences are set, the empty cells are filled by preference.
-const fill = (next) => arrangeWeek(roster, next, state.monday, timeOf).plan
+// A member on leave on Monday, Tuesday or Wednesday takes the whole annual-leave week.
 const ANNUAL = ["AL", "AL", "AL", "SH", "SH", "RD", "RD"]
+
+// Save a change to one member, then fill that member's empty cells (only that row).
+function settle(next, row, message = S.saved) {
+  const weekOf = (plan) => weekView(roster, plan, state.monday).find((item) => item.member.row === row)
+  let out = next
+  if (weekOf(out).codes.slice(0, 3).includes("AL")) ANNUAL.forEach((code, d) => { out = setCell(roster, out, state.monday, row, d, code) })
+  const missing = !weekOf(out).codes.includes("RD")
+  store(fillMember(roster, out, state.monday, row, timeOf), missing ? S.needRd : message)
+}
 
 const who = (member) => member.name || `#${member.row}`
 
@@ -254,8 +260,7 @@ function weekHtml() {
         (t ? `<small>${hhmm(t.on)}–${hhmm(t.off)}</small><span class="ptag">${S.shift[shift]}</span>` : "") +
         `</button></td>`
     }).join("")
-    const annual = line.codes.every((code, d) => code === ANNUAL[d] && line.pins[d])
-    const chips = `<button type="button" class="pchip p-annual" data-row="${line.member.row}" aria-pressed="${annual}" title="${S.annualTip}">${S.annual}</button>` + SHIFTS.map((sh) => `<button type="button" class="pchip" data-row="${line.member.row}" data-shift="${sh}" aria-pressed="${line.member.prefs.includes(sh)}">${S.shift[sh]}</button>`).join("")
+    const chips = SHIFTS.map((sh) => `<button type="button" class="pchip" data-row="${line.member.row}" data-shift="${sh}" aria-pressed="${line.member.prefs.includes(sh)}">${S.shift[sh]}</button>`).join("")
     return `<tr><th class="who"><input class="p-name" data-row="${line.member.row}" value="${escapeHtml(line.member.name)}" placeholder="#${line.member.row}" maxlength="40" aria-label="${S.member}">` +
       `<small>${S.rowNow(line.row)}</small><span class="pchips">${chips}</span></th>${cells}` +
       `<td class="sum">${work ? `${hits}/${work}` : "—"}</td><td class="sum">${hours ? hours.toFixed(1) : "—"}</td></tr>`
@@ -332,7 +337,7 @@ function trayHtml() {
 }
 
 function settingsHtml() {
-  return `<details class="panel"><summary>${S.settingsTitle}</summary>${csvImportHtml()}${setupHtml(true)}` +
+  return `<details class="panel"><summary>${S.settingsTitle}${plan ? `（${S.weekSpanLabel(isoWeek(plan.anchor).week, weekSpan(plan.anchor))}）` : ""}</summary>${csvImportHtml()}${setupHtml(true)}` +
     `<p class="fine">${S.backupHelp}</p><div class="me-foot"><button type="button" class="btn p-export">${S.exportJson}</button>` +
     `<button type="button" class="btn danger p-clear">${S.clear}</button></div>` +
     `<form class="me-setup p-import" autocomplete="off"><label>${S.importJson}<textarea name="text" rows="3" spellcheck="false" placeholder="${S.importPh}"></textarea></label>` +
@@ -422,8 +427,11 @@ function act(source, target) {
     message = S.trayed
   } else if (source.type === "block" && target.type === "cell") {
     next = fromTray(roster, plan, state.monday, target.row, source.day, source.index, timeOf)
-    if (next) next = fill(next)
     message = S.placed
+    if (next) {
+      settle(next, target.row, message)
+      return render()
+    }
   } else return render()
   if (next) store(next, message)
   else state.message = S.noMove
@@ -447,7 +455,7 @@ function onClick(event) {
   if (del) {
     const next = removeBlock(roster, plan, state.monday, Number(del.dataset.day), Number(del.dataset.index))
     state.sel = null
-    if (next) store(fill(next), S.blockRemoved)
+    if (next) store(next, S.blockRemoved)
     render()
     return
   }
@@ -475,17 +483,6 @@ function onClick(event) {
     return render()
   }
   const chip = t.closest(".pchip")
-  if (chip && chip.classList.contains("p-annual")) {
-    const row = Number(chip.dataset.row)
-    const line = weekView(roster, plan, state.monday).find((item) => item.member.row === row)
-    const on = line.codes.every((code, d) => code === ANNUAL[d] && line.pins[d])
-    let next = plan
-    ANNUAL.forEach((code, d) => { next = setCell(roster, next, state.monday, row, d, on ? null : code) })
-    state.sel = null
-    store(fill(next), on ? S.annualOff : S.annualOn)
-    render()
-    return
-  }
   if (chip) {
     const row = Number(chip.dataset.row)
     const members = plan.members.map((m) => {
@@ -493,7 +490,7 @@ function onClick(event) {
       const prefs = m.prefs.includes(chip.dataset.shift) ? m.prefs.filter((p) => p !== chip.dataset.shift) : [...m.prefs, chip.dataset.shift]
       return { ...m, prefs: SHIFTS.filter((sh) => prefs.includes(sh)) }
     })
-    store(fill({ ...plan, members }))
+    settle({ ...plan, members }, row)
     return render()
   }
   if (t.closest(".p-prev")) state.monday = addDays(state.monday, -7)
@@ -515,7 +512,7 @@ function onClick(event) {
     store(leaveToTray(roster, plan, state.monday, timeOf), S.leaveTrayed)
   } else if (t.closest(".p-to-tray")) return act(state.sel, { type: "tray", day: state.sel.day })
   else if (t.closest(".p-cell-reset")) {
-    store(fill(setCell(roster, plan, state.monday, state.sel.row, state.sel.day, null)))
+    settle(setCell(roster, plan, state.monday, state.sel.row, state.sel.day, null), state.sel.row)
     state.sel = null
   } else if (t.closest(".p-reset")) {
     if (!window.confirm(S.resetAsk)) return
@@ -550,7 +547,7 @@ function onSubmit(event) {
       state.message = S.badCode
       return render()
     }
-    store(fill(setCell(roster, plan, state.monday, state.sel.row, state.sel.day, code)))
+    settle(setCell(roster, plan, state.monday, state.sel.row, state.sel.day, code), state.sel.row)
     state.sel = null
     return render()
   }
@@ -724,7 +721,7 @@ async function boot() {
     } else if (event.target.matches(".p-sheet")) {
       const day = Number(event.target.dataset.day)
       state.sel = null
-      store(fill(setSheet(roster, plan, state.monday, day, event.target.value, sheetCodes(event.target.value))), S.sheetChanged(S.weekdays[day]))
+      store(setSheet(roster, plan, state.monday, day, event.target.value, sheetCodes(event.target.value)), S.sheetChanged(S.weekdays[day]))
       render()
     } else if (event.target.matches(".p-weeks")) {
       state.weeks = Math.min(26, Math.max(1, Number(event.target.value) || 1))

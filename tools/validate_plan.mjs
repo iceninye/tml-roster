@@ -1,7 +1,7 @@
 // Checks lib/tml-plan.js on a made-up roster and made-up duty times
 // (real rosters and staff never go in the repo):
 //   node tools/validate_plan.mjs
-import { EMPTY, SHEETS, formatRanges, leaveToTray, namedRows, arrangeWeek, defaultSheet, mapCode, setSheet, sheetOf, assign, cleanPlan, fromTray, toTray, trayView, allToTray, canRemove, removeBlock, isoWeek, memberRow, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
+import { EMPTY, SHEETS, formatRanges, leaveToTray, namedRows, arrangeWeek, defaultSheet, mapCode, setSheet, sheetOf, assign, cleanPlan, fromTray, toTray, trayView, allToTray, canRemove, fillMember, removeBlock, isoWeek, memberRow, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
 import { newRoster, parseRoster } from "../lib/tml-roster.js"
 
 let failed = 0
@@ -170,6 +170,21 @@ check(cleanPlan(JSON.parse(JSON.stringify(sat))).sheets["2026-10-17"] === "8022"
   check(weekView(roster, filled, week).length === members, "arranging keeps every member")
   const typed = setCell(roster, sat, week, plan.members[1].row, day, "RD")
   check(typed && weekView(roster, typed, week)[1].codes[day] === "RD", "a leave can be typed in")
+}
+
+// Auto-fill works on one member's row only, and needs a rest day in the week.
+{
+  const week = "2026-10-12"
+  const start = allToTray(roster, plan, week, timeOf)
+  const [a, b] = [plan.members[0].row, plan.members[1].row]
+  const noRd = fillMember(roster, start, week, a, timeOf)
+  check(weekView(roster, noRd, week)[0].codes.every((c) => c === "-"), "no rest day, no auto-fill")
+  const withRd = setCell(roster, start, week, a, 0, "RD")
+  const filled = fillMember(roster, withRd, week, a, timeOf)
+  const fa = weekView(roster, filled, week)
+  check(fa[0].codes.slice(1).some((c) => /^\d{7}$/.test(c)), "a rest day fills the empty days of that member's week with duties")
+  check(fa[0].codes.every((c) => /^\d{7}$/.test(c) || c === "RD" || c === "-"), "only duties are placed in the cells")
+  check(weekView(roster, filled, week)[1].codes.every((c) => c === "-") && b !== a, "the other members are left alone")
 }
 
 if (failed) {
