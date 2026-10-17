@@ -1,7 +1,7 @@
 // Checks lib/tml-plan.js on a made-up roster and made-up duty times
 // (real rosters and staff never go in the repo):
 //   node tools/validate_plan.mjs
-import { EMPTY, SHEETS, formatRanges, leaveToTray, namedRows, arrangeWeek, defaultSheet, mapCode, setSheet, sheetOf, assign, cleanPlan, fromTray, toTray, trayView, allToTray, isoWeek, memberRow, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
+import { EMPTY, SHEETS, formatRanges, leaveToTray, namedRows, arrangeWeek, defaultSheet, mapCode, setSheet, sheetOf, assign, cleanPlan, fromTray, toTray, trayView, allToTray, canRemove, removeBlock, isoWeek, memberRow, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
 import { newRoster, parseRoster } from "../lib/tml-roster.js"
 
 let failed = 0
@@ -137,17 +137,40 @@ check(moved.members[0].prefs.join() === "dawn" && moved.members[2].prefs.length 
 // Duty Sheet per date: 6091124 on a date set to 8022 reads 8022124.
 check(defaultSheet("2026-10-14") === "1101" && defaultSheet("2026-10-17") === "6091" && defaultSheet("2026-10-18") === "7091", "default sheets: 1101 weekdays, 6091 Saturday, 7091 Sunday")
 check(mapCode("6091001", "8022") === "8022001" && mapCode("RD", "8022") === "RD" && mapCode("HSP1", "8022") === "HSP1", "only 7-digit duty numbers change sheet")
-const sat = setSheet(plan, "2026-10-12", 5, "8022")
+const SAT = ["8022101", "8022102", "8022103", "8022104"]
+const sat = setSheet(roster, plan, "2026-10-12", 5, "8022", SAT)
 check(sheetOf(sat, "2026-10-17") === "8022" && sheetOf(sat, "2026-10-16") === "1101", "a date takes the sheet it was set to, others keep theirs")
 check(weekView(roster, sat, "2026-10-12")[0].std[5] === "RD" && weekView(roster, sat, "2026-10-12")[1].std[5] === "8022005", "the Standard duty numbers of that date move to the sheet")
 check(weekView(roster, sat, "2026-10-12")[2].std[4] === "1101004", "the other days are untouched")
 const satArranged = arrangeWeek(roster, sat, "2026-10-12", (c) => (TIMES[c] ? timeOf(c) : /^8022/.test(c) ? { on: h(9), off: h(17) } : null)).plan
 const satLines = weekView(roster, satArranged, "2026-10-12")
 check(satLines.every((l) => !/^6091/.test(l.codes[5])), "arranging keeps the new sheet")
-const satBack = setSheet(satArranged, "2026-10-12", 5, "6091")
+const satBack = setSheet(roster, satArranged, "2026-10-12", 5, "6091")
 check(satBack.sheets["2026-10-17"] === undefined && weekView(roster, satBack, "2026-10-12").every((l) => !/^8022/.test(l.codes[5])), "setting the default sheet again clears it and moves the planned duties back")
-check(setSheet(plan, "2026-10-12", 5, "9999") === plan && SHEETS.length === 5, "an unknown sheet is refused")
+check(setSheet(roster, plan, "2026-10-12", 5, "9999") === plan && SHEETS.length === 5, "an unknown sheet is refused")
 check(cleanPlan(JSON.parse(JSON.stringify(sat))).sheets["2026-10-17"] === "8022" && cleanPlan({ ...JSON.parse(JSON.stringify(plan)), sheets: { "2026-10-17": "6091", "2026-10-18": "x" } }).sheets["2026-10-17"] === undefined, "sheets survive a save; defaults and junk are dropped")
+
+// A special sheet puts all its duties in the tray; blocks can go while there are more than members needing one.
+{
+  const sheetTimes = (c) => (/^8022/.test(c) ? { on: h(9), off: h(17) } : timeOf(c))
+  const day = 5
+  const week = "2026-10-12"
+  const v = weekView(roster, sat, week)
+  check(trayView(sat, week)[day].join() === SAT.join(), "a special sheet puts every one of its duties in the day's tray")
+  check(v.every((l) => !/^\d{7}$/.test(l.codes[day])), "the cells of that day are emptied for arranging")
+  const need = v.filter((l) => l.codes[day] !== "RD").length
+  check(need === 2 && canRemove(roster, sat, week, day) && !canRemove(roster, plan, week, day), "blocks may go on a special day while they outnumber the members")
+  const fewer = removeBlock(roster, sat, week, day, 3)
+  check(trayView(fewer, week)[day].length === 3 && canRemove(roster, fewer, week, day), "a block can be removed")
+  const two = removeBlock(roster, fewer, week, day, 2)
+  check(trayView(two, week)[day].length === 2 && canRemove(roster, two, week, day) === false, "removal stops when blocks equal members")
+  check(removeBlock(roster, two, week, day, 0) === null, "so the last blocks stay")
+  const filled = arrangeWeek(roster, two, week, sheetTimes).plan
+  check(weekView(roster, filled, week).every((l) => l.codes[day] === "RD" || /^8022/.test(l.codes[day]) || l.codes[day] === "-"), "arranging hands the special sheet's duties out")
+  // Setting a cell by hand on that day returns the duty it covers to the tray.
+  const typed = setCell(roster, sat, week, plan.members[1].row, day, "RD")
+  check(typed && weekView(roster, typed, week)[1].codes[day] === "RD", "a leave can be typed in")
+}
 
 if (failed) {
   console.error(`${failed} check(s) failed`)

@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.8.0 — unreleased
+- 編更: importing (or 全部放入待定區) puts every duty, RD, AL and SH of the team in the 待定區 and empties the cells. Setting a preference, leave, a block or a Duty Sheet fills the empty cells by preference straight away; RD blocks show their weekday, e.g. RD(四).
+- 年假 chip on each member: fills the row AL AL AL SH SH RD RD (pinned); tap again to undo.
+- A date on a special Duty Sheet (e.g. 8022) puts all of that sheet's duties in its tray. Each block has a ✕ to delete it, until the day's blocks equal the members needing one.
+
 ## v0.7.1 — unreleased
 - 編更 is a separate page: open `plan.html` directly (no link from 我的更表). It imports and keeps its own Standard Roster (`tml-plan-roster`) and no longer reads or writes the personal roster (`tml-roster`).
 
