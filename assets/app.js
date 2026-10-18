@@ -88,7 +88,7 @@ const S = {
   settingsTitle: "更表設定",
   setupIntro: "第一次使用，請完成下面兩步。你嘅更表只會儲存喺呢部機嘅瀏覽器，唔會上傳，其他人睇唔到。",
   step1: "貼上 Standard Roster",
-  step2: "講低今個星期係第幾行",
+  step2: "行號",
   howTitle: "應該貼成點樣？",
   howBody: "每行代表一個星期，由週一至週日共 7 格。行頭可以有行號（冇都得）。用逗號、Tab 或空格分隔都得，直接由 Excel 複製貼上就可以。",
   howCodes: [
@@ -674,8 +674,7 @@ function setupHtml() {
     `<section class="panel"><h3><span class="step">2</span>${S.step2}</h3>` +
     `<div class="field-line"><label for="me-row">${S.rowLabel(monday)}</label>` +
     `<input id="me-row" name="row" class="mini" type="number" inputmode="numeric" min="1" value="${row}" required>` +
-    `<button type="submit" class="btn primary stay">${S.ok}</button></div></section>` +
-    `<div class="me-edit-row"><button type="submit" class="btn">${S.save}</button></div>` +
+    `<button type="submit" class="btn primary">${S.ok}</button></div></section>` +
     `<p class="me-msg" role="status">${escapeHtml(state.message)}</p></form>` +
     (roster
       ? `<section class="panel"><h3>${S.titleLabel}</h3>` +
@@ -723,7 +722,7 @@ function submitTitle(form) {
   render()
 }
 
-function submitSetup(form, stay = false) {
+function submitSetup(form) {
   const text = form.elements.text.value.trim()
   const row = Number(form.elements.row.value)
   const monday = mondayOf(serviceDate(Date.now()))
@@ -755,8 +754,7 @@ function submitSetup(form, stay = false) {
   if (next) {
     state.message = saveRoster(next) ? S.saved : S.notStored
     state.monday = monday
-    // 撳輸入格隔離嘅「確認」就留喺設定頁，撳底下「儲存」才返主頁
-    if (!stay) state.page = "week"
+    state.page = "week"
   }
   render()
 }
@@ -942,7 +940,7 @@ async function boot() {
   })
   view.addEventListener("submit", (event) => {
     event.preventDefault()
-    if (event.target.matches(".me-setup")) submitSetup(event.target, Boolean(event.submitter?.classList.contains("stay")))
+    if (event.target.matches(".me-setup")) submitSetup(event.target)
     else if (event.target.matches(".me-code-form")) submitCode(event.target)
     else if (event.target.matches(".me-title")) submitTitle(event.target)
   })
