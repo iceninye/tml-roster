@@ -57,7 +57,13 @@ const S = {
   member: "組員",
   rowNow: (r) => `第 ${r} 行`,
   fit: "配中",
-  fitLine: (hit, all, std, stdAll, short) => `全組配中偏好 ${hit}/${all} 更（Standard 係 ${std}/${stdAll}）${short ? ` · ${short} 格休息唔夠鐘` : ""}`,
+  // Shown above the table. Numbers unchanged; only worded so 0/0 never appears.
+  fitLine: (hit, all, std, stdAll, short, anyPrefs) => {
+    const rest = short ? ` · ${short} 格休息唔夠鐘` : ""
+    if (!all) return `本週仲未排更份${rest}`
+    if (!anyPrefs) return `未設偏好（撳組員名右邊嘅更類，就係佢嘅偏好）· Standard 係 ${std}/${stdAll}${rest}`
+    return `偏好配中 ${hit}/${all} 格（Standard 係 ${std}/${stdAll}）${rest}`
+  },
   hours: "工時",
   pinned: "手動改",
   tooShort: (h) => `休息只有 ${h} 小時`,
@@ -388,6 +394,7 @@ function weekHtml() {
     return acc
   }, { hit: 0, all: 0 })
   const fitNow = fitOf((line) => line.codes)
+  const anyPrefs = lines.some((line) => line.member.prefs.length)
   const fitStd = fitOf((line) => line.std)
   const legend = SHIFTS.map((s) => `<span><i data-shift="${s}"></i>${S.shift[s]}（${S.shiftHelp[s]}）</span>`).join("")
   return `<div class="me-nav"><button type="button" class="btn p-prev" aria-label="${S.prev}">‹</button>` +
@@ -400,7 +407,7 @@ function weekHtml() {
     `<button type="button" class="btn p-undo"${history.length ? "" : " disabled"}>↶ ${S.undo}</button>` +
     `<span class="plan-actions-end"><button type="button" class="btn p-csv">${S.csv}</button><button type="button" class="btn danger p-reset">${S.reset}</button></span></div>` +
     `<p class="me-msg" role="status">${escapeHtml(state.message)}</p>` +
-    `<p class="fine plan-fit">${S.fitLine(fitNow.hit, fitNow.all, fitStd.hit, fitStd.all, issues.size)}</p>` +
+    `<p class="fine plan-fit">${S.fitLine(fitNow.hit, fitNow.all, fitStd.hit, fitStd.all, issues.size, anyPrefs)}</p>` +
     notesHtml(lines, issues) +
     selHtml(lines) +
     `<div class="ptable"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>` +
