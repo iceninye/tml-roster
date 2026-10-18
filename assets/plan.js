@@ -8,7 +8,7 @@ import { EMPTY, EXTRA, EXTRA_HOURS, LEAVE, PENDING, SHEETS, SHIFTS, allToTray, c
 import { addDays, classify, cleanRoster, mondayOf, newRoster, normaliseCode, parseRoster, weekDates } from "../lib/tml-roster.js"
 import { serviceDate } from "../lib/tml-time.js"
 
-const BUILD = { version: "0.9.2", commit: "dev" }
+const BUILD = { version: "0.9.3", commit: "dev" }
 // The plan page keeps its own Standard Roster, apart from the personal roster of the 我的更表 page ("tml-roster").
 const ROSTER_KEY = "tml-plan-roster"
 const PLAN_KEY = "tml-roster-plan"

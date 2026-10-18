@@ -1,6 +1,8 @@
 // Checks lib/tml-roster.js on a made-up roster (a real one never goes in the repo):
 //   node tools/validate_roster.mjs
 import { classify, cleanRoster, dayEntry, mondayOf, newRoster, parseRoster, rowLabelFor, setOverride, weekDates, weekdayIndex } from "../lib/tml-roster.js"
+import { shiftOf } from "../lib/tml-shift.js"
+import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
 
 let failed = 0
 const check = (ok, what) => {
@@ -55,5 +57,87 @@ const round = cleanRoster(JSON.parse(JSON.stringify(changed)))
 check(round && dayEntry(round, "2026-10-24").code === "8022131", "a saved roster survives a JSON round trip")
 check(cleanRoster({ v: 1, rows: [["1", "2"]], anchor: {} }) === null, "a broken roster is refused")
 check(cleanRoster({ ...roster, anchor: { row: 7, monday: "2026-10-14" } }).anchor.monday === "2026-10-12", "an anchor date in mid-week moves to its Monday")
+
+// ---- 五級更類：邊界一定要準，錯咗顏色同標籤就會靜靜錯 ----
+check(shiftOf(6.5 * 3600 - 1, 11 * 3600) === "dawn", "06:29:59 上班當死早")
+check(shiftOf(6.5 * 3600, 11 * 3600) === "early", "06:30:00 上班已經唔算死早")
+check(shiftOf(10 * 3600 - 1, 16 * 3600) === "early" && shiftOf(10 * 3600, 16 * 3600) === "mid", "10:00 係早／中分界")
+check(shiftOf(15 * 3600 - 1, 21 * 3600) === "mid" && shiftOf(15 * 3600, 21 * 3600) === "late", "15:00 係中／夜分界")
+check(shiftOf(16 * 3600, 86400 + 0.5 * 3600) === "late", "00:30:00 落班仲係夜")
+check(shiftOf(16 * 3600, 86400 + 0.5 * 3600 + 1) === "night", "00:30:01 之後落班當死夜")
+check(shiftOf(4 * 3600, 86400 + 3600) === "dawn", "死早壓過死夜（兩樣都中時講死早）")
+check(shiftOf(null, 3600) === "", "冇上班時間就冇更類")
+
+// ---- 週標題：年份同年寫一次，跨年要寫兩次 ----
+check(weekLabel(weekDates("2026-10-12")) === "2026/10/12 – 10/18", "同年嘅週標題只寫一次年份")
+check(weekLabel(weekDates("2026-12-28")) === "2026/12/28 – 2027/1/3", "跨年嘅週標題兩邊都寫年份")
+check(weekLabel(weekDates(mondayOf("2026-01-01"))) === "2025/12/29 – 2026/1/4", "年頭嘅週由上年 12 月開始")
+check(weekLabel([]) === "", "冇日期就冇標題")
+
+// ---- 附近行：頭尾都唔會負數或越界 ----
+const wide = { rows: Array.from({ length: 12 }, () => []), numbers: Array.from({ length: 12 }, (_, i) => 70 + i) }
+check(nearRows(wide, 70).join() === "0,1,2,3,4", "第一行時只向下顯示 5 行")
+check(nearRows(wide, 81).join() === "7,8,9,10,11", "最後一行時只向上顯示 5 行")
+check(nearRows(wide, 76).join() === "2,3,4,5,6,7,8,9,10", "中間嘅行上下各 4 行")
+check(nearRows(wide, 999).join() === "0,1,2,3,4", "唔識嘅行號由第一行開始")
+check(nearRows({ rows: [], numbers: [] }, 70).length === 0, "冇行就冇附近行")
+
+// ---- 週概況：只計真更份工時，RD／AL／SH 唔計 ----
+const basic = {
+  "1101101": { on: 6 * 3600, duty: { work: 300 } },
+  "1101102": { on: 13 * 3600, duty: { off: [21 * 3600] } },
+  "1101103": { on: 7 * 3600, basic: { hours: 8.5 } },
+  "1101104": { on: null, duty: null },
+}
+const entries = {
+  "2026-11-02": "1101101", "2026-11-03": "1101102", "2026-11-04": "1101103",
+  "2026-11-05": "1101104", "2026-11-06": "RD", "2026-11-07": "AL", "2026-11-08": "SH",
+}
+const week = summariseWeek(weekDates("2026-11-02"),
+  (date) => ({ code: entries[date] ?? "RD" }),
+  (code) => basic[code] ?? { on: null })
+check(week.days === 3, `週概況計 3 日開工（實際 ${week.days}）`)
+check(week.minutes === 300 + 480 + 510, `週概況工時 21 小時 30 分（實際 ${week.minutes} 分）`)
+check(week.rest === 1 && week.leave === 2 && week.pending === 1, "休息／假期／待定分開計，未載入嘅日子當待定")
+check(summariseWeek([], () => null, () => ({})).days === 0, "冇日期就係零")
+
+// 後備更（KSP／HSP）冇 duty sheet，但都係返工：要計日數，時數用 Index 表
+const spare = summariseWeek(weekDates("2026-11-02"),
+  (date) => ({ code: date === "2026-11-02" ? "KSP3" : "RD" }),
+  () => ({ on: 43200, basic: { off: 75600, hours: 8.5 } }))
+check(spare.days === 1 && spare.minutes === 510, `後備更計開工日同工時（實際 ${spare.days} 日 ${spare.minutes} 分）`)
+check(spare.rest === 6, "同一週嘅 RD 照樣計休息")
+
+// 真週樣本：三晚死夜 + 一個中更 + 後備更 + 一個中更
+const realWeek = ["1101179", "1101182", "1101165", "RD", "1101148", "KSP3", "7091133"]
+const realCells = {
+  "1101179": { on: 62100, duty: { work: 480 } },
+  "1101182": { on: 62940, duty: { work: 480 } },
+  "1101165": { on: 55500, duty: { work: 450 } },
+  "1101148": { on: 51600, duty: { work: 450 } },
+  "7091133": { on: 53880, duty: { work: 420 } },
+  "KSP3": { on: 43200, basic: { off: 75600, hours: 8.5 } },
+}
+const real = summariseWeek(weekDates("2026-10-12"),
+  (date) => ({ code: realWeek[weekDates("2026-10-12").indexOf(date)] }),
+  (code) => realCells[code] ?? { on: null })
+check(real.days === 6 && real.minutes === 2790, `六日開工 = 46 小時 30 分（實際 ${real.days} 日 ${real.minutes} 分）`)
+check(real.minutes !== 6 * 510, "工時用工作時數（扣飯），唔係上落班時間差")
+
+
+// 工時以官表 Index 為準（後備更都靠佢）；duty sheet 只做後備。
+// 真資料兩邊嘅差異由 tools/validate-hours.mjs 審，唔一致會即刻報。
+const oneDay = (code) => (date) => ({ code: date === "2026-11-02" ? code : "RD" })
+const clash = summariseWeek(weekDates("2026-11-02"), oneDay("9900001"),
+  () => ({ on: 24840, duty: { work: 480, off: [55440] }, basic: { off: 55440, hours: 7.5 } }))
+check(clash.minutes === 7 * 60 + 30, `官表同 duty sheet 打對台時用官表 7.5 小時（實際 ${clash.minutes} 分）`)
+const noIndex = summariseWeek(weekDates("2026-11-02"), oneDay("9900001"),
+  () => ({ on: 24840, duty: { work: 480, off: [55440] } }))
+check(noIndex.minutes === 480, "官表冇呢個更份時才用 duty sheet 嘅工作時數")
+
+// 1101131 官表印錯 7.5，data/duty-hours-fixes.json 改返 8：一週有佢就多 0.5 小時
+const fixed = summariseWeek(weekDates("2026-11-02"), oneDay("1101131"),
+  () => ({ on: 24840, basic: { off: 55440, hours: 8 } }))
+check(fixed.minutes === 480, `1101131 用修正後 8 小時（實際 ${fixed.minutes} 分）`)
 
 process.exit(failed ? 1 : 0)
