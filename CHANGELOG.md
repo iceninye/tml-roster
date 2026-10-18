@@ -14,6 +14,7 @@
 - 日詳情頁頂顯示更份編號，隔籬有 ✏️ 即場改：Enter 或 ✓ 儲存、Esc 取消；改過嘅日子先會出現「還原預設 ↺」。原本嗰段長氣說明同「儲存」按鈕刪走。
 - 設定頁嘅「貼上你嘅 roster」改為「貼上 Standard Roster」；設定頁標題「更表設定」刪走。
 - 日詳情嘅飯腳只列頭 3 個，其餘收喺「其餘 N 個飯腳」。
+- 內部：週標題、附近行、週概況搬去純邏輯 module lib/tml-week.js，五級更類喺 lib/tml-shift.js；`node tools/validate_roster.mjs` 補咗 25 個檢查（更類邊界 06:30 / 10:00 / 15:00 / 00:30、跨年週標題、附近行頭尾、工時只計真更份）。
 
 ## v0.9.1 — unreleased
 - 編更: filling follows preferences again when they are set after the row was filled: a member's auto-filled duties go back to the tray and the week is chosen again. The week is chosen as a whole, so a late duty is never followed by too little rest; a cell is left empty sooner than short of rest. 自動編排 solves each day again once its neighbours are known.
