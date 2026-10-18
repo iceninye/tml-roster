@@ -670,8 +670,25 @@ function importRoster(text, anchor) {
   render()
 }
 
-// 備份檔名：roster-<日期>-v<版本>.json
-const backupName = () => `roster-${serviceDate(Date.now())}-v${BUILD.version}.json`
+// 備份檔名：roster-<日期>-v<n>.json，n 係「同一日第幾個備份」（每日由 1 開始）。
+const COUNT_KEY = "tml-plan-backup-count"
+
+function backupNumber(date) {
+  let n = 1
+  try {
+    const saved = read(COUNT_KEY)
+    n = saved?.date === date ? Math.max(0, Number(saved.n) || 0) + 1 : 1
+    localStorage.setItem(COUNT_KEY, JSON.stringify({ date, n }))
+  } catch {
+    n = 1 // Storage blocked: the name is still usable, just always v1.
+  }
+  return n
+}
+
+const backupName = () => {
+  const date = serviceDate(Date.now())
+  return `roster-${date}-v${backupNumber(date)}.json`
+}
 
 // A file straight to the Downloads folder (same helper as the personal roster page).
 function download(name, text, type) {
@@ -875,7 +892,7 @@ function onClick(event) {
     return
   }
   else if (t.closest(".p-export")) {
-    const backup = { app: "tml-plan", version: BUILD.version, plan, roster }
+    const backup = { app: "tml-plan", appVersion: BUILD.version, plan, roster }
     const name = backupName()
     download(name, JSON.stringify(backup, null, 1), "application/json")
     state.message = S.exported(name)
