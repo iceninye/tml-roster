@@ -371,3 +371,11 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .me-setup label.filebtn, .csv-import label.filebtn { display: inline-flex; align-items: center; }
 .block .blk-x { position: absolute; top: 1px; right: 2px; width: 18px; height: 18px; display: grid; place-items: center; border-radius: 9px; font-size: 11px; line-height: 1; color: var(--muted); cursor: pointer; }
 .block .blk-x:hover { color: var(--text); background: var(--panel); }
+
+/* 編更: toolbar, per-day counts, HC/TBC blocks waiting for a number */
+.plan-actions-end { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.plan-actions .btn[disabled] { opacity: 0.45; cursor: default; }
+.ptable thead th small.p-empties { margin-top: 2px; color: var(--warn); font-weight: 700; }
+.tray-day em { float: right; margin-right: 2px; font-style: normal; font-weight: 500; }
+.block[data-pending="1"] { color: var(--warn); cursor: pointer; outline: 1px dashed var(--warn); outline-offset: -2px; }
+.csv-import .plan-grid { margin-bottom: 4px; }
