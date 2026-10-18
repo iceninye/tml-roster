@@ -101,9 +101,11 @@ a.btn { display: inline-flex; align-items: center; text-decoration: none; }
 .badge.now { background: var(--accent); color: #fff; }
 .badge.plain { background: var(--panel-2); color: var(--muted); }
 .badge.shift { background: transparent; box-shadow: inset 0 0 0 1px currentColor; }
+[data-shift="dawn"] .badge.shift { color: var(--dawn); }
 [data-shift="early"] .badge.shift { color: var(--early); }
 [data-shift="mid"] .badge.shift { color: var(--mid); }
 [data-shift="late"] .badge.shift { color: var(--late); }
+[data-shift="night"] .badge.shift { color: var(--night); }
 
 .empty { padding: 18px; text-align: center; color: var(--muted); font-size: 14px; background: var(--panel); border: 1px dashed var(--edge); border-radius: var(--radius); }
 .fine { margin-top: 8px; font-size: 13px; line-height: 1.55; color: var(--muted); }
@@ -162,9 +164,11 @@ a.btn { display: inline-flex; align-items: center; text-decoration: none; }
   overflow: hidden;
 }
 .day::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 5px; background: var(--edge); }
+.day[data-shift="dawn"]::before { background: var(--dawn); }
 .day[data-shift="early"]::before { background: var(--early); }
 .day[data-shift="mid"]::before { background: var(--mid); }
 .day[data-shift="late"]::before { background: var(--late); }
+.day[data-shift="night"]::before { background: var(--night); }
 .day:active { background: var(--panel-2); }
 .day[data-today="1"] { border-color: var(--accent); }
 .day-date { display: grid; justify-items: center; line-height: 1.1; }
@@ -180,9 +184,11 @@ a.btn { display: inline-flex; align-items: center; text-decoration: none; }
 
 .bar { display: block; position: relative; height: 5px; margin: 4px 0 2px; border-radius: 3px; background: var(--panel-2); }
 .bar i { position: absolute; top: 0; bottom: 0; border-radius: 3px; background: var(--muted); }
+[data-shift="dawn"] .bar i { background: var(--dawn); }
 [data-shift="early"] .bar i { background: var(--early); }
 [data-shift="mid"] .bar i { background: var(--mid); }
 [data-shift="late"] .bar i { background: var(--late); }
+[data-shift="night"] .bar i { background: var(--night); }
 
 .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 14px 2px 0; font-size: 13px; color: var(--muted); }
 .legend i { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 3px; vertical-align: -1px; }
@@ -310,11 +316,33 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .me-col-a { display: grid; align-content: start; gap: 10px; min-width: 0; }
 .me-col-b { min-width: 0; }
 
-.week-sum { display: flex; flex-wrap: wrap; gap: 6px; }
-.week-sum .chip { padding: 3px 10px; font-size: 13px; font-weight: 700; background: var(--panel-2); border-radius: 999px; font-variant-numeric: tabular-nums; }
-.week-sum .chip:first-child { background: var(--tml); color: #fff; }
+/* 日詳情：更份編號喺原位改 */
+.duty-head .me-code { font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
+.me-code-form { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.me-code-form input {
+  width: 8.5em;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 22px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+}
+.duty-head .btn.icon { width: 38px; height: 38px; font-size: 16px; border-radius: 12px; }
+.duty-head .me-code-edit { font-size: 15px; }
+.me-item-title .me-title-edit { cursor: pointer; }
+.top h1.me-title-edit { cursor: pointer; }
 
 /* 今日卡顏色跟更類（早／中／夜），唔再一律橙 */
+.today[data-tone="rest"], .today[data-tone="tbd"] {
+  background: linear-gradient(145deg, #3a4356, #232a3a);
+  box-shadow: 0 8px 24px rgba(20, 26, 40, 0.28);
+}
+.today[data-shift="dawn"] { background: linear-gradient(145deg, #a2521f, #5c2a0c); box-shadow: 0 8px 24px rgba(162, 82, 31, 0.26); }
+.today[data-shift="night"] { background: linear-gradient(145deg, #3b3f9e, #1e2059); box-shadow: 0 8px 24px rgba(59, 63, 158, 0.28); }
 .today[data-shift="early"] { background: linear-gradient(145deg, #b0741b, #6d4409); box-shadow: 0 8px 24px rgba(176, 116, 27, 0.26); }
 .today[data-shift="mid"] { background: linear-gradient(145deg, #2c6ea4, #143f63); box-shadow: 0 8px 24px rgba(44, 110, 164, 0.26); }
 .today[data-shift="late"] { background: linear-gradient(145deg, #5a44a8, #332552); box-shadow: 0 8px 24px rgba(90, 68, 168, 0.26); }
