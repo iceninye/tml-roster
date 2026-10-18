@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.9.2 — unreleased
+- 我的更表: 桌面 (≥900px) 用兩欄 — 左邊今日卡、週概況同日數圖例，右邊一週七日兩欄排；頁面窄返，唔使再由頭碌到尾。
+- 今日只出現一次：上面嘅今日卡已經係今日，一週清單唔再重複嗰日。
+- 今日卡顏色跟更類（早更金、中更藍、夜更紫），橙色留返做休息／待定；今日卡嘅時間條有「現時」指示。
+- 同一地點唔再寫兩次（「錦上路 → 錦上路」變「錦上路」）。
+- 一週概況 chips：開工幾日、總工時、休息／假期／待定幾日；頁首副標同時顯示行號同工時。
+- 「我嘅 roster」表格字大一級（11px），預設只顯示本週附近 5 行，撳「全部 N 行」睇晒；窄螢幕 10.5px 唔會爆格。
+- 換週：手機喺更表左右滑動、桌面鍵盤 ← →；頁尾嘅「設定／備份」搬去頁首右上齒輪。
+- 日詳情嘅飯腳只列頭 3 個，其餘收喺「其餘 N 個飯腳」。
+
 ## v0.9.1 — unreleased
 - 編更: filling follows preferences again when they are set after the row was filled: a member's auto-filled duties go back to the tray and the week is chosen again. The week is chosen as a whole, so a late duty is never followed by too little rest; a cell is left empty sooner than short of rest. 自動編排 solves each day again once its neighbours are known.
 - Plans saved before v0.9 start their weeks over in the tray (the team, preferences and Duty Sheets stay).

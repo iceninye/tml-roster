@@ -7,7 +7,7 @@ import { dutyState, mealMates } from "../lib/tml-duties.js"
 import { addDays, classify, cleanRoster, dayEntry, mondayOf, newRoster, normaliseCode, parseRoster, rowLabelFor, setOverride, weekDates, weekdayIndex } from "../lib/tml-roster.js"
 import { serviceDate, serviceSeconds } from "../lib/tml-time.js"
 
-const BUILD = { version: "0.9.1", commit: "dev" }
+const BUILD = { version: "0.9.2", commit: "dev" }
 const ROSTER_KEY = "tml-roster"
 // The key TML-traffic v0.9.0 used; a roster saved there is picked up once.
 const LEGACY_KEY = "tml-traffic-roster"
@@ -33,6 +33,7 @@ const S = {
   mates: "飯腳",
   matesNone: "冇（同一車站食飯重疊未夠 45 分鐘）",
   matesHelp: "飯腳：同你喺同一個車站、食飯時間重疊至少 45 分鐘嘅更份。撳更份編號可以睇佢嘅行程。",
+  matesMore: (n) => `其餘 ${n} 個飯腳`,
   work: "工時",
   workMin: (m) => `${Math.floor(m / 60)} 小時${m % 60 ? ` ${m % 60} 分` : ""}`,
   legs: "全日行程",
@@ -69,6 +70,14 @@ const S = {
   weekOf: (a, b) => `${a} – ${b}`,
   rowOf: (n) => `roster 第 ${n} 行`,
   weekHint: "撳任何一日睇全日行程；特別日子（例如 8022、8023）可以喺該日入面手動改。",
+  sumDays: (n) => `開工 ${n} 日`,
+  sumRest: (n) => `休息 ${n} 日`,
+  sumLeave: (n) => `假期 ${n} 日`,
+  sumPending: (n) => `待定 ${n} 日`,
+  sumWork: "工時",
+  rosterNear: "只睇附近",
+  rosterAll: (n) => `全部 ${n} 行`,
+  swipeHint: "左右滑動可換週",
   editTitle: "改呢日嘅更份",
   editLabel: "更份編號或代號",
   editHint: "例如 8022131、RD、AL",
@@ -133,6 +142,7 @@ const state = {
   from: "week",
   message: "",
   exportText: "",
+  rosterAll: false,
 }
 
 let roster = null
@@ -285,6 +295,13 @@ function placeName(code) {
   return !name ? code : `${name}${base === code ? "" : ` ${code.slice(base.length)}`}`
 }
 
+// 同一個地點就唔寫兩次（避免「錦上路 → 錦上路」）
+function routeText(from, to) {
+  const a = placeName(from)
+  const b = placeName(to)
+  return a === b ? a : `${a} → ${b}`
+}
+
 function meDate(date) {
   const [, m, d] = date.split("-").map(Number)
   return `${m}/${d}`
@@ -329,12 +346,12 @@ function dayLines(cell) {
     return {
       span: [d.on[0], d.off[0]],
       times: `${clockHtml(d.on[0])} – ${clockHtml(d.off[0])}`,
-      note: `${placeName(d.on[1])} → ${placeName(d.off[1])}` + (d.meal ? ` · ${S.meal} ${hhmm(d.meal[0])}` : ""),
+      note: routeText(d.on[1], d.off[1]) + (d.meal ? ` · ${S.meal} ${hhmm(d.meal[0])}` : ""),
     }
   }
   if (cell.status === "basic") {
     const b = cell.basic
-    return { span: [b.on, b.off], times: `${clockHtml(b.on)} – ${clockHtml(b.off)}`, note: [b.onAt && b.offAt ? `${b.onAt} → ${b.offAt}` : "", S.hours(b.hours)].filter(Boolean).join(" · ") }
+    return { span: [b.on, b.off], times: `${clockHtml(b.on)} – ${clockHtml(b.off)}`, note: [b.onAt && b.offAt ? routeText(b.onAt, b.offAt) : "", S.hours(b.hours)].filter(Boolean).join(" · ") }
   }
   return { times: "", note: summary(cell) }
 }
@@ -355,9 +372,13 @@ function summary(cell) {
 function mealMatesHtml(duty, duties, sheet) {
   const mates = mealMates(duty, duties)
   if (!mates.length) return `<span class="meta">${S.matesNone}</span>`
-  return `<span class="mates">` + mates.map(({ duty: other, from, to }) =>
+  const item = ({ duty: other, from, to }) =>
     `<button type="button" class="duty-mate" data-duty="${other.id}" data-sheet="${sheet}"><b>${other.id}</b>` +
-    `<small>${hhmm(from)}–${hhmm(to)} · ${Math.round((to - from) / 60)} 分</small></button>`).join("") + `</span>`
+    `<small>${hhmm(from)}–${hhmm(to)} · ${Math.round((to - from) / 60)} 分</small></button>`
+  // 只列前 3 個，其餘收埋，免得日詳情被飯腳塞爆
+  const rest = mates.slice(3)
+  return `<span class="mates">${mates.slice(0, 3).map(item).join("")}</span>` +
+    (rest.length ? `<details class="mates-more"><summary>${S.matesMore(rest.length)}</summary><span class="mates">${rest.map(item).join("")}</span></details>` : "")
 }
 
 // A duty without leg-by-leg data (spare duties, sheets not copied here).
@@ -412,11 +433,12 @@ function dutyDetailHtml({ sheet, id }, liveOn) {
 /* ------------------------------------------------------------ day views */
 
 // A thin 24 h strip (04:00 to 04:00) with the shift marked on it.
-function barHtml(span) {
+function barHtml(span, nowAt = null) {
   if (!span) return ""
   const pct = (sec) => Math.min(100, Math.max(0, ((sec - 14400) / 86400) * 100))
   const left = pct(span[0])
-  return `<span class="bar" aria-hidden="true"><i style="left:${left.toFixed(1)}%;width:${Math.max(2, pct(span[1]) - left).toFixed(1)}%"></i></span>`
+  const mark = nowAt == null ? "" : `<b class="bar-now" style="left:${pct(nowAt).toFixed(1)}%"></b>`
+  return `<span class="bar" aria-hidden="true"><i style="left:${left.toFixed(1)}%;width:${Math.max(2, pct(span[1]) - left).toFixed(1)}%"></i>${mark}</span>`
 }
 
 // Today, big, with what the duty is doing right now.
@@ -430,19 +452,71 @@ function todayHtml(date, entry, cell) {
   return `<button type="button" class="today me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}">` +
     `<span class="today-label">${S.today} · ${S.weekdays[weekdayIndex(date)]} ${meDate(date)}</span>` +
     `<span class="today-title">${escapeHtml(cell.label)}${tags}</span>` +
-    (lines.times ? `<span class="today-times">${lines.times}</span>${barHtml(lines.span)}` : "") +
+    (lines.times ? `<span class="today-times">${lines.times}</span>${barHtml(lines.span, serviceSeconds(Date.now()))}` : "") +
     (lines.note ? `<span class="today-note">${escapeHtml(lines.note)}</span>` : "") +
     (live ? `<span class="today-live"><i class="pulse"></i><span>${S.now}：${escapeHtml(dutyPhaseText(live))} <small>${S.until(hhmm(live.until))}</small></span></span>` : "") +
     `</button>`
+}
+
+// 當前嗰行附近嘅行（roster 太長時只顯示附近）
+function nearRows(list, cur, span = 4) {
+  const at = list.numbers.indexOf(cur)
+  const i = at === -1 ? 0 : at
+  return list.rows.map((_, k) => k).slice(Math.max(0, i - span), Math.min(list.rows.length, i + span + 1))
+}
+
+// 一週概況：開工日數、總工時、休息／假期／待定日數。
+function weekSummary(dates) {
+  const sum = { days: 0, minutes: 0, rest: 0, leave: 0, pending: 0 }
+  for (const date of dates) {
+    const entry = dayEntry(roster, date)
+    if (!entry) continue
+    const kind = classify(entry.code).kind
+    if (kind === "status") {
+      if (entry.code === "RD") sum.rest++
+      else sum.leave++
+      continue
+    }
+    const cell = cellInfo(entry.code)
+    if (cell.on == null) {
+      sum.pending++
+      continue
+    }
+    sum.days++
+    if (cell.duty?.work != null) sum.minutes += cell.duty.work
+    else if (cell.duty?.off?.[0] != null && cell.duty.off[0] > cell.on) sum.minutes += (cell.duty.off[0] - cell.on) / 60
+    else if (cell.basic?.hours) sum.minutes += cell.basic.hours * 60
+  }
+  sum.minutes = Math.round(sum.minutes)
+  return sum
+}
+
+const chip = (text) => `<span class="chip">${text}</span>`
+
+function summaryHtml(dates) {
+  const s = weekSummary(dates)
+  const parts = [s.days ? chip(S.sumDays(s.days)) : "", s.minutes ? chip(`${S.sumWork} ${S.workMin(s.minutes)}`) : "",
+    s.rest ? chip(S.sumRest(s.rest)) : "", s.leave ? chip(S.sumLeave(s.leave)) : "", s.pending ? chip(S.sumPending(s.pending)) : ""].filter(Boolean)
+  return parts.length ? `<p class="week-sum">${parts.join("")}</p>` : ""
+}
+
+// 一句話講本週：行號 + 開工日數 + 工時（頁首副標用）
+function subLine(monday) {
+  const row = rowLabelFor(roster, monday)
+  const s = weekSummary(weekDates(monday))
+  if (row == null) return S.title
+  return `${S.rowOf(row)}${s.days ? ` · ${S.sumDays(s.days)} · ${S.sumWork} ${S.workMin(s.minutes)}` : ""}`
 }
 
 /* ------------------------------------------------------- roster table */
 
 // Every row of a roster as a table. cur = label of the row to mark (this
 // week), today = a date whose cell gets a frame. Pass a parsed { rows, numbers }.
-function rosterTableHtml({ rows, numbers }, cur = null, todayIndex = -1) {
+function rosterTableHtml({ rows, numbers }, cur = null, todayIndex = -1, only = null) {
   const head = `<tr><th>${S.rowHead}</th>${S.weekdays.map((d) => `<th>${d.replace("週", "")}</th>`).join("")}</tr>`
-  const body = rows.map((row, i) => {
+  const picks = only ?? rows.map((_, i) => i)
+  const body = picks.map((i) => {
+    const row = rows[i]
     const now = numbers[i] === cur
     return `<tr${now ? ' class="cur"' : ""}><th>${numbers[i]}</th>` +
       row.map((code, d) => {
@@ -499,14 +573,22 @@ function open() {
   render()
 }
 
+// 頁首副標：一頁一句實用資訊（唔係死板標語）
+function setSub(text) {
+  const el = document.getElementById("sub")
+  if (el && el.textContent !== text) el.textContent = text
+}
+
 function render() {
   shown = ""
   if (state.page === "setup") {
     view.innerHTML = setupHtml()
+    setSub(roster ? S.settingsTitle : S.setupTitle)
     return
   }
   if (state.page === "duty") {
     view.innerHTML = `<div class="duty-head"><button type="button" class="btn me-back">${S.back}</button><h2>${escapeHtml(state.duty.id)}</h2></div><div id="me-data"></div>`
+    setSub(S.title)
     paintData()
     return
   }
@@ -522,22 +604,26 @@ function render() {
       `${entry.source === "override" ? `<button type="button" class="btn me-reset">${S.reset}</button>` : ""}` +
       `<span class="meta">${S.defaultIs(entry.defaultCode)}</span></div>` +
       `<p class="me-msg" role="status">${escapeHtml(state.message)}</p></form></details>`
+    setSub(`${S.weekdays[weekdayIndex(state.date)]} ${meDate(state.date)} · ${S.rowOf(entry.row)}`)
     paintData()
     return
   }
   const dates = weekDates(state.monday)
   const current = mondayOf(serviceDate(Date.now()))
+  const curRow = rowLabelFor(roster, state.monday)
+  const near = state.rosterAll ? null : nearRows(roster, curRow)
   view.innerHTML =
     `<div class="me-nav"><button type="button" class="btn me-prev" aria-label="${S.prev}">‹</button>` +
     `<div class="weeklabel"><b>${S.weekOf(meDate(dates[0]), meDate(dates[6]))}</b>` +
-    `<span>${S.rowOf(rowLabelFor(roster, state.monday))}${state.monday === current ? ` · ${S.thisWeek}` : ` · <button type="button" class="link me-this">${S.backThis}</button>`}</span></div>` +
+    `<span>${S.rowOf(curRow)}${state.monday === current ? ` · ${S.thisWeek}` : ` · <button type="button" class="link me-this">${S.backThis}</button>`}</span></div>` +
     `<button type="button" class="btn me-next" aria-label="${S.next}">›</button></div>` +
     `<div id="me-data"></div>` +
-    `<p class="legend"><span><i style="background:#d9a23b"></i>${S.shift.early}（10:00 前上班）</span><span><i style="background:#4f9fd6"></i>${S.shift.mid}</span><span><i style="background:#8a6fd1"></i>${S.shift.late}（15:00 後上班）</span></p>` +
-    `<p class="fine">${S.weekHint}</p>` +
-    `<details class="panel roster-box" open><summary>${S.rosterTitle(roster.rows.length)}</summary><p class="fine">${S.rosterHelp}</p>` +
-    rosterTableHtml(roster, rowLabelFor(roster, state.monday), dates.indexOf(serviceDate(Date.now()))) + `</details>` +
-    `<div class="me-foot"><button type="button" class="btn me-settings">${S.settings}</button></div>`
+    `<p class="fine">${S.weekHint} · ${S.swipeHint}</p>` +
+    `<details class="panel roster-box" open><summary>${S.rosterTitle(roster.rows.length)}</summary>` +
+    `<div class="roster-tools"><p class="fine">${S.rosterHelp}</p>` +
+    `<button type="button" class="link me-roster-toggle">${state.rosterAll ? S.rosterNear : S.rosterAll(roster.rows.length)}</button></div>` +
+    rosterTableHtml(roster, curRow, dates.indexOf(serviceDate(Date.now())), near) + `</details>`
+  setSub(subLine(state.monday))
   paintData()
   // Show this week's row inside the table without moving the page.
   const table = view.querySelector(".rtable")
@@ -565,7 +651,9 @@ function paintData() {
     const today = serviceDate(Date.now())
     const week = weekDates(state.monday)
     const heroHtml = week.includes(today) ? todayHtml(today, dayEntry(roster, today), cellInfo(dayEntry(roster, today).code)) : ""
-    html = heroHtml + `<ul class="day-list">${week.map((date) => {
+    // 今日已經有 hero，列表唔再重複
+    const listDays = week.includes(today) ? week.filter((date) => date !== today) : week
+    const listHtml = `<ul class="day-list">${listDays.map((date) => {
       const entry = dayEntry(roster, date)
       const cell = cellInfo(entry.code)
       const lines = dayLines(cell)
@@ -581,6 +669,11 @@ function paintData() {
         (lines.note ? `<span class="meta">${escapeHtml(lines.note)}</span>` : "") +
         `</span></button></li>`
     }).join("")}</ul>`
+    html = `<div class="me-cols"><div class="me-col-a">${heroHtml}${summaryHtml(week)}` +
+      `<p class="legend"><span><i style="background:#d9a23b"></i>${S.shift.early}（10:00 前上班）</span>` +
+      `<span><i style="background:#4f9fd6"></i>${S.shift.mid}</span>` +
+      `<span><i style="background:#8a6fd1"></i>${S.shift.late}（15:00 後上班）</span></p></div>` +
+      `<div class="me-col-b">${listHtml}</div></div>`
   } else {
     return
   }
@@ -679,6 +772,7 @@ function onClick(event) {
   } else if (target.closest(".me-prev")) state.monday = addDays(state.monday, -7)
   else if (target.closest(".me-next")) state.monday = addDays(state.monday, 7)
   else if (target.closest(".me-this")) state.monday = mondayOf(serviceDate(Date.now()))
+  else if (target.closest(".me-roster-toggle")) state.rosterAll = !state.rosterAll
   else if (target.closest(".me-settings")) {
     state.page = "setup"
     state.message = ""
@@ -698,6 +792,59 @@ function onClick(event) {
   window.scrollTo(0, 0)
 }
 
+function wireKeys() {
+  const step = (delta) => {
+    if (state.page !== "week" || !roster) return
+    state.monday = addDays(state.monday, delta * 7)
+    render()
+  }
+  document.addEventListener("keydown", (event) => {
+    if (event.metaKey || event.ctrlKey || event.altKey) return
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)) return
+    if (event.key === "ArrowLeft") step(-1)
+    else if (event.key === "ArrowRight") step(1)
+  })
+  // 手機：喺更表範圍左右滑動換週
+  let fromX = null
+  let fromY = null
+  view.addEventListener("touchstart", (event) => {
+    const touch = event.touches[0]
+    fromX = touch.clientX
+    fromY = touch.clientY
+  }, { passive: true })
+  view.addEventListener("touchend", (event) => {
+    if (fromX == null || state.page !== "week") return
+    const touch = event.changedTouches[0]
+    const dx = touch.clientX - fromX
+    const dy = touch.clientY - fromY
+    fromX = null
+    if (Math.abs(dx) < 70 || Math.abs(dy) > Math.abs(dx) * 0.8) return
+    if (event.target.closest(".rtable")) return
+    state.monday = addDays(state.monday, dx < 0 ? 7 : -7)
+    render()
+  }, { passive: true })
+}
+
+// 設定／備份放頁首齒輪，唔使碌到頁尾
+function wireSettings() {
+  const top = document.querySelector(".top")
+  if (!top || top.querySelector(".me-settings")) return
+  const button = document.createElement("button")
+  button.type = "button"
+  button.className = "btn icon me-settings"
+  button.title = S.settings
+  button.setAttribute("aria-label", S.settings)
+  button.textContent = "⚙"
+  button.addEventListener("click", () => {
+    state.page = "setup"
+    state.message = ""
+    state.exportText = ""
+    render()
+    window.scrollTo(0, 0)
+  })
+  top.appendChild(button)
+}
+
 async function boot() {
   try {
     stations = await fetchJson("data/stations.json")
@@ -705,6 +852,8 @@ async function boot() {
     stations = {}
   }
   view.addEventListener("click", onClick)
+  wireKeys()
+  wireSettings()
   view.addEventListener("input", (event) => {
     const form = event.target.closest?.(".me-setup")
     if (form) refreshPreview(form)
