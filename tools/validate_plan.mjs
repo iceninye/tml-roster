@@ -1,7 +1,7 @@
 // Checks lib/tml-plan.js on a made-up roster and made-up duty times
 // (real rosters and staff never go in the repo):
 //   node tools/validate_plan.mjs
-import { EMPTY, SHEETS, formatRanges, leaveToTray, namedRows, arrangeWeek, defaultSheet, mapCode, setSheet, sheetOf, assign, cleanPlan, fromTray, toTray, trayView, allToTray, canRemove, fillMember, fillTeam, combosView, useCombo, renameBlock, removeBlock, isoWeek, memberRow, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
+import { EMPTY, EXTRA, SHEETS, formatRanges, leaveToTray, namedRows, arrangeWeek, defaultSheet, mapCode, setSheet, sheetOf, assign, cleanPlan, fromTray, toTray, trayView, allToTray, canRemove, fillMember, fillTeam, combosView, useCombo, renameBlock, removeBlock, isoWeek, memberRow, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
 import { newRoster, parseRoster } from "../lib/tml-roster.js"
 
 let failed = 0
@@ -260,6 +260,23 @@ check(cleanPlan(JSON.parse(JSON.stringify(sat))).sheets["2026-10-17"] === "8022"
 {
   const old = cleanPlan({ ...JSON.parse(JSON.stringify(done)), v: 1 })
   check(old && old.v === 2 && Object.keys(old.weeks).length === 0 && old.members.length === 3, "a v1 plan keeps the team and drops its weeks")
+}
+
+// 自動編排 on some members or some days only; 其他 codes come from no block.
+{
+  const week = "2026-10-12"
+  const start = allToTray(roster, plan, week, timeOf)
+  let p = start
+  for (const row of [2, 3, 4]) p = setCell(roster, p, week, row, 6, "RD")
+  const some = weekView(roster, fillTeam(roster, p, week, timeOf, { rows: [2] }).plan, week)
+  check(some[0].codes.slice(0, 6).some((c) => c !== "-") && some[1].codes.slice(0, 6).every((c) => c === "-"), "a picked member is filled, the others are not")
+  const day = weekView(roster, fillTeam(roster, p, week, timeOf, { days: [1] }).plan, week)
+  check(day.every((l) => l.codes[0] === "-") && day.some((l) => l.codes[1] !== "-"), "a picked day is filled, the other days are not")
+  check(EXTRA.includes("TRG") && EXTRA.includes("CL"), "the 其他 codes")
+  const trg = setCell(roster, start, week, 2, 0, "TRG")
+  check(trayView(trg, week)[0].length === trayView(start, week)[0].length - 1, "a TRG day uses up the member's own block")
+  const back = setCell(roster, trg, week, 2, 0, null)
+  check(!trayView(back, week)[0].includes("TRG") && weekView(roster, back, week)[0].codes[0] === "-", "clearing a TRG day puts no TRG block in the tray")
 }
 
 if (failed) {

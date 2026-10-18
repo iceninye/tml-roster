@@ -398,3 +398,14 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .cb-day i { font-style: normal; font-size: 10px; color: var(--muted); }
 .cb-day b { font-size: 12px; }
 .cb-day small { font-size: 10px; color: var(--muted); }
+
+/* 編更: pick for 自動編排, 其他 blocks, auto switch */
+.ptable input.pick { width: 14px; height: 14px; margin: 0 4px 0 0; vertical-align: -2px; accent-color: var(--accent); }
+.ptable thead th input.pick { display: block; margin: 0 auto 2px; }
+.ptable th.who .p-name { width: calc(100% - 20px); }
+.ptable th.who small { display: block; }
+.ptable tr[data-picked="1"] th.who { box-shadow: inset 3px 0 0 var(--accent); }
+.p-auto[aria-pressed="true"] { color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.other-blocks { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 6px; margin: 0 0 8px; }
+.p-custom input { width: 8em; padding: 6px 8px; font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--edge); border-radius: 8px; }
+.plan-sel select { max-width: 100%; padding: 6px; font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--edge); border-radius: 8px; }

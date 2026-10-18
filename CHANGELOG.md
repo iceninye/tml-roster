@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.9.2 — unreleased
+- 編更: 自動套用 開／關 switch. Off, a change to a member fills nothing; 自動編排 still fills on demand.
+- 自動編排 can be narrowed: tick members (box by the name) and/or days (box in the head); nothing ticked is the whole team.
+- An HC or TBC block lists the free duties of its day's Duty Sheet (not in a cell or the tray) to pick from, by book-on time; typing a number still works.
+- 待定區 其他 tab: CL, CP, GH, PH, SH, SL, WB (days off, with paid hours), SPH7, SPT7, SPT75, TRG, TRGK, TRGL, and 自定 for any code. They go on any day and use up the member's own block.
+- A cell holding a day off or other code has a 清空 button.
+
 ## v0.9.1 — unreleased
 - 編更: filling follows preferences again when they are set after the row was filled: a member's auto-filled duties go back to the tray and the week is chosen again. The week is chosen as a whole, so a late duty is never followed by too little rest; a cell is left empty sooner than short of rest. 自動編排 solves each day again once its neighbours are known.
 - Plans saved before v0.9 start their weeks over in the tray (the team, preferences and Duty Sheets stay).
