@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.0 — unreleased
+- 編更: the CSV import has its own year and ISO week (the base week of the CSV); the page opens on next week. The week title shows the year, e.g. 2026 · Week 43.
+- Every week starts with all of the team's blocks in the 待定區 and the cells empty, not only the imported week. 本週重新開始 puts the week back that way; 全部放入待定區, 假期放入待定區 and 還原 Standard are gone.
+- Setting a cell uses up a block of that day (the same code, or for a leave the member's own block) and sends what the cell held back to the tray, so the annual-leave week uses up its blocks.
+- HC and TBC blocks stay in the tray until given a 7-digit duty number; a cell can't be set to HC or TBC.
+- 自動編排 (was 按偏好自動編排) fills the whole team's empty cells from the tray by preference and rest, skipping members with no RD in the week. 編多週 is gone.
+- 還原上一步 button and Ctrl+Z / ⌘Z undo the last change. The table head shows each day's empty cells; the tray shows each day's block count.
+
 ## v0.8.4 — unreleased
 - 編更: the 年假 button is gone. A member on AL Monday to Wednesday takes the whole annual-leave week (AL AL AL SH SH RD RD).
 - Auto-fill works on the member changed only: a preference, a leave or a block sets that member's empty days from the day trays. A week needs one RD before it fills.

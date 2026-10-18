@@ -4,11 +4,11 @@
 // plan (names, preferences, results), only in this browser's localStorage,
 // never uploaded. Book-on/off times come from data/duty-basic.json.
 
-import { EMPTY, LEAVE, PENDING, SHEETS, SHIFTS, allToTray, arrangeWeek, canRemove, cleanPlan, clearWeek, fillMember, formatRanges, fromTray, isoWeek, leaveToTray, mondayOfIsoWeek, namedRows, newPlan, parseRanges, prefDistance, removeBlock, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, trayView, weekView } from "../lib/tml-plan.js"
+import { EMPTY, LEAVE, PENDING, SHEETS, SHIFTS, allToTray, canRemove, cleanPlan, clearWeek, fillMember, fillTeam, formatRanges, fromTray, isoWeek, mondayOfIsoWeek, namedRows, newPlan, parseRanges, prefDistance, removeBlock, renameBlock, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, trayView, weekView } from "../lib/tml-plan.js"
 import { addDays, classify, cleanRoster, mondayOf, newRoster, normaliseCode, parseRoster, weekDates } from "../lib/tml-roster.js"
 import { serviceDate } from "../lib/tml-time.js"
 
-const BUILD = { version: "0.8.4", commit: "dev" }
+const BUILD = { version: "0.9.0", commit: "dev" }
 // The plan page keeps its own Standard Roster, apart from the personal roster of the 我的更表 page ("tml-roster").
 const ROSTER_KEY = "tml-plan-roster"
 const PLAN_KEY = "tml-roster-plan"
@@ -22,7 +22,8 @@ const S = {
   csvBtn: "由 CSV 匯入 Standard Roster",
   csvHelp: "格式：標題行 `,Name,Mon,Tue,Wed,Thu,Fri,Sat,Sun`，之後每行 行號、名稱、七日更份。有名稱嘅行就係組員；一行七格 TBC 嘅唔跟輪換，留喺原行。",
   csvEmpty: "讀唔到任何一行，請確認係 CSV",
-  csvDone: (rows, named, week) => `已匯入 ${rows} 行${named ? `，有名稱嘅 ${named} 位已設為組員，基準${week}，更份同 RD／AL／SH 已放入待定區；設好假期同喜好後按「按偏好自動編排」` : ""}`,
+  csvDone: (rows, named, week) => `已匯入 ${rows} 行${named ? `，有名稱嘅 ${named} 位已設為組員，基準${week}，所有積木已放入待定區；設好假期同喜好後按「自動編排」` : ""}`,
+  importWeek: "CSV 屬於邊個星期（基準星期）",
   templateBtn: "下載匯入範本",
   templateHelp: "範本有 141 行、7 格，RD 只係示範，請換成實際更份。Name 欄填咗名嘅行就係組員。",
   csvFail: "讀取檔案失敗",
@@ -36,19 +37,22 @@ const S = {
   rangesLabel: "組員行號（基準星期）",
   rangesHelp: "例如 31-40, 55-70。用逗號分隔，可以有多段。",
   save: "儲存",
-  week: (w) => `Week ${w}`,
+  week: (y, w) => `${y} · Week ${w}`,
   weekOf: (a, b) => `${a} – ${b}`,
   team: (n) => `${n} 位組員`,
   prev: "上週",
   next: "下週",
-  backThis: "回到本週",
+  backNext: "回到下週",
   thisWeek: "本週",
-  arrange: "按偏好自動編排",
-  arrangeMore: "編多週",
-  weeksBox: ["由本週起連續", "週"],
-  arrangeHelp: "自動編排只會喺同一日、組員嗰幾行嘅更份之間對調；休息日、假期唔郁；手動改過（📌）嘅格會保留。",
-  reset: "還原本週做 Standard",
-  resetAsk: "本週所有編排同手動改動會還原做 Standard Roster，確定？",
+  nextWeek: "下週",
+  arrange: "自動編排",
+  arrangeHelp: "自動編排用待定區嘅更份填滿組員嘅空格，按偏好同 12 小時休息分配；一星期未有 RD 嘅組員唔會編；手動改過（📌）嘅格會保留。",
+  undo: "還原上一步",
+  undone: "已還原上一步",
+  noUndo: "冇可以還原嘅步驟",
+  reset: "本週重新開始",
+  resetAsk: "本週所有格會清空，全部積木放返待定區，確定？",
+  resetDone: "本週已重新開始，所有積木喺待定區",
   csv: "匯出本週 CSV",
   member: "組員",
   rowNow: (r) => `第 ${r} 行`,
@@ -61,19 +65,24 @@ const S = {
   selHelp: "再撳同一日另一格就對調；電腦直接拖放，手機長按後拖。",
   editLabel: "改做",
   editSave: "改",
-  editReset: "還原 Standard",
   cancel: "取消",
   badCode: "格式唔啱：請輸入 7 位更份編號，或者 RD、AL、SH、HC、HSP1 呢類代號",
   sameDay: "只可以同一日嘅格對調",
   swapped: "已對調",
-  arranged: (n, miss) => `已編排 ${n} 週${miss ? `；有 ${miss} 個更份冇人接，已放入待定區` : ""}`,
+  arranged: (skipped) => `已自動編排${skipped.length ? `；${skipped.length} 位未有 RD 冇編：${skipped.slice(0, 5).join("、")}${skipped.length > 5 ? " 等" : ""}` : ""}`,
   tray: "待定區",
-  trayHelp: "暫放嘅地方：將格仔（更份、RD、AL、SH）拖入嚟，再拖去同一日嘅格仔。冇人接嘅更份會自動放呢度。",
+  trayHelp: "將積木拖去同一日嘅格仔，或者將格仔拖返入嚟。HC／TBC 要先撳入去填更份編號。",
   trayNone: "—",
   empty: "空",
   toTray: "放入待定區",
   blockSel: (day, code) => `待定 ${code} · 週${day}`,
   blockHelp: "撳同一日一格放入去（該格原有更份會返去待定區）。",
+  pendingHelp: "輸入 7 位更份編號，填好先可以放入格仔。",
+  pendingNeed: "HC／TBC 要先輸入更份編號，先可以放入格仔",
+  hcCell: "格仔唔可以放 HC／TBC：請輸入更份編號，或者喺待定區填好編號再放入",
+  dutyCode: "更份編號",
+  renamed: "已填好編號",
+  badDuty: "請輸入 7 位更份編號",
   trayed: "已放入待定區",
   placed: "已放入",
   noMove: "呢樣唔可以咁調（休息日、假期唔郁；HC 可以放入更份）",
@@ -98,18 +107,16 @@ const S = {
   noDuty: "Duty Sheet 入面冇呢個更份",
   legendHc: "HC／TBC：自己改編號，或者將待定區嘅放入去",
   removeBlock: "刪除呢個更份積木",
-  allTray: "全部放入待定區",
-  allTrayAsk: "本週組員未手動設定嘅更份、RD、AL、SH 會全部放入待定區，確定？",
   blockRemoved: "已刪除積木，其餘空格已按偏好重新編排",
   needRd: "每位組員一星期要有一日 RD，未有 RD 就唔會自動填更份",
-  allTrayed: "已將本週所有更份同假期放入待定區",
-  leaveTray: "假期放入待定區",
-  setupDone: "已儲存組員，更份同 RD／AL／SH 已放入待定區；設好假期同喜好後按「按偏好自動編排」",
-  leaveTrayed: "已將 RD／AL／SH 放入待定區",
+  setupDone: "已儲存組員，積木已放入待定區；設好假期同喜好後按「自動編排」",
+  emptyCount: (n) => `空 ${n}`,
 }
 
 const view = document.getElementById("view")
-const state = { monday: null, sel: null, message: "", exportText: "", weeks: 4 }
+const state = { monday: null, sel: null, message: "", exportText: "" }
+// Earlier { plan, roster } pairs, for 還原上一步; kept for this visit only.
+const history = []
 
 let roster = null
 let plan = null
@@ -172,12 +179,29 @@ const ANNUAL = ["AL", "AL", "AL", "SH", "SH", "RD", "RD"]
 function settle(next, row, message = S.saved) {
   const weekOf = (plan) => weekView(roster, plan, state.monday).find((item) => item.member.row === row)
   let out = next
-  if (weekOf(out).codes.slice(0, 3).includes("AL")) ANNUAL.forEach((code, d) => { out = setCell(roster, out, state.monday, row, d, code) })
+  // Only when this change put the AL there, so later changes to the week are kept.
+  const had = weekOf(plan).codes.slice(0, 3).includes("AL")
+  if (!had && weekOf(out).codes.slice(0, 3).includes("AL")) ANNUAL.forEach((code, d) => { out = setCell(roster, out, state.monday, row, d, code) })
   const missing = !weekOf(out).codes.includes("RD")
   store(fillMember(roster, out, state.monday, row, timeOf), missing ? S.needRd : message)
 }
 
 const who = (member) => member.name || `#${member.row}`
+
+// Plans are made a week ahead: the page opens on next week.
+const nextMonday = () => addDays(mondayOf(serviceDate(Date.now())), 7)
+
+// A week seen for the first time starts with every block in the tray and the
+// cells empty; a date on a special Duty Sheet gets that sheet's blocks.
+function opened(p, monday) {
+  if (p.weeks?.[monday]) return p
+  let out = allToTray(roster, p, monday, timeOf)
+  for (let d = 0; d < 7; d += 1) {
+    const sheet = out.sheets?.[addDays(monday, d)]
+    if (sheet) out = setSheet(roster, out, monday, d, sheet, sheetCodes(sheet))
+  }
+  return out
+}
 
 /* --------------------------------------------------------------- pages */
 
@@ -186,6 +210,7 @@ function render() {
     view.innerHTML = `<p class="empty">${S.noRoster}</p><section class="panel">${csvImportHtml()}<p class="me-msg" role="status">${escapeHtml(state.message)}</p></section>`
     return
   }
+  if (plan && !plan.weeks?.[state.monday]) savePlan(opened(plan, state.monday))
   // Repainting must not throw the reader back to the top of a long table.
   const table = view.querySelector(".ptable")
   const keep = table ? [table.scrollLeft, table.scrollTop, window.scrollY] : null
@@ -201,20 +226,32 @@ function render() {
 // The Monday to Sunday of a week, e.g. 2026/10/12 至 2026/10/18.
 const weekSpan = (monday) => `${monday.replaceAll("-", "/")} 至 ${addDays(monday, 6).replaceAll("-", "/")}`
 
+// Year and ISO week inputs, with the dates of that week under them.
+function weekFields(monday, label) {
+  const { year, week } = isoWeek(monday)
+  return `<div class="plan-grid"><label>${S.yearLabel}<input name="year" type="number" inputmode="numeric" value="${year}" required></label>` +
+    `<label>${label}<input name="week" type="number" inputmode="numeric" min="1" max="53" value="${week}" required></label></div>` +
+    `<p class="fine p-span">${S.weekSpanLabel(week, weekSpan(monday))}</p>`
+}
+
 function csvImportHtml() {
-  return `<div class="csv-import"><div class="me-edit-row"><label class="btn filebtn">${S.csvBtn}<input type="file" class="p-csv-file" accept=".csv,.tsv,.txt,text/csv,text/plain" hidden></label>` +
+  return `<div class="csv-import">${weekFields(plan?.anchor ?? nextMonday(), S.importWeek)}` +
+    `<div class="me-edit-row"><label class="btn primary filebtn">${S.csvBtn}<input type="file" class="p-csv-file" accept=".csv,.tsv,.txt,text/csv,text/plain" hidden></label>` +
     `<a class="btn" href="data/roster-template.csv" download="roster-template.csv">${S.templateBtn}</a></div><p class="fine">${S.csvHelp} ${S.templateHelp}</p></div>`
+}
+
+// The year and week typed next to an input, as a Monday, or null.
+function typedMonday(box) {
+  const year = Number(box?.querySelector("input[name=year]")?.value)
+  const week = Number(box?.querySelector("input[name=week]")?.value)
+  return year >= 2000 && year <= 2100 && week >= 1 && week <= 53 ? mondayOfIsoWeek(year, week) : null
 }
 
 function setupHtml(inPanel = false) {
   const anchor = plan?.anchor ?? state.monday
-  const { year, week } = isoWeek(anchor)
   const named = roster ? namedRows(roster) : []
   const body =
-    `<form class="me-setup plan-setup" autocomplete="off">` +
-    `<div class="plan-grid"><label>${S.yearLabel}<input name="year" type="number" inputmode="numeric" value="${year}" required></label>` +
-    `<label>${S.weekLabel}<input name="week" type="number" inputmode="numeric" min="1" max="53" value="${week}" required></label></div>` +
-    `<p class="fine p-span">${S.weekSpanLabel(week, weekSpan(mondayOfIsoWeek(year, week)))}</p>` +
+    `<form class="me-setup plan-setup" autocomplete="off">` + weekFields(anchor, S.weekLabel) +
     `<label>${S.rangesLabel}<input name="ranges" value="${escapeHtml(plan?.ranges ?? (named.length ? formatRanges(named) : "31-40, 55-70"))}" spellcheck="false" required></label>` +
     `<p class="fine">${S.rangesHelp}${named.length ? ` ${S.namedHint(named.length)}<button type="button" class="link p-named">${S.useNamed}</button>` : ""}</p>` +
     `<div class="me-edit-row"><button type="submit" class="btn primary">${S.save}</button></div>` +
@@ -227,14 +264,15 @@ function weekHtml() {
   const dates = weekDates(state.monday)
   const current = mondayOf(serviceDate(Date.now()))
   const lines = weekView(roster, plan, state.monday)
+  const empties = dates.map((_, d) => lines.filter((line) => line.codes[d] === EMPTY).length)
   const issues = new Map(restIssues(roster, plan, state.monday, timeOf).map((x) => [`${x.row}:${x.day}`, x.rest]))
-  const { week } = isoWeek(state.monday)
+  const { year, week } = isoWeek(state.monday)
   const sheetSelect = (date, i) => {
     const now = sheetOf(plan, date)
     const opts = SHEETS.map((sh) => `<option value="${sh}"${sh === now ? " selected" : ""}>${sh}</option>`).join("")
     return `<select class="p-sheet" data-day="${i}" aria-label="${S.sheetTitle(S.weekdays[i], "")}" title="${S.sheetTitle(S.weekdays[i], (sheetDates[now] ?? []).join("、"))}"${plan.sheets?.[date] ? ' data-set="1"' : ""}>${opts}</select>`
   }
-  const head = `<tr><th class="who">${S.member}</th>${dates.map((d, i) => `<th>${S.weekdays[i]}<small>${meDate(d)}</small>${sheetSelect(d, i)}</th>`).join("")}<th>${S.fit}</th><th>${S.hours}</th></tr>`
+  const head = `<tr><th class="who">${S.member}</th>${dates.map((d, i) => `<th>${S.weekdays[i]}<small>${meDate(d)}</small>${sheetSelect(d, i)}${empties[i] ? `<small class="p-empties">${S.emptyCount(empties[i])}</small>` : ""}</th>`).join("")}<th>${S.fit}</th><th>${S.hours}</th></tr>`
   const body = lines.map((line) => {
     let hits = 0
     let work = 0
@@ -279,20 +317,19 @@ function weekHtml() {
   const fitStd = fitOf((line) => line.std)
   const legend = SHIFTS.map((s) => `<span><i data-shift="${s}"></i>${S.shift[s]}（${S.shiftHelp[s]}）</span>`).join("")
   return `<div class="me-nav"><button type="button" class="btn p-prev" aria-label="${S.prev}">‹</button>` +
-    `<div class="weeklabel"><b>${S.week(week)} · ${S.weekOf(meDate(dates[0]), meDate(dates[6]))}</b>` +
-    `<span>${S.team(lines.length)}${state.monday === current ? ` · ${S.thisWeek}` : ` · <button type="button" class="link p-this">${S.backThis}</button>`}</span></div>` +
+    `<div class="weeklabel"><b>${S.week(year, week)} · ${S.weekOf(meDate(dates[0]), meDate(dates[6]))}</b>` +
+    `<span>${S.team(lines.length)}${state.monday === current ? ` · ${S.thisWeek}` : ""}${state.monday === nextMonday() ? ` · ${S.nextWeek}` : ` · <button type="button" class="link p-this">${S.backNext}</button>`}</span></div>` +
     `<button type="button" class="btn p-next" aria-label="${S.next}">›</button></div>` +
     `<div class="plan-actions"><button type="button" class="btn primary p-arrange">${S.arrange}</button>` +
-    `<span class="p-weekbox"><label class="meta">${S.weeksBox[0]} <input type="number" class="p-weeks" min="1" max="26" value="${state.weeks}"> ${S.weeksBox[1]}</label>` +
-    `<button type="button" class="btn p-arrange-more">${S.arrangeMore}</button></span>` +
-    `<button type="button" class="btn p-all-tray">${S.allTray}</button><button type="button" class="btn p-leave-tray">${S.leaveTray}</button><button type="button" class="btn p-csv">${S.csv}</button><button type="button" class="btn danger p-reset">${S.reset}</button></div>` +
+    `<button type="button" class="btn p-undo"${history.length ? "" : " disabled"}>↶ ${S.undo}</button>` +
+    `<span class="plan-actions-end"><button type="button" class="btn p-csv">${S.csv}</button><button type="button" class="btn danger p-reset">${S.reset}</button></span></div>` +
     `<p class="me-msg" role="status">${escapeHtml(state.message)}</p>` +
     `<p class="fine plan-fit">${S.fitLine(fitNow.hit, fitNow.all, fitStd.hit, issues.size)}</p>` +
     selHtml(lines) +
     `<div class="ptable"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>` +
     trayHtml() +
     `<p class="legend plan-legend">${legend}<span>${S.legendRest}</span><span>${S.legendPin}</span><span>${S.legendMiss}</span><span>${S.legendHc}</span></p>` +
-    `<p class="fine">${S.sheetHelp}</p><p class="fine">${S.arrangeHelp}</p>` +
+    `<p class="fine">${S.arrangeHelp}</p><p class="fine">${S.sheetHelp}</p>` +
     (state.exportText ? `<textarea class="me-export-box" readonly rows="6">${escapeHtml(state.exportText)}</textarea>` : "")
 }
 
@@ -303,8 +340,10 @@ function selHtml(lines) {
   if (sel.type === "block") {
     const code = trayView(plan, state.monday)[sel.day][sel.index]
     if (code == null) return ""
-    return `<form class="plan-sel panel" autocomplete="off"><div><b>${escapeHtml(S.blockSel(S.weekdays[sel.day], code))}</b><span class="meta">${S.blockHelp}</span></div>` +
-      `<div class="me-edit-row"><button type="button" class="btn p-cancel">${S.cancel}</button></div></form>`
+    const pending = PENDING.includes(code)
+    return `<form class="plan-sel plan-block panel" autocomplete="off"><div><b>${escapeHtml(S.blockSel(S.weekdays[sel.day], code))}</b><span class="meta">${pending ? S.pendingHelp : S.blockHelp}</span></div>` +
+      `<div class="me-edit-row">${pending ? `<label class="meta">${S.dutyCode} <input name="code" inputmode="numeric" maxlength="7" spellcheck="false"></label><button type="submit" class="btn primary">${S.editSave}</button>` : ""}` +
+      `<button type="button" class="btn p-cancel">${S.cancel}</button></div></form>`
   }
   const line = lines.find((item) => item.member.row === sel.row)
   if (!line) return ""
@@ -314,7 +353,6 @@ function selHtml(lines) {
     `<div class="me-edit-row"><label class="meta">${S.editLabel} <input name="code" value="${line.codes[d] === EMPTY ? "" : escapeHtml(line.codes[d])}" maxlength="10" autocapitalize="characters" spellcheck="false"></label>` +
     `<button type="submit" class="btn primary">${S.editSave}</button>` +
     (timeOf(line.codes[d]) || LEAVE.includes(line.codes[d]) ? `<button type="button" class="btn p-to-tray">${S.toTray}</button>` : "") +
-    (line.pins[d] ? `<button type="button" class="btn p-cell-reset">${S.editReset}</button>` : "") +
     `<button type="button" class="btn p-cancel">${S.cancel}</button></div></form>`
 }
 
@@ -328,10 +366,10 @@ function trayHtml() {
       const shift = t ? shiftOf(t.on, t.off) : ""
       const sel = state.sel?.type === "block" && state.sel.day === d && state.sel.index === i
       const x = t && removable[d] ? `<span class="blk-x" role="button" tabindex="0" data-day="${d}" data-index="${i}" aria-label="${S.removeBlock}" title="${S.removeBlock}">✕</span>` : ""
-      return `<button type="button" class="block" data-day="${d}" data-index="${i}" data-shift="${shift}" data-kind="${t ? "duty" : "leave"}"${sel ? ' data-sel="1"' : ""}>${x}` +
+      return `<button type="button" class="block" data-day="${d}" data-index="${i}" data-shift="${shift}" data-kind="${t ? "duty" : "leave"}"${PENDING.includes(code) ? ' data-pending="1"' : ""}${sel ? ' data-sel="1"' : ""}>${x}` +
         `<b>${escapeHtml(t ? code : code === "RD" ? `RD(${S.weekdays[d]})` : S.status[code] ?? code)}</b>${t ? `<small>${hhmm(t.on)}–${hhmm(t.off)}</small><span class="ptag">${S.shift[shift]}</span>` : ""}</button>`
     }).join("")
-    return `<div class="tray-col" data-day="${d}"><span class="tray-day">${S.weekdays[d]}</span><div class="tray-blocks">${blocks || `<span class="tray-none">${S.trayNone}</span>`}</div></div>`
+    return `<div class="tray-col" data-day="${d}"><span class="tray-day">${S.weekdays[d]}<em>${codes.length}</em></span><div class="tray-blocks">${blocks || `<span class="tray-none">${S.trayNone}</span>`}</div></div>`
   }).join("")
   return `<section class="tray panel" aria-label="${S.tray}"><div class="tray-head"><b>${S.tray}</b><span class="meta">${S.trayHelp}</span></div><div class="tray-cols">${cols}</div></section>`
 }
@@ -346,8 +384,45 @@ function settingsHtml() {
 
 /* ------------------------------------------------------------- actions */
 
+function remember() {
+  history.push({ plan, roster })
+  if (history.length > 50) history.shift()
+}
+
 function store(next, message = S.saved) {
+  if (JSON.stringify(next) !== JSON.stringify(plan)) remember()
   state.message = savePlan(next) ? message : S.notStored
+}
+
+function saveRoster(next) {
+  roster = next
+  try {
+    if (next) localStorage.setItem(ROSTER_KEY, JSON.stringify(next))
+    else localStorage.removeItem(ROSTER_KEY)
+  } catch {
+    // Blocked storage: the roster lasts until the page is closed.
+  }
+}
+
+function undo() {
+  const last = history.pop()
+  state.sel = null
+  if (!last) {
+    state.message = S.noUndo
+    return render()
+  }
+  if (last.roster !== roster) saveRoster(last.roster)
+  if (last.plan) savePlan(last.plan)
+  else {
+    plan = null
+    try {
+      localStorage.removeItem(PLAN_KEY)
+    } catch {
+      // Storage blocked: nothing was stored.
+    }
+  }
+  state.message = S.undone
+  render()
 }
 
 function submitSetup(form) {
@@ -366,48 +441,41 @@ function submitSetup(form) {
   }
   const next = newPlan(mondayOfIsoWeek(year, week), ranges, plan)
   state.monday = next.anchor === plan?.anchor ? state.monday : next.anchor
-  store(allToTray(roster, next, state.monday, timeOf), S.setupDone)
+  store(next.weeks?.[state.monday] ? allToTray(roster, next, state.monday, timeOf) : opened(next, state.monday), S.setupDone)
   render()
 }
 
 // The ISO week of a plan anchor, with its dates, e.g. 42 (2026/10/12 至 2026/10/18).
-const weekNo = (monday) => `第 ${isoWeek(monday).week} 週（${weekSpan(monday)}）`
+const weekNo = (monday) => `${isoWeek(monday).year} 年第 ${isoWeek(monday).week} 週（${weekSpan(monday)}）`
 
 // Read a CSV (or pasted rows) as the Standard Roster; rows with a name become the team.
-function importRoster(text) {
+function importRoster(text, anchor) {
   const parsed = parseRoster(text)
   if (parsed.issues.length || !parsed.rows.length) {
     state.message = parsed.issues.slice(0, 4).join("；") || S.csvEmpty
     return render()
   }
-  const monday = mondayOf(serviceDate(Date.now()))
-  const keep = roster?.anchor && parsed.numbers.includes(Number(roster.anchor.row)) ? roster.anchor : { row: parsed.numbers[0], monday }
+  remember()
+  const keep = roster?.anchor && parsed.numbers.includes(Number(roster.anchor.row)) ? roster.anchor : { row: parsed.numbers[0], monday: anchor }
   const next = newRoster(parsed, keep)
   next.overrides = roster?.overrides ?? {}
-  roster = next
-  try {
-    localStorage.setItem(ROSTER_KEY, JSON.stringify(next))
-  } catch {
-    // Blocked storage: the roster lasts until the page is closed.
-  }
+  saveRoster(next)
   const named = namedRows(next)
   if (named.length) {
-    const made = newPlan(plan?.anchor ?? state.monday, formatRanges(named), plan, next)
-    store(allToTray(roster, made, state.monday, timeOf), S.csvDone(parsed.rows.length, named.length, weekNo(made.anchor)))
+    // A new Standard Roster starts every week over, all blocks in the tray.
+    const made = { ...newPlan(anchor, formatRanges(named), plan, next), weeks: {}, trays: {} }
+    state.monday = anchor
+    state.sel = null
+    state.message = savePlan(opened(made, anchor)) ? S.csvDone(parsed.rows.length, named.length, weekNo(anchor)) : S.notStored
   } else state.message = S.csvDone(parsed.rows.length, 0)
   render()
 }
 
-function arrange(weeks) {
-  let next = plan
-  let miss = 0
-  for (let i = 0; i < weeks; i += 1) {
-    const result = arrangeWeek(roster, next, addDays(state.monday, 7 * i), timeOf)
-    next = result.plan
-    miss += result.unassigned.length
-  }
+// 自動編排: fill every member's empty cells from the tray.
+function autoFill() {
+  const { plan: next, skipped } = fillTeam(roster, plan, state.monday, timeOf)
   state.sel = null
-  store(next, S.arranged(weeks, miss))
+  store(next, S.arranged(skipped.map((row) => who(plan.members.find((m) => m.row === row)))))
   render()
 }
 
@@ -426,6 +494,10 @@ function act(source, target) {
     next = toTray(roster, plan, state.monday, source.row, source.day, timeOf)
     message = S.trayed
   } else if (source.type === "block" && target.type === "cell") {
+    if (PENDING.includes(trayView(plan, state.monday)[source.day][source.index])) {
+      state.message = S.pendingNeed
+      return render()
+    }
     next = fromTray(roster, plan, state.monday, target.row, source.day, source.index, timeOf)
     message = S.placed
     if (next) {
@@ -495,33 +567,25 @@ function onClick(event) {
   }
   if (t.closest(".p-prev")) state.monday = addDays(state.monday, -7)
   else if (t.closest(".p-next")) state.monday = addDays(state.monday, 7)
-  else if (t.closest(".p-this")) state.monday = mondayOf(serviceDate(Date.now()))
-  else if (t.closest(".p-arrange")) return arrange(1)
-  else if (t.closest(".p-arrange-more")) return arrange(state.weeks)
+  else if (t.closest(".p-this")) state.monday = nextMonday()
+  else if (t.closest(".p-arrange")) return autoFill()
+  else if (t.closest(".p-undo")) return undo()
   else if (t.closest(".p-cancel")) state.sel = null
   else if (t.closest(".p-named")) {
     const input = t.closest("form").elements.ranges
     input.value = formatRanges(namedRows(roster))
     return
-  } else if (t.closest(".p-all-tray")) {
-    if (!window.confirm(S.allTrayAsk)) return
-    state.sel = null
-    store(allToTray(roster, plan, state.monday, timeOf), S.allTrayed)
-  } else if (t.closest(".p-leave-tray")) {
-    state.sel = null
-    store(leaveToTray(roster, plan, state.monday, timeOf), S.leaveTrayed)
   } else if (t.closest(".p-to-tray")) return act(state.sel, { type: "tray", day: state.sel.day })
-  else if (t.closest(".p-cell-reset")) {
-    settle(setCell(roster, plan, state.monday, state.sel.row, state.sel.day, null), state.sel.row)
-    state.sel = null
-  } else if (t.closest(".p-reset")) {
+  else if (t.closest(".p-reset")) {
     if (!window.confirm(S.resetAsk)) return
-    store(clearWeek(plan, state.monday))
+    state.sel = null
+    store(opened(clearWeek(plan, state.monday), state.monday), S.resetDone)
   } else if (t.closest(".p-csv")) state.exportText = weekCsv()
   else if (t.closest(".p-export")) {
     state.exportText = JSON.stringify(plan)
   } else if (t.closest(".p-clear")) {
     if (!window.confirm(S.clearAsk)) return
+    remember()
     try {
       localStorage.removeItem(PLAN_KEY)
     } catch {
@@ -541,10 +605,24 @@ function onSubmit(event) {
   event.preventDefault()
   const form = event.target
   if (form.matches(".plan-setup")) return submitSetup(form)
+  if (form.matches(".plan-block")) {
+    const code = normaliseCode(form.elements.code?.value ?? "")
+    const next = code && renameBlock(plan, state.monday, state.sel.day, state.sel.index, code, timeOf)
+    if (!next) state.message = S.badDuty
+    else {
+      state.sel = null
+      store(next, S.renamed)
+    }
+    return render()
+  }
   if (form.matches(".plan-sel")) {
     const code = normaliseCode(form.elements.code.value)
     if (!code) {
       state.message = S.badCode
+      return render()
+    }
+    if (PENDING.includes(code)) {
+      state.message = S.hcCell
       return render()
     }
     settle(setCell(roster, plan, state.monday, state.sel.row, state.sel.day, code), state.sel.row)
@@ -561,7 +639,7 @@ function onSubmit(event) {
     if (!next) state.message = S.importBad
     else {
       store(next, S.imported)
-      state.monday = mondayOf(serviceDate(Date.now()))
+      state.monday = nextMonday()
     }
     render()
   }
@@ -665,7 +743,7 @@ const onPointerCancel = (event) => {
 function onPointerDown(event) {
   if (press || (event.pointerType === "mouse" && event.button !== 0)) return
   if (event.target.closest(".blk-x")) return
-  const el = event.target.closest(".block, .pcell[data-kind='duty'], .pcell[data-leave='1']")
+  const el = event.target.closest(".block:not([data-pending]), .pcell[data-kind='duty'], .pcell[data-leave='1']")
   if (!el) return
   press = {
     el, src: sourceOf(el), id: event.pointerId, touch: event.pointerType !== "mouse",
@@ -680,7 +758,7 @@ function onPointerDown(event) {
 async function boot() {
   roster = cleanRoster(read(ROSTER_KEY))
   plan = cleanPlan(read(PLAN_KEY))
-  state.monday = mondayOf(serviceDate(Date.now()))
+  state.monday = nextMonday()
   try {
     const response = await fetch("data/duty-basic.json")
     basic = (await response.json()).duties ?? {}
@@ -701,10 +779,11 @@ async function boot() {
   view.addEventListener("click", onClick)
   view.addEventListener("submit", onSubmit)
   view.addEventListener("input", (event) => {
-    if (!event.target.matches(".plan-setup input[name=year], .plan-setup input[name=week]")) return
-    const { year, week } = event.target.form.elements
-    const span = event.target.form.querySelector(".p-span")
-    if (span && Number(year.value) && Number(week.value) >= 1 && Number(week.value) <= 53) span.textContent = S.weekSpanLabel(Number(week.value), weekSpan(mondayOfIsoWeek(Number(year.value), Number(week.value))))
+    const box = event.target.closest(".plan-setup, .csv-import")
+    if (!box || !event.target.matches("input[name=year], input[name=week]")) return
+    const monday = typedMonday(box)
+    const span = box.querySelector(".p-span")
+    if (span && monday) span.textContent = S.weekSpanLabel(isoWeek(monday).week, weekSpan(monday))
   })
   view.addEventListener("change", (event) => {
     if (event.target.matches(".p-name")) {
@@ -714,7 +793,9 @@ async function boot() {
     } else if (event.target.matches(".p-csv-file")) {
       const file = event.target.files?.[0]
       if (!file) return
-      file.text().then(importRoster).catch(() => {
+      const anchor = typedMonday(event.target.closest(".csv-import")) ?? nextMonday()
+      event.target.value = ""
+      file.text().then((text) => importRoster(text, anchor)).catch(() => {
         state.message = S.csvFail
         render()
       })
@@ -723,12 +804,16 @@ async function boot() {
       state.sel = null
       store(setSheet(roster, plan, state.monday, day, event.target.value, sheetCodes(event.target.value)), S.sheetChanged(S.weekdays[day]))
       render()
-    } else if (event.target.matches(".p-weeks")) {
-      state.weeks = Math.min(26, Math.max(1, Number(event.target.value) || 1))
-      render()
     }
   })
   view.addEventListener("pointerdown", onPointerDown)
+  // Ctrl+Z / ⌘Z undoes the last change, except while typing.
+  document.addEventListener("keydown", (event) => {
+    if (!(event.ctrlKey || event.metaKey) || event.shiftKey || event.key.toLowerCase() !== "z") return
+    if (event.target.closest?.("input, textarea, select")) return
+    event.preventDefault()
+    undo()
+  })
   // Once a held finger has picked something up, the page must not scroll under it.
   document.addEventListener("touchmove", (event) => {
     if (press?.started) event.preventDefault()

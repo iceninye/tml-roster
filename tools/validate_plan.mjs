@@ -1,7 +1,7 @@
 // Checks lib/tml-plan.js on a made-up roster and made-up duty times
 // (real rosters and staff never go in the repo):
 //   node tools/validate_plan.mjs
-import { EMPTY, SHEETS, formatRanges, leaveToTray, namedRows, arrangeWeek, defaultSheet, mapCode, setSheet, sheetOf, assign, cleanPlan, fromTray, toTray, trayView, allToTray, canRemove, fillMember, removeBlock, isoWeek, memberRow, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
+import { EMPTY, SHEETS, formatRanges, leaveToTray, namedRows, arrangeWeek, defaultSheet, mapCode, setSheet, sheetOf, assign, cleanPlan, fromTray, toTray, trayView, allToTray, canRemove, fillMember, fillTeam, renameBlock, removeBlock, isoWeek, memberRow, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
 import { newRoster, parseRoster } from "../lib/tml-roster.js"
 
 let failed = 0
@@ -185,6 +185,49 @@ check(cleanPlan(JSON.parse(JSON.stringify(sat))).sheets["2026-10-17"] === "8022"
   check(fa[0].codes.slice(1).some((c) => /^\d{7}$/.test(c)), "a rest day fills the empty days of that member's week with duties")
   check(fa[0].codes.every((c) => /^\d{7}$/.test(c) || c === "RD" || c === "-"), "only duties are placed in the cells")
   check(weekView(roster, filled, week)[1].codes.every((c) => c === "-") && b !== a, "the other members are left alone")
+}
+
+// Setting a cell uses up a block of that day, and what the cell held goes back.
+{
+  const week = "2026-10-12"
+  const start = allToTray(roster, plan, week, timeOf)
+  const count = (p, d) => trayView(p, week)[d].length + weekView(roster, p, week).filter((l) => l.codes[d] !== "-").length
+  const al = setCell(roster, start, week, 2, 0, "AL")
+  check(trayView(al, week)[0].length === trayView(start, week)[0].length - 1, "a leave typed in takes the member's own block when the tray has no such leave")
+  const again = setCell(roster, al, week, 2, 0, "AL")
+  check(again === al, "typing the same code again uses nothing more")
+  const over = setCell(roster, al, week, 2, 0, "1101002")
+  check(trayView(over, week)[0].includes("AL") && count(over, 0) === count(al, 0), "writing over a cell sends its code back to the tray")
+}
+
+// HC and TBC blocks wait in the tray until they have a duty number.
+{
+  const week = "2026-10-12"
+  const hcR = newRoster(parseRoster(csv.replace("5,RD,RD,RD,RD,RD,RD,RD", "5,HC,RD,RD,RD,RD,RD,RD")), { row: 1, monday: week })
+  const p = allToTray(hcR, newPlan(week, "2,4,5"), week, timeOf)
+  const i = trayView(p, week)[0].indexOf("HC")
+  check(i !== -1 && fromTray(hcR, p, week, 2, 0, i, timeOf) === null, "an HC block can't go on a cell")
+  check(renameBlock(p, week, 0, i, "HC", timeOf) === null, "an HC block needs a 7-digit duty number")
+  const named = renameBlock(p, week, 0, i, "1101003", timeOf)
+  check(trayView(named, week)[0].includes("1101003") && !trayView(named, week)[0].includes("HC"), "an HC block given a number becomes that duty")
+}
+
+// 自動編排 fills the whole team from the tray, but only members with a rest day.
+{
+  const week = "2026-10-12"
+  const start = allToTray(roster, plan, week, timeOf)
+  const withRd = setCell(roster, setCell(roster, start, week, 2, 2, "RD"), week, 3, 6, "RD")
+  const { plan: filled, skipped } = fillTeam(roster, withRd, week, timeOf)
+  const v = weekView(roster, filled, week)
+  check(skipped.join() === "4" && v[2].codes.every((c) => c === "-"), "a member with no RD is skipped")
+  check(v[0].codes[0] === "1101005" && v[1].codes[0] === "1101001", "each member gets a duty of their preference")
+  const left = trayView(filled, week)
+  for (let d = 0; d < 7; d += 1) {
+    const all = [...left[d], ...v.map((l) => l.codes[d]).filter((c) => c !== "-")].sort().join()
+    const before = [...trayView(withRd, week)[d], ...weekView(roster, withRd, week).map((l) => l.codes[d]).filter((c) => c !== "-")].sort().join()
+    if (all !== before) check(false, `day ${d}: blocks are only moved, never made or lost`)
+  }
+  check(restIssues(roster, filled, week, timeOf).length === 0, "the filled week keeps 12 hours of rest")
 }
 
 if (failed) {
