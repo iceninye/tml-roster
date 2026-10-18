@@ -1,7 +1,7 @@
 // Checks lib/tml-plan.js on a made-up roster and made-up duty times
 // (real rosters and staff never go in the repo):
 //   node tools/validate_plan.mjs
-import { EMPTY, SHEETS, formatRanges, leaveToTray, namedRows, arrangeWeek, defaultSheet, mapCode, setSheet, sheetOf, assign, cleanPlan, fromTray, toTray, trayView, allToTray, canRemove, fillMember, fillTeam, renameBlock, removeBlock, isoWeek, memberRow, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
+import { EMPTY, SHEETS, formatRanges, leaveToTray, namedRows, arrangeWeek, defaultSheet, mapCode, setSheet, sheetOf, assign, cleanPlan, fromTray, toTray, trayView, allToTray, canRemove, fillMember, fillTeam, combosView, useCombo, renameBlock, removeBlock, isoWeek, memberRow, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
 import { newRoster, parseRoster } from "../lib/tml-roster.js"
 
 let failed = 0
@@ -228,6 +228,38 @@ check(cleanPlan(JSON.parse(JSON.stringify(sat))).sheets["2026-10-17"] === "8022"
     if (all !== before) check(false, `day ${d}: blocks are only moved, never made or lost`)
   }
   check(restIssues(roster, filled, week, timeOf).length === 0, "the filled week keeps 12 hours of rest")
+}
+
+// A preference set after the row was filled refills it; a late duty is never followed by too little rest.
+{
+  const week = "2026-10-12"
+  const start = allToTray(roster, { ...plan, members: plan.members.map((m) => ({ ...m, prefs: [] })) }, week, timeOf)
+  const rd = setCell(roster, start, week, 3, 6, "RD")
+  const first = fillMember(roster, rd, week, 3, timeOf)
+  const liked = { ...first, members: first.members.map((m) => (m.row === 3 ? { ...m, prefs: ["dawn"] } : m)) }
+  const again = weekView(roster, fillMember(roster, liked, week, 3, timeOf), week)[1]
+  check(again.codes[0] === "1101001", "a preference set later moves the member's filled duties to it")
+  check(restIssues(roster, fillMember(roster, liked, week, 3, timeOf), week, timeOf).every((x) => x.row !== 3), "the refilled week has no short rest")
+  const count = (p) => [0, 1, 2, 3, 4, 5, 6].map((d) => trayView(p, week)[d].length + weekView(roster, p, week).filter((l) => l.codes[d] !== "-").length).join()
+  check(count(fillMember(roster, liked, week, 3, timeOf)) === count(rd), "refilling only moves blocks")
+}
+
+// Standard rows as combinations: whole rows go on one member; a used block breaks the combination.
+{
+  const week = "2026-10-12"
+  const start = allToTray(roster, plan, week, timeOf)
+  const combos = combosView(roster, start, week)
+  check(combos.length === 3 && combos[0].codes.join() === weekView(roster, start, week)[0].std.join(), "each team row is offered as a combination")
+  const put = useCombo(roster, start, week, 4, combos[0].codes, timeOf)
+  const v = weekView(roster, put, week)
+  check(v[2].codes.join() === combos[0].codes.join() && v[2].pins.every(Boolean), "a combination fills the member's whole week, pinned")
+  check(combosView(roster, put, week).length === 2 && useCombo(roster, put, week, 3, combos[0].codes, timeOf) === null, "a used combination is gone")
+}
+
+// A plan saved before v0.9 starts its weeks over in the tray.
+{
+  const old = cleanPlan({ ...JSON.parse(JSON.stringify(done)), v: 1 })
+  check(old && old.v === 2 && Object.keys(old.weeks).length === 0 && old.members.length === 3, "a v1 plan keeps the team and drops its weeks")
 }
 
 if (failed) {
