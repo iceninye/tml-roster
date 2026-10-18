@@ -462,7 +462,11 @@ function todayHtml(date, entry, cell) {
 
 // 一週概況：計法喺 lib/tml-week.js，呢度只係餵現時嘅 roster 同已載入嘅更份資料。
 function weekSummary(dates) {
-  return summariseWeek(dates, (date) => dayEntry(roster, date), (code) => cellInfo(code))
+  return summariseWeek(dates, (date) => dayEntry(roster, date), (code) => {
+    const cell = cellInfo(code)
+    const known = cell.basic ?? basicOf(code)
+    return known ? { ...cell, basic: known } : cell
+  })
 }
 
 // 一句話講本週：行號 + 開工日數 + 工時（頁首副標用）
