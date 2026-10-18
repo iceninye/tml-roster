@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.9.1 — unreleased
+- 編更: filling follows preferences again when they are set after the row was filled: a member's auto-filled duties go back to the tray and the week is chosen again. The week is chosen as a whole, so a late duty is never followed by too little rest; a cell is left empty sooner than short of rest. 自動編排 solves each day again once its neighbours are known.
+- Plans saved before v0.9 start their weeks over in the tray (the team, preferences and Duty Sheets stay).
+- 待定區 has a 組合 tab: each Standard Roster row of the team, while all its blocks are in the tray, can go on one member in one go. The blocks can still be used one by one.
+- 待定區 filter (死早 / 早 / 中 / 夜 / 死夜 / 假期 / HC／TBC) and sort (上班時間 / 下班時間 / 更份編號), for blocks and combinations.
+
 ## v0.9.0 — unreleased
 - 編更: the CSV import has its own year and ISO week (the base week of the CSV); the page opens on next week. The week title shows the year, e.g. 2026 · Week 43.
 - Every week starts with all of the team's blocks in the 待定區 and the cells empty, not only the imported week. 本週重新開始 puts the week back that way; 全部放入待定區, 假期放入待定區 and 還原 Standard are gone.

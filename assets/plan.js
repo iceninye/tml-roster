@@ -4,11 +4,11 @@
 // plan (names, preferences, results), only in this browser's localStorage,
 // never uploaded. Book-on/off times come from data/duty-basic.json.
 
-import { EMPTY, LEAVE, PENDING, SHEETS, SHIFTS, allToTray, canRemove, cleanPlan, clearWeek, fillMember, fillTeam, formatRanges, fromTray, isoWeek, mondayOfIsoWeek, namedRows, newPlan, parseRanges, prefDistance, removeBlock, renameBlock, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, trayView, weekView } from "../lib/tml-plan.js"
+import { EMPTY, LEAVE, PENDING, SHEETS, SHIFTS, allToTray, canRemove, cleanPlan, clearWeek, combosView, fillMember, fillTeam, formatRanges, fromTray, isoWeek, mondayOfIsoWeek, namedRows, newPlan, parseRanges, prefDistance, removeBlock, renameBlock, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, trayView, useCombo, weekView } from "../lib/tml-plan.js"
 import { addDays, classify, cleanRoster, mondayOf, newRoster, normaliseCode, parseRoster, weekDates } from "../lib/tml-roster.js"
 import { serviceDate } from "../lib/tml-time.js"
 
-const BUILD = { version: "0.9.0", commit: "dev" }
+const BUILD = { version: "0.9.1", commit: "dev" }
 // The plan page keeps its own Standard Roster, apart from the personal roster of the 我的更表 page ("tml-roster").
 const ROSTER_KEY = "tml-plan-roster"
 const PLAN_KEY = "tml-roster-plan"
@@ -57,7 +57,7 @@ const S = {
   member: "組員",
   rowNow: (r) => `第 ${r} 行`,
   fit: "配中",
-  fitLine: (hit, all, std, short) => `全組配中偏好 ${hit}/${all} 更（Standard 係 ${std}/${all}）${short ? ` · ${short} 格休息唔夠鐘` : ""}`,
+  fitLine: (hit, all, std, stdAll, short) => `全組配中偏好 ${hit}/${all} 更（Standard 係 ${std}/${stdAll}）${short ? ` · ${short} 格休息唔夠鐘` : ""}`,
   hours: "工時",
   pinned: "手動改",
   tooShort: (h) => `休息只有 ${h} 小時`,
@@ -76,6 +76,20 @@ const S = {
   empty: "空",
   toTray: "放入待定區",
   blockSel: (day, code) => `待定 ${code} · 週${day}`,
+  tabBlocks: "單日積木",
+  tabCombos: (n) => `組合（${n}）`,
+  comboHelp: "組合係 Standard Roster 一整行：撳一個組合，再撳一位組員嘅任何一格，成行放入去（手動設定咗嘅日子唔郁）。用咗其中一粒積木，組合就會拆散。",
+  comboSel: (row) => `組合：Standard 第 ${row} 行`,
+  comboPick: "撳一位組員嘅任何一格，放入成行",
+  comboUsed: "已放入組合",
+  comboGone: "呢個組合已經拆散咗",
+  comboNone: "冇完整嘅組合（積木已經用咗或者被篩走）",
+  filter: "篩選",
+  filterAll: "全部",
+  filterLeave: "假期",
+  filterHc: "HC／TBC",
+  sort: "排序",
+  sortBy: { on: "上班時間", off: "下班時間", code: "更份編號" },
   blockHelp: "撳同一日一格放入去（該格原有更份會返去待定區）。",
   pendingHelp: "輸入 7 位更份編號，填好先可以放入格仔。",
   pendingNeed: "HC／TBC 要先輸入更份編號，先可以放入格仔",
@@ -114,7 +128,9 @@ const S = {
 }
 
 const view = document.getElementById("view")
-const state = { monday: null, sel: null, message: "", exportText: "" }
+const state = { monday: null, sel: null, message: "", exportText: "", tray: { tab: "blocks", filter: [], sort: "on" } }
+// How the tray is shown (tab, filter, sort) is this viewer's own; kept in the browser.
+const TRAY_KEY = "tml-plan-tray-view"
 // Earlier { plan, roster } pairs, for 還原上一步; kept for this visit only.
 const history = []
 
@@ -143,6 +159,23 @@ function savePlan(next) {
   } catch {
     return false
   }
+}
+
+function saveTrayView() {
+  try {
+    localStorage.setItem(TRAY_KEY, JSON.stringify(state.tray))
+  } catch {
+    // Blocked storage: the tray view lasts until the page is closed.
+  }
+}
+
+function loadTrayView() {
+  const saved = read(TRAY_KEY)
+  const kinds = [...SHIFTS, "leave", "hc"]
+  if (!saved || typeof saved !== "object") return
+  if (["blocks", "combos"].includes(saved.tab)) state.tray.tab = saved.tab
+  if (Array.isArray(saved.filter)) state.tray.filter = saved.filter.filter((k) => kinds.includes(k))
+  if (["on", "off", "code"].includes(saved.sort)) state.tray.sort = saved.sort
 }
 
 /* ------------------------------------------------------------- helpers */
@@ -324,7 +357,7 @@ function weekHtml() {
     `<button type="button" class="btn p-undo"${history.length ? "" : " disabled"}>↶ ${S.undo}</button>` +
     `<span class="plan-actions-end"><button type="button" class="btn p-csv">${S.csv}</button><button type="button" class="btn danger p-reset">${S.reset}</button></span></div>` +
     `<p class="me-msg" role="status">${escapeHtml(state.message)}</p>` +
-    `<p class="fine plan-fit">${S.fitLine(fitNow.hit, fitNow.all, fitStd.hit, issues.size)}</p>` +
+    `<p class="fine plan-fit">${S.fitLine(fitNow.hit, fitNow.all, fitStd.hit, fitStd.all, issues.size)}</p>` +
     selHtml(lines) +
     `<div class="ptable"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>` +
     trayHtml() +
@@ -337,6 +370,12 @@ function weekHtml() {
 function selHtml(lines) {
   const sel = state.sel
   if (!sel) return ""
+  if (sel.type === "combo") {
+    const combo = combosView(roster, plan, state.monday)[sel.ci]
+    if (!combo) return ""
+    return `<form class="plan-sel panel" autocomplete="off"><div><b>${escapeHtml(S.comboSel(combo.row))}</b><span class="meta">${S.comboPick}</span></div>` +
+      `<div class="me-edit-row"><button type="button" class="btn p-cancel">${S.cancel}</button></div></form>`
+  }
   if (sel.type === "block") {
     const code = trayView(plan, state.monday)[sel.day][sel.index]
     if (code == null) return ""
@@ -356,22 +395,82 @@ function selHtml(lines) {
     `<button type="button" class="btn p-cancel">${S.cancel}</button></div></form>`
 }
 
-// 待定區: duties taken out of cells, one column per day, waiting to be dropped.
+// Which kind a tray code is for the filter: a shift, "leave" or "hc".
+function kindOf(code) {
+  const t = timeOf(code)
+  if (t) return shiftOf(t.on, t.off)
+  return PENDING.includes(code) ? "hc" : "leave"
+}
+
+const passes = (code) => !state.tray.filter.length || state.tray.filter.includes(kindOf(code))
+
+// A combination passes when every duty in it is of a kind picked (rest days and leave don't count).
+const comboPasses = (codes) => {
+  if (!state.tray.filter.length) return true
+  const duties = codes.filter((code) => timeOf(code))
+  return duties.length > 0 && duties.every((code) => state.tray.filter.includes(kindOf(code)))
+}
+
+function sortKey(code) {
+  const t = timeOf(code)
+  if (state.tray.sort === "code") return [t ? 0 : 1, 0, code]
+  return [t ? 0 : 1, t ? (state.tray.sort === "off" ? t.off : t.on) : 0, code]
+}
+const byKey = (a, b) => a[0] - b[0] || a[1] - b[1] || String(a[2]).localeCompare(String(b[2]))
+
+function blockHtml(code, d, i, removable) {
+  const t = timeOf(code)
+  const shift = t ? shiftOf(t.on, t.off) : ""
+  const sel = state.sel?.type === "block" && state.sel.day === d && state.sel.index === i
+  const x = t && removable ? `<span class="blk-x" role="button" tabindex="0" data-day="${d}" data-index="${i}" aria-label="${S.removeBlock}" title="${S.removeBlock}">✕</span>` : ""
+  return `<button type="button" class="block" data-day="${d}" data-index="${i}" data-shift="${shift}" data-kind="${t ? "duty" : "leave"}"${PENDING.includes(code) ? ' data-pending="1"' : ""}${sel ? ' data-sel="1"' : ""}>${x}` +
+    `<b>${escapeHtml(t ? code : code === "RD" ? `RD(${S.weekdays[d]})` : S.status[code] ?? code)}</b>${t ? `<small>${hhmm(t.on)}–${hhmm(t.off)}</small><span class="ptag">${S.shift[shift]}</span>` : ""}</button>`
+}
+
+function comboHtml(combo, ci) {
+  const sel = state.sel?.type === "combo" && state.sel.ci === ci
+  const cells = combo.codes.map((code, d) => {
+    const t = timeOf(code)
+    const shift = t ? shiftOf(t.on, t.off) : ""
+    return `<span class="cb-day" data-shift="${shift}"><i>${S.weekdays[d]}</i><b>${escapeHtml(t && /^\d{7}$/.test(code) ? code.slice(4) : code)}</b>${t ? `<small>${hhmm(t.on)}</small>` : ""}</span>`
+  }).join("")
+  return `<button type="button" class="combo" data-ci="${ci}"${sel ? ' data-sel="1"' : ""}><span class="cb-row">${S.rowNow(combo.row)}</span><span class="cb-days">${cells}</span></button>`
+}
+
+// 待定區: blocks waiting to be placed, one column per day, or the Standard rows as combinations.
 function trayHtml() {
   const tray = trayView(plan, state.monday)
-  const removable = tray.map((_, d) => canRemove(roster, plan, state.monday, d))
-  const cols = tray.map((codes, d) => {
-    const blocks = codes.map((code, i) => {
-      const t = timeOf(code)
-      const shift = t ? shiftOf(t.on, t.off) : ""
-      const sel = state.sel?.type === "block" && state.sel.day === d && state.sel.index === i
-      const x = t && removable[d] ? `<span class="blk-x" role="button" tabindex="0" data-day="${d}" data-index="${i}" aria-label="${S.removeBlock}" title="${S.removeBlock}">✕</span>` : ""
-      return `<button type="button" class="block" data-day="${d}" data-index="${i}" data-shift="${shift}" data-kind="${t ? "duty" : "leave"}"${PENDING.includes(code) ? ' data-pending="1"' : ""}${sel ? ' data-sel="1"' : ""}>${x}` +
-        `<b>${escapeHtml(t ? code : code === "RD" ? `RD(${S.weekdays[d]})` : S.status[code] ?? code)}</b>${t ? `<small>${hhmm(t.on)}–${hhmm(t.off)}</small><span class="ptag">${S.shift[shift]}</span>` : ""}</button>`
+  const combos = combosView(roster, plan, state.monday)
+  const tv = state.tray
+  const kinds = [...SHIFTS.map((sh) => [sh, S.shift[sh]]), ["leave", S.filterLeave], ["hc", S.filterHc]]
+  const chips = `<button type="button" class="pchip tf-chip" data-f="" aria-pressed="${!tv.filter.length}">${S.filterAll}</button>` +
+    kinds.map(([k, label]) => `<button type="button" class="pchip tf-chip" data-f="${k}" data-shift="${SHIFTS.includes(k) ? k : ""}" aria-pressed="${tv.filter.includes(k)}">${label}</button>`).join("")
+  const sort = `<label class="meta">${S.sort} <select class="p-tray-sort">${Object.entries(S.sortBy).map(([k, label]) => `<option value="${k}"${k === tv.sort ? " selected" : ""}>${label}</option>`).join("")}</select></label>`
+  const tabs = `<span class="tray-tabs" role="tablist"><button type="button" class="tray-tab" data-tab="blocks" aria-selected="${tv.tab === "blocks"}">${S.tabBlocks}</button>` +
+    `<button type="button" class="tray-tab" data-tab="combos" aria-selected="${tv.tab === "combos"}">${S.tabCombos(combos.length)}</button></span>`
+  let body
+  if (tv.tab === "combos") {
+    const mean = (codes) => {
+      const ts = codes.map(timeOf).filter(Boolean)
+      if (!ts.length) return Infinity
+      return ts.reduce((sum, t) => sum + (tv.sort === "off" ? t.off : t.on), 0) / ts.length
+    }
+    const shown = combos.map((combo, ci) => ({ combo, ci })).filter(({ combo }) => comboPasses(combo.codes))
+    if (tv.sort === "code") shown.sort((a, b) => a.combo.row - b.combo.row)
+    else shown.sort((a, b) => mean(a.combo.codes) - mean(b.combo.codes))
+    body = `<p class="fine">${S.comboHelp}</p><div class="combos">${shown.map(({ combo, ci }) => comboHtml(combo, ci)).join("") || `<span class="tray-none">${S.comboNone}</span>`}</div>`
+  } else {
+    const cols = tray.map((codes, d) => {
+      const removable = canRemove(roster, plan, state.monday, d)
+      const shown = codes.map((code, i) => ({ code, i })).filter(({ code }) => passes(code)).sort((a, b) => byKey(sortKey(a.code), sortKey(b.code)))
+      const blocks = shown.map(({ code, i }) => blockHtml(code, d, i, removable)).join("")
+      const count = shown.length === codes.length ? `${codes.length}` : `${shown.length}/${codes.length}`
+      return `<div class="tray-col" data-day="${d}"><span class="tray-day">${S.weekdays[d]}<em>${count}</em></span><div class="tray-blocks">${blocks || `<span class="tray-none">${S.trayNone}</span>`}</div></div>`
     }).join("")
-    return `<div class="tray-col" data-day="${d}"><span class="tray-day">${S.weekdays[d]}<em>${codes.length}</em></span><div class="tray-blocks">${blocks || `<span class="tray-none">${S.trayNone}</span>`}</div></div>`
-  }).join("")
-  return `<section class="tray panel" aria-label="${S.tray}"><div class="tray-head"><b>${S.tray}</b><span class="meta">${S.trayHelp}</span></div><div class="tray-cols">${cols}</div></section>`
+    body = `<div class="tray-cols">${cols}</div>`
+  }
+  return `<section class="tray panel" aria-label="${S.tray}"><div class="tray-head"><b>${S.tray}</b>${tabs}<span class="meta">${S.trayHelp}</span></div>` +
+    `<div class="tray-tools"><span class="pchips">${chips}</span>${sort}</div>${body}</section>`
 }
 
 function settingsHtml() {
@@ -531,7 +630,34 @@ function onClick(event) {
     render()
     return
   }
+  const comboEl = t.closest(".combo")
+  if (comboEl) {
+    const ci = Number(comboEl.dataset.ci)
+    state.sel = state.sel?.type === "combo" && state.sel.ci === ci ? null : { type: "combo", ci }
+    state.message = ""
+    return render()
+  }
+  const tab = t.closest(".tray-tab")
+  const fchip = t.closest(".tf-chip")
+  if (tab || fchip) {
+    if (tab) state.tray.tab = tab.dataset.tab
+    else {
+      const f = fchip.dataset.f
+      state.tray.filter = !f ? [] : state.tray.filter.includes(f) ? state.tray.filter.filter((x) => x !== f) : [...state.tray.filter, f]
+    }
+    saveTrayView()
+    return render()
+  }
   const cell = t.closest(".pcell")
+  if (cell && state.sel?.type === "combo") {
+    const combo = combosView(roster, plan, state.monday)[state.sel.ci]
+    const row = Number(cell.dataset.row)
+    const next = combo && useCombo(roster, plan, state.monday, row, combo.codes, timeOf)
+    state.sel = null
+    if (next) settle(next, row, S.comboUsed)
+    else state.message = S.comboGone
+    return render()
+  }
   const block = t.closest(".block")
   const col = t.closest(".tray-col")
   if (cell || block || col) {
@@ -759,6 +885,7 @@ async function boot() {
   roster = cleanRoster(read(ROSTER_KEY))
   plan = cleanPlan(read(PLAN_KEY))
   state.monday = nextMonday()
+  loadTrayView()
   try {
     const response = await fetch("data/duty-basic.json")
     basic = (await response.json()).duties ?? {}
@@ -799,6 +926,10 @@ async function boot() {
         state.message = S.csvFail
         render()
       })
+    } else if (event.target.matches(".p-tray-sort")) {
+      state.tray.sort = event.target.value
+      saveTrayView()
+      render()
     } else if (event.target.matches(".p-sheet")) {
       const day = Number(event.target.dataset.day)
       state.sel = null
