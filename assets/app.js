@@ -6,6 +6,7 @@
 import { dutyState, mealMates } from "../lib/tml-duties.js"
 import { addDays, classify, cleanRoster, dayEntry, mondayOf, newRoster, normaliseCode, parseRoster, rowLabelFor, setOverride, weekDates, weekdayIndex } from "../lib/tml-roster.js"
 import { shiftOf } from "../lib/tml-shift.js"
+import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
 import { serviceDate, serviceSeconds } from "../lib/tml-time.js"
 
 const BUILD = { version: "0.9.2", commit: "dev" }
@@ -61,7 +62,6 @@ const S = {
   source: (code, tab, issued, dates, cls, full) =>
     `資料來源：Duty Sheet ${code}（${cls}${dates ? `，只用於 ${dates}` : ""}）${tab ? `、工作表 ${tab}` : ""}${issued ? `、${issued} 發佈` : ""}。${full ? "只收更份編號、上下班、用膳同每段 Run 嘅時間，唔收備註原文。接班時間準確到秒，離班時間係到站時間（只計到分鐘）。" : "呢份資料只有更份編號。"}`,
   title: "我的更表",
-  row: (n) => `第 ${n} 行`,
   prev: "‹ 上週",
   next: "下週 ›",
   thisWeek: "本週",
@@ -460,37 +460,9 @@ function todayHtml(date, entry, cell) {
     `</button>`
 }
 
-// 當前嗰行附近嘅行（roster 太長時只顯示附近）
-function nearRows(list, cur, span = 4) {
-  const at = list.numbers.indexOf(cur)
-  const i = at === -1 ? 0 : at
-  return list.rows.map((_, k) => k).slice(Math.max(0, i - span), Math.min(list.rows.length, i + span + 1))
-}
-
-// 一週概況：開工日數、總工時、休息／假期／待定日數。
+// 一週概況：計法喺 lib/tml-week.js，呢度只係餵現時嘅 roster 同已載入嘅更份資料。
 function weekSummary(dates) {
-  const sum = { days: 0, minutes: 0, rest: 0, leave: 0, pending: 0 }
-  for (const date of dates) {
-    const entry = dayEntry(roster, date)
-    if (!entry) continue
-    const kind = classify(entry.code).kind
-    if (kind === "status") {
-      if (entry.code === "RD") sum.rest++
-      else sum.leave++
-      continue
-    }
-    const cell = cellInfo(entry.code)
-    if (cell.on == null) {
-      sum.pending++
-      continue
-    }
-    sum.days++
-    if (cell.duty?.work != null) sum.minutes += cell.duty.work
-    else if (cell.duty?.off?.[0] != null && cell.duty.off[0] > cell.on) sum.minutes += (cell.duty.off[0] - cell.on) / 60
-    else if (cell.basic?.hours) sum.minutes += cell.basic.hours * 60
-  }
-  sum.minutes = Math.round(sum.minutes)
-  return sum
+  return summariseWeek(dates, (date) => dayEntry(roster, date), (code) => cellInfo(code))
 }
 
 // 一句話講本週：行號 + 開工日數 + 工時（頁首副標用）
@@ -564,15 +536,6 @@ function open() {
   state.monday = mondayOf(serviceDate(Date.now()))
   state.date = null
   render()
-}
-
-// 週標題：帶年份，同年只寫一次（2026/10/26 – 11/1；跨年 2026/12/28 – 2027/1/3）
-function weekLabel(dates) {
-  const y1 = dates[0].slice(0, 4)
-  const y2 = dates[6].slice(0, 4)
-  const a = `${y1}/${meDate(dates[0])}`
-  const b = y1 === y2 ? meDate(dates[6]) : `${y2}/${meDate(dates[6])}`
-  return `${a} – ${b}`
 }
 
 // 頁首副標：一頁一句實用資訊（唔係死板標語）
