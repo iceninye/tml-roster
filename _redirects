@@ -1,0 +1,3 @@
+# Serve the plan page at its original .html URL (no 307 to /plan).
+# Proxying (200) keeps the URL unchanged, matching the GitHub Pages behaviour.
+/plan.html  /plan  200

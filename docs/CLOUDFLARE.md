@@ -16,11 +16,24 @@
 |---|---|---|
 | `/` | 200 | 200（index.html） |
 | `/index.html` | 200 | 307 → `/` |
-| `/plan.html` | 200 | 307 → `/plan`（最終 200） |
+| `/plan.html` | 200 | **200**（用 `_redirects` proxy 200，URL 唔變）|
 | `/assets/*`、`/lib/*`、`/data/*`、`/sw.js` | 200 | 200 |
 | `/README.md`、`/.gitignore`、`/.wrangler` | — | 404（正確，唔會外洩） |
 
 > ⚠️ `html_handling: "none"` **唔可以用**：實測 `/` 會變 404（因為冇 index 解析）。保持預設值。
+
+## `_redirects`（保持 `/plan.html` 唔跳轉）
+
+Workers 預設會將 `/plan.html` 307 去 `/plan`。為保持同 GitHub Pages 一致（書籤、分享連結），根目錄放 `_redirects`：
+
+```txt
+/plan.html  /plan  200
+```
+
+- `200` = **proxy / rewrite**（官方支援），URL 保持 `/plan.html`，內容由 `/plan` 出
+- 唔影響 `/`（仍然 200 出 index.html）
+- `_redirects` 本身**唔會**被當成靜態檔 serve（實測 404）
+- 舊連結 `/plan` 一樣照開得（200）
 
 ## 部署步驟（一次，喺 Cloudflare Dashboard）
 
