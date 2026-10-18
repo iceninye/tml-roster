@@ -109,11 +109,11 @@ check(spare.days === 1 && spare.minutes === 510, `後備更計開工日同工時
 check(spare.rest === 6, "同一週嘅 RD 照樣計休息")
 
 // 真週樣本：三晚死夜 + 一個中更 + 後備更 + 一個中更
-const realWeek = ["1101179", "1101182", "1101174", "RD", "1101148", "KSP3", "7091133"]
+const realWeek = ["1101179", "1101182", "1101165", "RD", "1101148", "KSP3", "7091133"]
 const realCells = {
   "1101179": { on: 62100, duty: { work: 480 } },
   "1101182": { on: 62940, duty: { work: 480 } },
-  "1101174": { on: 60840, duty: { work: 480 } },
+  "1101165": { on: 55500, duty: { work: 450 } },
   "1101148": { on: 51600, duty: { work: 450 } },
   "7091133": { on: 53880, duty: { work: 420 } },
   "KSP3": { on: 43200, basic: { off: 75600, hours: 8.5 } },
@@ -121,7 +121,7 @@ const realCells = {
 const real = summariseWeek(weekDates("2026-10-12"),
   (date) => ({ code: realWeek[weekDates("2026-10-12").indexOf(date)] }),
   (code) => realCells[code] ?? { on: null })
-check(real.days === 6 && real.minutes === 2820, `六日開工 = 47 小時（實際 ${real.days} 日 ${real.minutes} 分）`)
+check(real.days === 6 && real.minutes === 2790, `六日開工 = 46 小時 30 分（實際 ${real.days} 日 ${real.minutes} 分）`)
 check(real.minutes !== 6 * 510, "工時用工作時數（扣飯），唔係上落班時間差")
 
 process.exit(failed ? 1 : 0)
