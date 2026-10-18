@@ -22,7 +22,7 @@
 | `/assets/*`、`/lib/*`、`/data/*`、`/sw.js` | 200 | 200 |
 | `/README.md`、`/.gitignore`、`/.wrangler` | — | 404（正確，唔會外洩） |
 
-> ⚠️ `html_handling: "none"` **唔可以用**：實測 `/` 會變 404（因為冇 index 解析）。保持預設值。
+> ⚠️ `html_handling: "none"` 單獨用會令 `/` 變 404（冇 index 解析）→ **一定要配 `_redirects` 將 `/` 指去 `/plan.html`**（下面有做）。
 
 ## `_redirects` + `html_handling: "none"`（Workers 專用路由）
 
