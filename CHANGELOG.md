@@ -15,7 +15,7 @@
 - 設定頁嘅「貼上你嘅 roster」改為「貼上 Standard Roster」；設定頁標題「更表設定」刪走。
 - 日詳情嘅飯腳只列頭 3 個，其餘收喺「其餘 N 個飯腳」。
 - 工時一律用官表（`data/duty-basic.json` 嘅 Index 表）為準；後備更（KSP／HSP）都靠佢。
-- 修正官表 Index 印錯嘅 4 個更份時數（`data/duty-hours-fixes.json`）：1101107 = 6.5、1101131 = 8、6091137 = 8、8022142 = 10。之前一個 1101131 就令整週總工時少／多 0.5 小時。
+- 修正官表 Index 印錯嘅 4 個更份時數（`data/duty-hours-fixes.json`）：1101107 = 6.5、1101131 = 8、6091137 = 8、8022137 = 8、8022142 = 10。之前一個 1101131 就令整週總工時少／多 0.5 小時。
 - 新增 `node tools/validate-hours.mjs`：逐個更份核對官表同 duty sheet 嘅時數，新嘅唔一致會即刻報錯。
 - 後備更（KSP／HSP）計入開工日同工時；之前當成待定，令一日開工同日數都漏咗。
 - 內部：週標題、附近行、週概況搬去純邏輯 module lib/tml-week.js，五級更類喺 lib/tml-shift.js；`node tools/validate_roster.mjs` 補咗 25 個檢查（更類邊界 06:30 / 10:00 / 15:00 / 00:30、跨年週標題、附近行頭尾、工時只計真更份）。

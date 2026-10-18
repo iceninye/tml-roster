@@ -11,7 +11,6 @@ const dir = new URL("../data/duties/", import.meta.url)
 // id → 原因。呢啲係刻意保留嘅差異，唔算 bug。
 const KNOWN = {
   "1101160": "duty sheet 寫 7.0，官表 7.5 才對（已用官表；sheet 由 TML-traffic 產生，改唔到）",
-  "8022137": "未確認：duty sheet 8 / 官表 7.5，等確認後寫入 data/duty-hours-fixes.json",
 }
 
 let failed = 0
