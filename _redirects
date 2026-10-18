@@ -1,3 +1,9 @@
-# Serve the plan page at its original .html URL (no 307 to /plan).
-# Proxying (200) keeps the URL unchanged, matching the GitHub Pages behaviour.
-/plan.html  /plan  200
+# Workers-only routing (GitHub Pages ignores this file).
+#   /            -> 編更 (the page Ice uses every day)
+#   /plan.html   -> 編更, unchanged URL (bookmarks keep working)
+#   /plan        -> 編更
+#   /roster      -> 我的更表 (the setup / my-roster page)
+/            /plan.html   200
+/plan.html   /plan.html   200
+/plan        /plan.html   200
+/roster      /index.html  200

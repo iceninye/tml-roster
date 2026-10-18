@@ -12,28 +12,40 @@
 
 ## 行為差異（實測，本地 `wrangler dev`）
 
-| 請求 | GitHub Pages | Workers（預設 `auto-trailing-slash`） |
+| 請求 | GitHub Pages（舊站，不變） | Workers（`tml-roster.iceninye.workers.dev`） |
 |---|---|---|
-| `/` | 200 | 200（index.html） |
-| `/index.html` | 200 | 307 → `/` |
-| `/plan.html` | 200 | **200**（用 `_redirects` proxy 200，URL 唔變）|
+| `/` | 200 我的更表 | **200 編更** |
+| `/plan.html` | 200 編更 | **200 編更**（URL 唔變）|
+| `/plan` | — | 200 編更 |
+| `/roster` | — | 200 我的更表 |
+| `/index.html` | 200 | 200 我的更表 |
 | `/assets/*`、`/lib/*`、`/data/*`、`/sw.js` | 200 | 200 |
 | `/README.md`、`/.gitignore`、`/.wrangler` | — | 404（正確，唔會外洩） |
 
 > ⚠️ `html_handling: "none"` **唔可以用**：實測 `/` 會變 404（因為冇 index 解析）。保持預設值。
 
-## `_redirects`（保持 `/plan.html` 唔跳轉）
+## `_redirects` + `html_handling: "none"`（Workers 專用路由）
 
-Workers 預設會將 `/plan.html` 307 去 `/plan`。為保持同 GitHub Pages 一致（書籤、分享連結），根目錄放 `_redirects`：
+Workers 預設（`auto-trailing-slash`）會將 `/plan.html` 307 去 `/plan`，而 `/index.html` 又 307 去 `/`。
+改為 `html_handling: "none"`（精確檔名）＋ `_redirects` proxy（200，URL 唔變）：
 
 ```txt
-/plan.html  /plan  200
+/            /plan.html   200     # 根路徑 = 編更（冰日常用嘅頁）
+/plan.html   /plan.html   200
+/plan        /plan.html   200
+/roster      /index.html  200     # 我的更表（設定／匯入）
 ```
 
-- `200` = **proxy / rewrite**（官方支援），URL 保持 `/plan.html`，內容由 `/plan` 出
-- 唔影響 `/`（仍然 200 出 index.html）
-- `_redirects` 本身**唔會**被當成靜態檔 serve（實測 404）
-- 舊連結 `/plan` 一樣照開得（200）
+實測（本地 `wrangler dev` + 真瀏覽器）：
+
+- `/` → 200，`<title>編更 · TML Roster`
+- `/roster` → 200，`<title>我的更表 · TML Roster`
+- `/plan.html`、`/plan` → 200，URL 唔變
+- `/index.html` → 200（`none` 之後唔再 307）
+- `/_redirects`、`/README.md` → 404（唔會外洩）
+- Service Worker scope = `/`
+
+⚠️ **GitHub Pages 完全忽略 `_redirects`** → 舊站行為 100% 不變（根路徑仍然係「我的更表」）。
 
 ## 部署步驟（一次，喺 Cloudflare Dashboard）
 
