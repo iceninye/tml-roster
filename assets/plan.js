@@ -128,11 +128,13 @@ const S = {
   noMove: "呢樣唔可以咁調（休息日、假期唔郁；HC 可以放入更份）",
   settingsTitle: "設定／備份",
   backupHelp: "編更資料只存喺呢部機。換機或者交俾其他人之前，先匯出。",
-  exportJson: "匯出備份",
+  exportJson: "下載備份（JSON）",
+  exported: (name) => `已下載備份：${name}`,
   importJson: "匯入備份",
   importPh: "貼上備份內容",
   importBad: "備份內容讀唔到",
   imported: "已匯入",
+  importedNoRoster: "已匯入編更；呢個舊備份冇 Standard Roster，請再由 CSV 匯入一次",
   clear: "清除編更資料",
   clearAsk: "清除之後組員、偏好同所有編排都會冇咗，確定？",
   saved: "已儲存",
@@ -154,7 +156,7 @@ const S = {
 }
 
 const view = document.getElementById("view")
-const state = { monday: null, sel: null, message: "", exportText: "", tray: { tab: "blocks", filter: [], sort: "on" }, pick: { rows: [], days: [] }, notesOpen: true }
+const state = { monday: null, sel: null, message: "", tray: { tab: "blocks", filter: [], sort: "on" }, pick: { rows: [], days: [] }, notesOpen: true }
 // How the tray is shown (tab, filter, sort) is this viewer's own; kept in the browser.
 const TRAY_KEY = "tml-plan-tray-view"
 // Earlier { plan, roster } pairs, for 還原上一步; kept for this visit only.
@@ -278,7 +280,8 @@ function opened(p, monday) {
 
 function render() {
   if (!roster) {
-    view.innerHTML = `<p class="empty">${S.noRoster}</p><section class="panel">${csvImportHtml()}<p class="me-msg" role="status">${escapeHtml(state.message)}</p></section>`
+    view.innerHTML = `<p class="empty">${S.noRoster}</p><section class="panel">${csvImportHtml()}<p class="me-msg" role="status">${escapeHtml(state.message)}</p></section>` +
+      `<details class="panel"><summary>${S.importJson}</summary>${backupImportHtml()}</details>`
     return
   }
   if (plan && !plan.weeks?.[state.monday]) savePlan(opened(plan, state.monday))
@@ -403,8 +406,7 @@ function weekHtml() {
     `<div class="ptable"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>` +
     trayHtml() +
     `<p class="legend plan-legend">${legend}<span>${S.legendRest}</span><span>${S.legendPin}</span><span>${S.legendMiss}</span><span>${S.legendHc}</span></p>` +
-    `<p class="fine">${S.arrangeHelp}</p><p class="fine">${S.sheetHelp}</p>` +
-    (state.exportText ? `<textarea class="me-export-box" readonly rows="6">${escapeHtml(state.exportText)}</textarea>` : "")
+    `<p class="fine">${S.arrangeHelp}</p><p class="fine">${S.sheetHelp}</p>`
 }
 
 // 注意事項: what still needs a look this week; each line jumps to its cell.
@@ -566,12 +568,17 @@ function trayHtml() {
     `<div class="tray-tools"><span class="pchips">${chips}</span>${sort}</div>${body}</section>`
 }
 
+// 匯入備份：also offered before any roster exists, so a backup restores on a new phone.
+function backupImportHtml() {
+  return `<form class="me-setup p-import" autocomplete="off"><label>${S.importJson}<textarea name="text" rows="3" spellcheck="false" placeholder="${S.importPh}"></textarea></label>` +
+    `<div class="me-edit-row"><button type="submit" class="btn">${S.importJson}</button></div></form>`
+}
+
 function settingsHtml() {
   return `<details class="panel"><summary>${S.settingsTitle}${plan ? `（${S.weekSpanLabel(isoWeek(plan.anchor).week, weekSpan(plan.anchor))}）` : ""}</summary>${csvImportHtml()}${setupHtml(true)}` +
     `<p class="fine">${S.backupHelp}</p><div class="me-foot"><button type="button" class="btn p-export">${S.exportJson}</button>` +
     `<button type="button" class="btn danger p-clear">${S.clear}</button></div>` +
-    `<form class="me-setup p-import" autocomplete="off"><label>${S.importJson}<textarea name="text" rows="3" spellcheck="false" placeholder="${S.importPh}"></textarea></label>` +
-    `<div class="me-edit-row"><button type="submit" class="btn">${S.importJson}</button></div></form></details>`
+    backupImportHtml() + `</details>`
 }
 
 /* ------------------------------------------------------------- actions */
@@ -661,6 +668,21 @@ function importRoster(text, anchor) {
     state.message = savePlan(opened(made, anchor)) ? S.csvDone(parsed.rows.length, named.length, weekNo(anchor)) : S.notStored
   } else state.message = S.csvDone(parsed.rows.length, 0)
   render()
+}
+
+// 備份檔名：roster-<日期>-v<版本>.json
+const backupName = () => `roster-${serviceDate(Date.now())}-v${BUILD.version}.json`
+
+// A file straight to the Downloads folder (same helper as the personal roster page).
+function download(name, text, type) {
+  const url = URL.createObjectURL(new Blob([text], { type }))
+  const link = document.createElement("a")
+  link.href = url
+  link.download = name
+  document.body.append(link)
+  link.click()
+  link.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 // 自動編排: fill every member's empty cells from the tray.
@@ -853,7 +875,10 @@ function onClick(event) {
     return
   }
   else if (t.closest(".p-export")) {
-    state.exportText = JSON.stringify(plan)
+    const backup = { app: "tml-plan", version: BUILD.version, plan, roster }
+    const name = backupName()
+    download(name, JSON.stringify(backup, null, 1), "application/json")
+    state.message = S.exported(name)
   } else if (t.closest(".p-clear")) {
     if (!window.confirm(S.clearAsk)) return
     remember()
@@ -864,7 +889,6 @@ function onClick(event) {
     }
     plan = null
   } else return
-  if (!t.closest(".p-export")) state.exportText = ""
   if (t.closest(".p-prev, .p-next, .p-this")) {
     state.sel = null
     state.message = ""
@@ -911,15 +935,20 @@ function onSubmit(event) {
     return render()
   }
   if (form.matches(".p-import")) {
-    let next = null
+    let raw = null
     try {
-      next = cleanPlan(JSON.parse(form.elements.text.value))
+      raw = JSON.parse(form.elements.text.value)
     } catch {
-      next = null
+      raw = null
     }
+    // New backups hold { app, version, plan, roster }; older ones are the plan alone.
+    const next = raw ? cleanPlan(raw.plan ?? raw) : null
+    const nextRoster = raw?.roster ? cleanRoster(raw.roster) : null
     if (!next) state.message = S.importBad
     else {
-      store(next, S.imported)
+      if (nextRoster) saveRoster(nextRoster)
+      // An old backup carries no roster: say so instead of leaving the CSV prompt unexplained.
+      store(next, roster ? S.imported : S.importedNoRoster)
       state.monday = nextMonday()
     }
     render()

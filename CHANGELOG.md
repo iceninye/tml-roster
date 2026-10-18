@@ -1,6 +1,8 @@
 # Changelog
 
 ## v0.9.3 — unreleased
+- 編更: 「匯出備份」改為真下載 `roster-<日期>-v<版本>.json`（唔再要自己複製文字框）。備份包埋 Standard Roster，換機或清瀏覽器之後一次還原得到；舊備份（冇 roster 嘅）一樣匯入得，會提你補匯 CSV。
+- 編更: 未有 Standard Roster 時都見到「匯入備份」，所以新機可以直接由備份還原。
 - 編更: 自動套用 開／關 switch. Off, a change to a member fills nothing; 自動編排 still fills on demand.
 - 自動編排 can be narrowed: tick members (box by the name) and/or days (box in the head); nothing ticked is the whole team.
 - An HC or TBC block lists the free duties of its day's Duty Sheet (not in a cell or the tray) to pick from, by book-on time; typing a number still works.
