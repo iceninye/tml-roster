@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.9.3 — unreleased
+- 編更: 自動套用 開／關 switch. Off, a change to a member fills nothing; 自動編排 still fills on demand.
+- 自動編排 can be narrowed: tick members (box by the name) and/or days (box in the head); nothing ticked is the whole team.
+- An HC or TBC block lists the free duties of its day's Duty Sheet (not in a cell or the tray) to pick from, by book-on time; typing a number still works.
+- 待定區 其他 tab: CL, CP, GH, PH, SH, SL, WB (days off, with paid hours), SPH7, SPT7, SPT75, TRG, TRGK, TRGL, and 自定 for any code. They go on any day and use up the member's own block.
+- A cell holding a day off or other code has a 清空 button.
+- 匯出本週 CSV downloads a file (tml-plan-2026-W43.csv, Excel-ready) with each member's codes and hours.
+- 注意事項 above the table lists short rest, members with no RD, empty cells, duty numbers not on the sheet, and blocks left in the tray; tap one to go to its cell.
+
 ## v0.9.2 — unreleased
 - 我的更表: 桌面 (≥900px) 用兩欄 — 左邊今日卡，右邊一週七日兩欄排；唔使再由頭碌到尾。
 - 今日只出現一次：上面嘅今日卡已經係今日，一週清單唔再重複嗰日。
