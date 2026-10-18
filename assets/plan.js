@@ -94,6 +94,15 @@ const S = {
   pickDay: "揀呢日做自動編排",
   pickClear: "清除揀選",
   clearCell: "清空",
+  notes: (n) => `注意事項（${n}）`,
+  notesNone: "冇嘢要跟進",
+  noteShort: (who, day, h) => `${who} · 週${day}：休息只有 ${h} 小時`,
+  noteNoRd: (names, n) => `${n} 位本週未有 RD：${names}`,
+  noteEmpty: (who, days) => `${who}：週${days} 仲係空`,
+  noteMissing: (who, day, code) => `${who} · 週${day}：Duty Sheet 冇 ${code}`,
+  notePending: (day, n) => `週${day}：待定區仲有 ${n} 粒 HC／TBC 未填編號`,
+  noteLeft: (day, n) => `週${day}：待定區仲有 ${n} 個更份未分配`,
+  csvSaved: (name) => `已下載 ${name}`,
   tabCombos: (n) => `組合（${n}）`,
   comboHelp: "組合係 Standard Roster 一整行：撳一個組合，再撳一位組員嘅任何一格，成行放入去（手動設定咗嘅日子唔郁）。用咗其中一粒積木，組合就會拆散。",
   comboSel: (row) => `組合：Standard 第 ${row} 行`,
@@ -145,7 +154,7 @@ const S = {
 }
 
 const view = document.getElementById("view")
-const state = { monday: null, sel: null, message: "", exportText: "", tray: { tab: "blocks", filter: [], sort: "on" }, pick: { rows: [], days: [] } }
+const state = { monday: null, sel: null, message: "", exportText: "", tray: { tab: "blocks", filter: [], sort: "on" }, pick: { rows: [], days: [] }, notesOpen: true }
 // How the tray is shown (tab, filter, sort) is this viewer's own; kept in the browser.
 const TRAY_KEY = "tml-plan-tray-view"
 // Earlier { plan, roster } pairs, for 還原上一步; kept for this visit only.
@@ -389,12 +398,42 @@ function weekHtml() {
     `<span class="plan-actions-end"><button type="button" class="btn p-csv">${S.csv}</button><button type="button" class="btn danger p-reset">${S.reset}</button></span></div>` +
     `<p class="me-msg" role="status">${escapeHtml(state.message)}</p>` +
     `<p class="fine plan-fit">${S.fitLine(fitNow.hit, fitNow.all, fitStd.hit, fitStd.all, issues.size)}</p>` +
+    notesHtml(lines, issues) +
     selHtml(lines) +
     `<div class="ptable"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>` +
     trayHtml() +
     `<p class="legend plan-legend">${legend}<span>${S.legendRest}</span><span>${S.legendPin}</span><span>${S.legendMiss}</span><span>${S.legendHc}</span></p>` +
     `<p class="fine">${S.arrangeHelp}</p><p class="fine">${S.sheetHelp}</p>` +
     (state.exportText ? `<textarea class="me-export-box" readonly rows="6">${escapeHtml(state.exportText)}</textarea>` : "")
+}
+
+// 注意事項: what still needs a look this week; each line jumps to its cell.
+function notesHtml(lines, issues) {
+  const items = []
+  const noRd = lines.filter((line) => !line.codes.includes("RD"))
+  const note = (text, row, day) => items.push(`<li><button type="button" class="link p-note"${row != null ? ` data-row="${row}" data-day="${day}"` : ""}>${escapeHtml(text)}</button></li>`)
+  for (const line of lines) {
+    const name = who(line.member)
+    line.codes.forEach((code, d) => {
+      const short = issues.get(`${line.member.row}:${d}`)
+      if (short != null) note(S.noteShort(name, S.weekdays[d], (short / 3600).toFixed(1)), line.member.row, d)
+      if (/^\d{7}$/.test(code) && !timeOf(code)) note(S.noteMissing(name, S.weekdays[d], code), line.member.row, d)
+    })
+    const empty = line.codes.map((code, d) => (code === EMPTY ? d : -1)).filter((d) => d !== -1)
+    if (empty.length && line.codes.includes("RD")) note(S.noteEmpty(name, empty.map((d) => S.weekdays[d]).join("、")), line.member.row, empty[0])
+  }
+  if (noRd.length) {
+    const names = noRd.slice(0, 6).map((line) => who(line.member)).join("、") + (noRd.length > 6 ? " 等" : "")
+    note(S.noteNoRd(names, noRd.length), noRd[0].member.row, Math.max(0, noRd[0].codes.indexOf(EMPTY)))
+  }
+  trayView(plan, state.monday).forEach((codes, d) => {
+    const pending = codes.filter((code) => PENDING.includes(code)).length
+    const left = codes.filter((code) => timeOf(code)).length
+    if (pending) note(S.notePending(S.weekdays[d], pending))
+    if (left) note(S.noteLeft(S.weekdays[d], left))
+  })
+  return `<details class="panel p-notes"${state.notesOpen ? " open" : ""}><summary>${S.notes(items.length)}${items.length ? "" : ` · ${S.notesNone}`}</summary>` +
+    (items.length ? `<ul>${items.join("")}</ul>` : "") + `</details>`
 }
 
 // The bar for the selected cell or block: change it, put it away, or tap another to place it.
@@ -663,12 +702,27 @@ function act(source, target) {
   render()
 }
 
-function weekCsv() {
+// The week as a CSV file (with a BOM so Excel reads the Chinese), downloaded.
+function downloadCsv() {
   const dates = weekDates(state.monday)
   const lines = weekView(roster, plan, state.monday)
-  const out = [["行", "組員", ...dates.map((d, i) => `${S.weekdays[i]} ${d}`)].join(",")]
-  for (const line of lines) out.push([line.row, `"${who(line.member).replace(/"/g, '""')}"`, ...line.codes].join(","))
-  return out.join("\n")
+  const { year, week } = isoWeek(state.monday)
+  const quote = (v) => `"${String(v).replace(/"/g, '""')}"`
+  const out = [["行", "組員", ...dates.map((d, i) => `${S.weekdays[i]} ${d}`), S.hours].map(quote).join(",")]
+  for (const line of lines) {
+    const hours = line.codes.reduce((sum, code) => sum + (timeOf(code)?.hours || EXTRA_HOURS[code] || 0), 0)
+    out.push([line.row, who(line.member), ...line.codes.map((code) => (code === EMPTY ? "" : code)), hours ? hours.toFixed(1) : ""].map(quote).join(","))
+  }
+  const name = `tml-plan-${year}-W${String(week).padStart(2, "0")}.csv`
+  const url = URL.createObjectURL(new Blob(["\ufeff" + out.join("\r\n")], { type: "text/csv;charset=utf-8" }))
+  const a = document.createElement("a")
+  a.href = url
+  a.download = name
+  document.body.append(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  state.message = S.csvSaved(name)
 }
 
 let suppressClick = false
@@ -784,7 +838,20 @@ function onClick(event) {
     if (!window.confirm(S.resetAsk)) return
     state.sel = null
     store(opened(clearWeek(plan, state.monday), state.monday), S.resetDone)
-  } else if (t.closest(".p-csv")) state.exportText = weekCsv()
+  } else if (t.closest(".p-csv")) downloadCsv()
+  else if (t.closest(".p-note")) {
+    const note = t.closest(".p-note")
+    if (note.dataset.row == null) {
+      state.tray.tab = "blocks"
+      render()
+      view.querySelector(".tray")?.scrollIntoView({ block: "nearest" })
+      return
+    }
+    state.sel = { type: "cell", row: Number(note.dataset.row), day: Number(note.dataset.day) }
+    render()
+    view.querySelector(`.pcell[data-row="${note.dataset.row}"][data-day="${note.dataset.day}"]`)?.scrollIntoView({ block: "center", inline: "center" })
+    return
+  }
   else if (t.closest(".p-export")) {
     state.exportText = JSON.stringify(plan)
   } else if (t.closest(".p-clear")) {
@@ -797,7 +864,7 @@ function onClick(event) {
     }
     plan = null
   } else return
-  if (!t.closest(".p-csv, .p-export")) state.exportText = ""
+  if (!t.closest(".p-export")) state.exportText = ""
   if (t.closest(".p-prev, .p-next, .p-this")) {
     state.sel = null
     state.message = ""
@@ -1034,6 +1101,10 @@ async function boot() {
     }
   })
   view.addEventListener("pointerdown", onPointerDown)
+  // Remember whether 注意事項 is open across repaints.
+  view.addEventListener("toggle", (event) => {
+    if (event.target.matches?.(".p-notes")) state.notesOpen = event.target.open
+  }, true)
   // Ctrl+Z / ⌘Z undoes the last change, except while typing.
   document.addEventListener("keydown", (event) => {
     if (!(event.ctrlKey || event.metaKey) || event.shiftKey || event.key.toLowerCase() !== "z") return

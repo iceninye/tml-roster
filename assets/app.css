@@ -501,3 +501,9 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .other-blocks { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 6px; margin: 0 0 8px; }
 .p-custom input { width: 8em; padding: 6px 8px; font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--edge); border-radius: 8px; }
 .plan-sel select { max-width: 100%; padding: 6px; font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--edge); border-radius: 8px; }
+
+/* 編更: 注意事項 */
+.p-notes { margin: 0 0 10px; padding: 8px 14px; }
+.p-notes summary { cursor: pointer; font-weight: 700; color: var(--warn); }
+.p-notes ul { margin: 6px 0 2px; padding-left: 18px; max-height: 22vh; overflow: auto; display: grid; gap: 2px; font-size: 13px; }
+.p-notes .link { text-align: left; }
