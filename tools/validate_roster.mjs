@@ -124,13 +124,20 @@ const real = summariseWeek(weekDates("2026-10-12"),
 check(real.days === 6 && real.minutes === 2790, `六日開工 = 46 小時 30 分（實際 ${real.days} 日 ${real.minutes} 分）`)
 check(real.minutes !== 6 * 510, "工時用工作時數（扣飯），唔係上落班時間差")
 
-// 工時以官表 Index 為準：duty sheet 話 8 小時、官表話 7.5（1101131 就係咁），要計 7.5
+
+// 工時以官表 Index 為準（後備更都靠佢）；duty sheet 只做後備。
+// 真資料兩邊嘅差異由 tools/validate-hours.mjs 審，唔一致會即刻報。
 const oneDay = (code) => (date) => ({ code: date === "2026-11-02" ? code : "RD" })
-const clash = summariseWeek(weekDates("2026-11-02"), oneDay("1101131"),
+const clash = summariseWeek(weekDates("2026-11-02"), oneDay("9900001"),
   () => ({ on: 24840, duty: { work: 480, off: [55440] }, basic: { off: 55440, hours: 7.5 } }))
-check(clash.minutes === 7 * 60 + 30, `duty sheet 同官表打對台時用官表 7.5 小時（實際 ${clash.minutes} 分）`)
-const noIndex = summariseWeek(weekDates("2026-11-02"), oneDay("1101131"),
+check(clash.minutes === 7 * 60 + 30, `官表同 duty sheet 打對台時用官表 7.5 小時（實際 ${clash.minutes} 分）`)
+const noIndex = summariseWeek(weekDates("2026-11-02"), oneDay("9900001"),
   () => ({ on: 24840, duty: { work: 480, off: [55440] } }))
 check(noIndex.minutes === 480, "官表冇呢個更份時才用 duty sheet 嘅工作時數")
+
+// 1101131 官表印錯 7.5，data/duty-hours-fixes.json 改返 8：一週有佢就多 0.5 小時
+const fixed = summariseWeek(weekDates("2026-11-02"), oneDay("1101131"),
+  () => ({ on: 24840, basic: { off: 55440, hours: 8 } }))
+check(fixed.minutes === 480, `1101131 用修正後 8 小時（實際 ${fixed.minutes} 分）`)
 
 process.exit(failed ? 1 : 0)
