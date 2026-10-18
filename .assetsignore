@@ -5,5 +5,8 @@ docs
 wrangler.jsonc
 .assetsignore
 .DS_Store
+.wrangler
+package-lock.json
+.gitignore
 node_modules
 *.md
