@@ -101,4 +101,27 @@ check(week.minutes === 300 + 480 + 510, `週概況工時 21 小時 30 分（實�
 check(week.rest === 1 && week.leave === 2 && week.pending === 1, "休息／假期／待定分開計，未載入嘅日子當待定")
 check(summariseWeek([], () => null, () => ({})).days === 0, "冇日期就係零")
 
+// 後備更（KSP／HSP）冇 duty sheet，但都係返工：要計日數，時數用 Index 表
+const spare = summariseWeek(weekDates("2026-11-02"),
+  (date) => ({ code: date === "2026-11-02" ? "KSP3" : "RD" }),
+  () => ({ on: 43200, basic: { off: 75600, hours: 8.5 } }))
+check(spare.days === 1 && spare.minutes === 510, `後備更計開工日同工時（實際 ${spare.days} 日 ${spare.minutes} 分）`)
+check(spare.rest === 6, "同一週嘅 RD 照樣計休息")
+
+// 真週樣本：三晚死夜 + 一個中更 + 後備更 + 一個中更
+const realWeek = ["1101179", "1101182", "1101165", "RD", "1101148", "KSP3", "7091133"]
+const realCells = {
+  "1101179": { on: 62100, duty: { work: 480 } },
+  "1101182": { on: 62940, duty: { work: 480 } },
+  "1101165": { on: 55500, duty: { work: 450 } },
+  "1101148": { on: 51600, duty: { work: 450 } },
+  "7091133": { on: 53880, duty: { work: 420 } },
+  "KSP3": { on: 43200, basic: { off: 75600, hours: 8.5 } },
+}
+const real = summariseWeek(weekDates("2026-10-12"),
+  (date) => ({ code: realWeek[weekDates("2026-10-12").indexOf(date)] }),
+  (code) => realCells[code] ?? { on: null })
+check(real.days === 6 && real.minutes === 2790, `六日開工 = 46 小時 30 分（實際 ${real.days} 日 ${real.minutes} 分）`)
+check(real.minutes !== 6 * 510, "工時用工作時數（扣飯），唔係上落班時間差")
+
 process.exit(failed ? 1 : 0)
