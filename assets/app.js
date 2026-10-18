@@ -73,7 +73,6 @@ const S = {
 
   stdRow: (n) => `Standard Roster 第 ${n} 行`,
   titleLabel: "更表名稱",
-  titleHelp: "顯示喺頁首嘅名。留空就用「我的更表」。",
   weekHint: "撳任何一日睇全日行程；特別日子（例如 8022、8023）可以喺該日入面手動改。",
   sumDays: (n) => `開工 ${n} 日`,
   sumWork: "工時",
@@ -113,14 +112,16 @@ const S = {
   pastePlaceholder: "喺度貼上，每行一個星期",
   pasteKeep: "留空就保留現有更表；貼上新內容會取代舊嘅，但你手動改過嘅日子會保留",
   rowLabel: (monday) => `今個星期（${monday} 起）係第幾行？`,
-  rowHelp: "填你 roster 嘅行號。之後每過一個星期會自動跳去下一行，最後一行之後返去第一行。",
+  ok: "確認",
   rowBad: (nums) => `喺你嘅 roster 入面搵唔到呢個行號（有 ${nums}）`,
   saved: "已儲存",
   notStored: "已讀入，但呢部機儲存唔到，關閉頁面後會冇咗",
   backupTitle: "備份同清除",
   backupHelp: "換手機或者清除瀏覽器資料之前，先匯出備份。要還原就將備份內容貼返入上面「Roster 內容」再儲存。",
-  export: "匯出備份",
-  exportNote: "複製下面成段內容，存喺安全嘅地方。",
+  export: "匯出 CSV",
+  exportJson: "連手動改動（JSON）",
+  exportHelp: "下載之後可以貼返入上面「Roster 內容」還原。",
+  exported: "已匯出檔案",
   clear: "清除我的更表",
   clearAsk: "清除之後要重新貼上 roster，確定？",
   noRoster: "未有 roster，請先貼上",
@@ -140,7 +141,6 @@ const state = {
   duty: null, // { sheet, id } of a duty opened from 飯腳
   from: "week",
   message: "",
-  exportText: "",
   rosterAll: false,
   editing: false,
 }
@@ -672,23 +672,46 @@ function setupHtml() {
     `<div class="me-edit-row"><label class="btn filebtn">${S.fileBtn}<input type="file" class="me-file" accept=".csv,.tsv,.txt,text/plain,text/csv" hidden></label><span class="meta">${S.fileHelp}</span></div>` +
     `<h4 class="prev-title">${S.previewTitle}</h4><div id="setup-preview">${previewHtml("", row)}</div></section>` +
     `<section class="panel"><h3><span class="step">2</span>${S.step2}</h3>` +
-    `<label>${S.rowLabel(monday)}<input name="row" type="number" inputmode="numeric" min="1" value="${row}" required></label>` +
-    `<p class="fine">${S.rowHelp}</p></section>` +
-    `<div class="me-edit-row"><button type="submit" class="btn primary">${S.save}</button></div>` +
+    `<div class="field-line"><label for="me-row">${S.rowLabel(monday)}</label>` +
+    `<input id="me-row" name="row" class="mini" type="number" inputmode="numeric" min="1" value="${row}" required>` +
+    `<button type="submit" class="btn primary stay">${S.ok}</button></div></section>` +
+    `<div class="me-edit-row"><button type="submit" class="btn">${S.save}</button></div>` +
     `<p class="me-msg" role="status">${escapeHtml(state.message)}</p></form>` +
     (roster
       ? `<section class="panel"><h3>${S.titleLabel}</h3>` +
-        `<form class="me-title" autocomplete="off"><label><span class="sr">${S.titleLabel}</span>` +
-        `<input name="title" maxlength="24" value="${escapeHtml(title)}" placeholder="${S.title}"></label>` +
-        `<p class="fine">${S.titleHelp}</p>` +
-        `<div class="me-edit-row"><button type="submit" class="btn primary">${S.save}</button></div></form></section>`
+        `<form class="me-title" autocomplete="off">` +
+        `<div class="field-line"><label for="me-title-input"><span class="sr">${S.titleLabel}</span></label>` +
+        `<input id="me-title-input" name="title" class="mini wide" maxlength="24" value="${escapeHtml(title)}" placeholder="${S.title}">` +
+        `<button type="submit" class="btn primary">${S.ok}</button></div></form></section>`
       : "") +
     (roster
       ? `<section class="panel"><h3>${S.backupTitle}</h3><p class="fine">${S.backupHelp}</p>` +
         `<div class="me-foot"><button type="button" class="btn me-export">${S.export}</button> ` +
         `<button type="button" class="btn danger me-clear">${S.clear}</button></div>` +
-        (state.exportText ? `<p class="fine">${S.exportNote}</p><textarea class="me-export-box" readonly rows="5">${escapeHtml(state.exportText)}</textarea>` : "") + `</section>`
+        `<p class="fine"><button type="button" class="linkish me-export-json">${S.exportJson}</button> · ${S.exportHelp}</p></section>`
       : "")
+}
+
+// 匯出：CSV 每行一個星期（行號、名、週一至週日），可以原封不動貼返入「Roster 內容」
+function csvText() {
+  const cell = (value) => {
+    const text = String(value ?? "")
+    return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+  }
+  return roster.rows
+    .map((row, i) => [roster.numbers[i], roster.names[i] ?? "", ...row].map(cell).join(","))
+    .join("\r\n")
+}
+
+function download(name, text, type) {
+  const url = URL.createObjectURL(new Blob([text], { type }))
+  const link = document.createElement("a")
+  link.href = url
+  link.download = name
+  document.body.append(link)
+  link.click()
+  link.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 // 更表名稱：存喺呢部機，即時反映喺頁首
@@ -700,7 +723,7 @@ function submitTitle(form) {
   render()
 }
 
-function submitSetup(form) {
+function submitSetup(form, stay = false) {
   const text = form.elements.text.value.trim()
   const row = Number(form.elements.row.value)
   const monday = mondayOf(serviceDate(Date.now()))
@@ -731,8 +754,9 @@ function submitSetup(form) {
   }
   if (next) {
     state.message = saveRoster(next) ? S.saved : S.notStored
-    state.page = "week"
     state.monday = monday
+    // 撳輸入格隔離嘅「確認」就留喺設定頁，撳底下「儲存」才返主頁
+    if (!stay) state.page = "week"
   }
   render()
 }
@@ -778,18 +802,25 @@ function onClick(event) {
   else if (target.closest(".me-settings")) {
     state.page = "setup"
     state.message = ""
-    state.exportText = ""
   } else if (target.closest(".me-reset")) {
     state.editing = false
     state.message = saveRoster(setOverride(roster, state.date, null)) ? S.saved : S.notStored
   } else if (target.closest(".me-export")) {
-    state.exportText = JSON.stringify(roster)
+    // 加 BOM，Excel 開中文唔會亂碼
+    download(`tml-roster-${serviceDate(Date.now())}.csv`, "\uFEFF" + csvText(), "text/csv;charset=utf-8")
+    state.message = S.exported
+    render()
+    return
+  } else if (target.closest(".me-export-json")) {
+    download(`tml-roster-${serviceDate(Date.now())}.json`, JSON.stringify(roster, null, 1), "application/json")
+    state.message = S.exported
+    render()
+    return
   } else if (target.closest(".me-clear")) {
     if (!window.confirm(S.clearAsk)) return
     clearRoster()
     state.page = "setup"
     state.message = ""
-    state.exportText = ""
   } else return
   render()
   window.scrollTo(0, 0)
@@ -852,7 +883,6 @@ function wireTitle() {
     if (!roster) return
     state.page = "setup"
     state.message = ""
-    state.exportText = ""
     render()
     const input = view.querySelector(".me-title input")
     input?.focus()
@@ -875,7 +905,6 @@ function wireSettings() {
     state.page = state.page === "setup" && roster ? "week" : "setup"
     state.editing = false
     state.message = ""
-    state.exportText = ""
     render()
     window.scrollTo(0, 0)
   })
@@ -913,7 +942,7 @@ async function boot() {
   })
   view.addEventListener("submit", (event) => {
     event.preventDefault()
-    if (event.target.matches(".me-setup")) submitSetup(event.target)
+    if (event.target.matches(".me-setup")) submitSetup(event.target, Boolean(event.submitter?.classList.contains("stay")))
     else if (event.target.matches(".me-code-form")) submitCode(event.target)
     else if (event.target.matches(".me-title")) submitTitle(event.target)
   })
