@@ -11,7 +11,7 @@
   // 跨裝置同步用。正式 id 要喺 Cloudflare dashboard 開個 KV namespace 之後貼落嚟：
   //   wrangler kv namespace create ROSTER_KV      (或用 dashboard → Workers & Pages → KV)
   "kv_namespaces": [
-    { "binding": "ROSTER_KV", "id": "PASTE_KV_NAMESPACE_ID_HERE" }
+    { "binding": "ROSTER_KV", "id": "e9aeed4e52d54d30a36c68b068789c1b" }
   ],
   "previews": {}
 }
