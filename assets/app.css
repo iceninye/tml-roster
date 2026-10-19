@@ -182,7 +182,21 @@ a.btn { display: inline-flex; align-items: center; text-decoration: none; }
 .day[data-tone="rest"] .day-title { color: var(--muted); font-weight: 500; }
 .day[data-tone="tbd"] .day-title { color: var(--warn); }
 
-.bar { display: block; position: relative; height: 5px; margin: 4px 0 2px; border-radius: 3px; background: var(--panel-2); }
+/* 今日時間軸：粗啲，加每 4 小時刻度，同一個「現時」光點。 */
+.bar { display: block; position: relative; height: 10px; margin: 6px 0 2px; border-radius: 5px; background: var(--panel-2); background-image: repeating-linear-gradient(90deg, color-mix(in srgb, var(--muted) 45%, transparent) 0 1px, transparent 1px calc(100% / 6)); }
+.bar-now { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: currentColor; }
+.bar-now s { position: absolute; top: -5px; left: 50%; width: 10px; height: 10px; border-radius: 50%; background: currentColor; transform: translateX(-50%); box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35); }
+.badge.rest-short { color: #fff; background: var(--bad); }
+/* 休息唔夠鐘：同編更頁一樣嘅呼吸紅框，跟系統「減少動態」設定。 */
+@keyframes me-short-rest {
+  0%, 100% { box-shadow: inset 0 0 0 2px var(--bad); }
+  50% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--bad) 25%, transparent); }
+}
+.day[data-short="1"], .today[data-short="1"] { box-shadow: inset 0 0 0 2px var(--bad); animation: me-short-rest 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .day[data-short="1"], .today[data-short="1"] { animation: none; } }
+.fine-box { margin: 10px 0 0; }
+.fine-box > summary { font-size: 13px; font-weight: 700; color: var(--muted); cursor: pointer; }
+.fine-box[open] > summary { margin-bottom: 6px; }
 .bar i { position: absolute; top: 0; bottom: 0; border-radius: 3px; background: var(--muted); }
 [data-shift="dawn"] .bar i { background: var(--dawn); }
 [data-shift="early"] .bar i { background: var(--early); }
@@ -308,7 +322,9 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .roster-box > summary, .roster-box > .fine { padding: 0 6px; }
 .rtable { max-height: 340px; overflow: auto; max-width: 100%; margin-top: 10px; border: 1px solid var(--edge); border-radius: 12px; }
 .rtable table { width: 100%; border-collapse: collapse; font-size: 11px; font-variant-numeric: tabular-nums; text-align: center; }
-.rtable th, .rtable td { padding: 7px 2px; border-bottom: 1px solid var(--edge); white-space: nowrap; }
+/* A6: 同編更頁一致 —— 每格 58px 高。 */
+.rtable th, .rtable td { height: 58px; padding: 7px 2px; border-bottom: 1px solid var(--edge); white-space: nowrap; }
+.rtable td { font-size: 12px; font-weight: 600; vertical-align: middle; }
 .rtable thead th { position: sticky; top: 0; z-index: 1; background: var(--panel-2); color: var(--muted); font-weight: 700; }
 .rtable tbody th { position: sticky; left: 0; padding: 6px 4px; background: var(--panel-2); color: var(--muted); font-weight: 700; }
 .rtable tr:last-child th, .rtable tr:last-child td { border-bottom: 0; }

@@ -3,7 +3,11 @@
 #   /plan.html   -> 編更, unchanged URL (bookmarks keep working)
 #   /plan        -> 編更
 #   /roster      -> 我的更表 (the setup / my-roster page)
+#   /ice/        -> 我的更表, under Ice's own path; its relative assets come along
 /            /plan.html   200
 /plan.html   /plan.html   200
 /plan        /plan.html   200
 /roster      /index.html  200
+/ice         /index.html  200
+/ice/        /index.html  200
+/ice/*       /:splat       200
