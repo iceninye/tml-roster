@@ -366,7 +366,7 @@ function dutyPhaseText(st) {
 // { label, status: none | ok | loading | nosheet | noduty | nocard, duty, c, note }.
 function cellInfo(code) {
   const c = classify(code)
-  if (c.kind === "status") return { label: `${S.status[c.code]} ${c.code}`, status: "none", tone: c.code === "HC" ? "tbd" : "rest" }
+  if (c.kind === "status") return { label: `${S.status[c.code]} ${c.code}`, status: "none", tone: c.code === "HC" ? "tbd" : (c.code === "AL" || c.code === "SH" ? "leave" : "rest") }
   const known = c.kind === "duty" ? null : basicOf(c.code)
   if (known) return { label: c.code, tag: c.kind === "spare" ? S.spareTag : "", status: "basic", basic: known, on: known.on, tone: "duty" }
   if (c.kind === "spare") return { label: S.spare(c.code), status: "none", note: S.spareNote, tone: "spare" }
@@ -381,6 +381,21 @@ function cellInfo(code) {
   }
   return { label: c.id, group: duty.group, status: duty.on ? "ok" : "nocard", duty, c, tone: "duty", on: duty.on?.[0] }
 }
+
+// 卡上工時：官表有 basic 時數就用佢，否則用更份卡嘅 work（分鐘）。
+function cardHours(cell) {
+  if (cell.basic?.hours != null) return S.hours(cell.basic.hours)
+  if (cell.duty?.work != null) return S.hours(Math.round((cell.duty.work / 60) * 100) / 100)
+  return ""
+}
+
+// 休息日／待定：代號（粗）＋細字狀態，唔再排成一句「休息日 RD」。
+function offTitleHtml(code, cell) {
+  const what = S.status?.[code] ?? cell.label
+  return `<b class="code">${escapeHtml(code)}</b><span class="day-sub">${escapeHtml(what)}</span>`
+}
+
+const isOffTone = (cell) => cell.tone === "rest" || cell.tone === "tbd" || cell.tone === "leave"
 
 // The week list's lines for one day: times and a quiet note.
 function dayLines(cell) {
@@ -494,7 +509,7 @@ function todayHtml(date, entry, cell, short = false) {
     (entry.source === "override" ? `<span class="badge plain">${S.changed}</span>` : "")
   return `<button type="button" class="today me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}"${short ? ' data-short="1"' : ""}>` +
     `<span class="today-label">${S.today} · ${S.weekdays[weekdayIndex(date)]} ${meDate(date)}</span>` +
-    `<span class="today-title">${escapeHtml(cell.label)}${tags}${short ? `<span class="badge rest-short">${S.restShort}</span>` : ""}</span>` +
+    `<span class="today-title">${isOffTone(cell) ? offTitleHtml(entry.code, cell) : escapeHtml(cell.label)}${tags}${short ? `<span class="badge rest-short">${S.restShort}</span>` : ""}</span>` +
     (lines.times ? `<span class="today-times">${lines.times}</span>${barHtml(lines.span, serviceSeconds(Date.now()))}` : "") +
     (lines.note ? `<span class="today-note">${escapeHtml(lines.note)}</span>` : "") +
     (live ? `<span class="today-live"><i class="pulse"></i><span>${S.now}：${escapeHtml(dutyPhaseText(live))} <small>${S.until(hhmm(live.until))}</small></span></span>` : "") +
@@ -683,9 +698,10 @@ function paintData() {
         (shift ? `<span class="badge shift">${S.shift[shift]}</span>` : "")
       return `<li><button type="button" class="day me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}" data-today="${date === today ? 1 : 0}"${short.has(date) ? ' data-short="1"' : ""}>` +
         `<span class="day-date"><small>${S.weekdays[weekdayIndex(date)]}</small><b>${Number(date.slice(8))}</b></span>` +
-        `<span class="day-main"><span class="day-title">${escapeHtml(cell.label)}${tags}${badges}${short.has(date) ? `<span class="badge rest-short">${S.restShort}</span>` : ""}</span>` +
+        `<span class="day-main"><span class="day-title">${isOffTone(cell) ? offTitleHtml(entry.code, cell) : escapeHtml(cell.label)}${tags}${badges}${short.has(date) ? `<span class="badge rest-short">${S.restShort}</span>` : ""}</span>` +
         (lines.times ? `<span class="day-times">${lines.times}</span>${barHtml(lines.span)}` : "") +
         (lines.note ? `<span class="meta">${escapeHtml(lines.note)}</span>` : "") +
+        (cardHours(cell) && !(lines.note || "").includes("小時") ? `<span class="day-hours">${escapeHtml(cardHours(cell))}</span>` : "") +
         `</span></button></li>`
     }).join("")}</ul>`
     html = `<div class="me-cols"><div class="me-col-a">${heroHtml}</div>` +
