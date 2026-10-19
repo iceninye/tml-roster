@@ -866,6 +866,20 @@ function isDateStr(value) {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
 }
 
+// 雲端時間一律用香港時間顯示（Worker 存嘅係 UTC ISO，直接 slice 會慢 8 個鐘）。
+function hkStamp(value) {
+  const ms = Date.parse(String(value ?? ""))
+  if (!Number.isFinite(ms)) return ""
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Hong_Kong",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(new Date(ms))
+  const g = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+  const hour = g.hour === "24" ? "00" : g.hour
+  return `${g.year}-${g.month}-${g.day} ${hour}:${g.minute}`
+}
+
 function kvToken() {
   return String(readPref(KV_KEY) ?? "").trim()
 }
@@ -969,14 +983,14 @@ async function kvUpload(force = false) {
   }
   const body = await res.json().catch(() => null)
   if (res.status === 409 && body?.reason === "conflict" && !force) {
-    const when = String(body.cloud?.updatedAt ?? "").replace("T", " ").slice(0, 16)
+    const when = hkStamp(body.cloud?.updatedAt)
     if (confirm(S.syncConflict(when, body.cloud?.title ?? ""))) return kvUpload(true)
     return kvMessage(S.syncKeptLocal)
   }
   if (!res.ok || !body?.ok) return kvMessage(S.syncFail)
   writePref(KV_VERSION, String(body.version))
   writePref(KV_SYNCED, kvPrint())
-  kvMessage(S.syncUp(body.version, String(body.updatedAt ?? "").replace("T", " ").slice(0, 16)))
+  kvMessage(S.syncUp(body.version, hkStamp(body.updatedAt)))
 }
 
 async function kvDownload() {
@@ -1014,7 +1028,7 @@ async function kvDownload() {
     overrides,
   })
   if (!next) return kvMessage(S.syncFail)
-  const when = String(rec.updatedAt ?? "").replace("T", " ").slice(0, 16)
+  const when = hkStamp(rec.updatedAt)
   const fresh = !roster // 第一次用：冇本地更表，冇嘢會被蓋，唔使問
   if (!fresh && !confirm(S.syncOverwriteLocal(when, rec.title ?? ""))) return kvMessage(S.syncKeptDown)
   if (!saveRoster(next)) return kvMessage(S.notStored)
