@@ -195,6 +195,7 @@ a.btn { display: inline-flex; align-items: center; text-decoration: none; }
 .day[data-short="1"], .today[data-short="1"] { box-shadow: inset 0 0 0 2px var(--bad); animation: me-short-rest 1.2s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .day[data-short="1"], .today[data-short="1"] { animation: none; } }
 .fine-box { margin: 10px 0 0; }
+input.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.02em; }
 .fine-box > summary { font-size: 13px; font-weight: 700; color: var(--muted); cursor: pointer; }
 .fine-box[open] > summary { margin-bottom: 6px; }
 .bar i { position: absolute; top: 0; bottom: 0; border-radius: 3px; background: var(--muted); }

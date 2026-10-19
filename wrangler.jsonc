@@ -1,9 +1,17 @@
 {
   "name": "tml-roster",
+  "main": "src/index.js",
   "compatibility_date": "2026-10-01",
   "assets": {
     "directory": ".",
-    "html_handling": "none"
+    "binding": "ASSETS",
+    "html_handling": "none",
+    "run_worker_first": false
   },
+  // 跨裝置同步用。正式 id 要喺 Cloudflare dashboard 開個 KV namespace 之後貼落嚟：
+  //   wrangler kv namespace create ROSTER_KV      (或用 dashboard → Workers & Pages → KV)
+  "kv_namespaces": [
+    { "binding": "ROSTER_KV", "id": "PASTE_KV_NAMESPACE_ID_HERE" }
+  ],
   "previews": {}
 }

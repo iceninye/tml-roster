@@ -6,6 +6,8 @@
 - 我的更表: 更表預覽表格每格高度統一 58px、字級 12px（同編更頁一致）。
 - 我的更表: 頁尾「提示」同備份說明改為預設收埋，撳一下才展開。
 - 我的更表: 今日時間軸加粗到 10px、加每 4 小時刻度、加「現時」光點。
+- 我的更表: 設定頁新增「跨裝置同步」（Workers KV）—— 貼一條 token 就可以上傳／下載更表；寫入帶 version，雲端有新版本就 **409 + 問你**，唔會無聲蓋掉（B1）。token 只存喺本機 localStorage。
+- Workers: `src/index.js` 加 `/api/roster/<token>`（GET/PUT）；冇 token 一律 404（冇 listing）、token 要 `[a-z0-9]{20,64}`、body ≤128 KiB、`no-store`；`src/` 已加入 `.assetsignore`，Worker 原始碼唔會公開。
 - 我的更表: 字眼同編更頁對齊 —— `Roster 內容` → `Standard Roster 內容`、`匯出 CSV` → `匯出 CSV（一週一行）`、`連手動改動（JSON）` → `匯出備份（JSON，包手動改動）`、`還原預設` → `還原`。
 
 ## v0.9.3 — unreleased

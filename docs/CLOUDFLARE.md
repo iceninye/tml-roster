@@ -85,6 +85,56 @@ Workers 預設（`auto-trailing-slash`）會將 `/plan.html` 307 去 `/plan`，�
 
 本專案只有靜態檔，唔會用到 CPU 額度。
 
+## 我的更表喺 `/ice/`（2026-10-19）
+
+`_redirects` 加三條，令「我的更表」多一個入口，同時令頁內相對路徑（`assets/`、`data/`、`sw.js`）跟住行：
+
+```txt
+/ice         /index.html  200
+/ice/        /index.html  200
+/ice/*       /:splat       200     # /ice/assets/app.js -> /assets/app.js
+```
+
+- `/ice/` 之下 Service Worker scope 自動變 `/ice/`，同根路徑嘅 SW 並存（兩個 scope 唔打架）。
+- GitHub Pages 唔識 `_redirects`，舊站照舊。
+
+## 跨裝置同步（Workers KV，2026-10-19）
+
+一條 token 一條記錄；token 就係 KV key，**冇 listing、冇 enumerate**。
+
+```
+GET /api/roster/<token>   -> 200 {ok,record} | 404 empty
+PUT /api/roster/<token>   -> 200 {ok,version,updatedAt} | 409 conflict | 400
+```
+
+- 記錄只存 `{schema,title,rows,numbers,updatedAt,version}`（標題／行號／每格代號）。
+- **衝突處理 = B1**：PUT 帶 `version`；同雲端版本唔一樣就 **409**，前端彈對話問「覆蓋定唔覆蓋」，唔會無聲蓋掉。明確覆蓋要帶 `"force": true`。
+- 保護：token 只准 `[a-z0-9]{20,64}`、body ≤128 KiB、`cache-control: no-store`、`/api/roster` 冇 token 一律 404、`src/` 已加入 `.assetsignore`（Worker 原始碼唔會公開）。
+- token 只存喺用戶自己部機（`localStorage: tml-roster-kv-token`），唔會入 repo、HTML、CHANGELOG。
+
+### 部署前要開 KV namespace（一次）
+
+```bash
+npx wrangler login                       # 或者用 dashboard
+npx wrangler kv namespace create ROSTER_KV
+# 出嘅 id 貼入 wrangler.jsonc 嘅 kv_namespaces[0].id（現時係 PASTE_KV_NAMESPACE_ID_HERE）
+```
+
+改咗 `wrangler.jsonc` 就要重新 Deploy（push 去 main 會自動）。
+
+### 驗證
+
+```bash
+T=<token>
+curl -s https://tml-roster.iceninye.workers.dev/api/roster            # 404（冇 listing）
+curl -s https://tml-roster.iceninye.workers.dev/api/roster/$T         # 404 empty 或 200
+curl -s -X PUT -H 'content-type: application/json' \
+  -d '{"schema":1,"title":"我","rows":[["RD","RD","RD","RD","RD","RD","RD"]],"numbers":[2],"version":0}' \
+  https://tml-roster.iceninye.workers.dev/api/roster/$T               # version 1
+# 再用同一個 version 寫 → 409 conflict
+```
+
 ## 未做（等決定）
 
-- 帳號密碼登入 + D1 資料庫（冰 2026-10-18：**暫時唔實行**，先搬站）
+- 帳號密碼登入 + D1 資料庫（冰 2026-10-18：**暫時唔實行**）
+- 同步改為 passphrase / 登入保護（現時係「靠 URL 保密」，攞到條 URL 就讀寫得到）

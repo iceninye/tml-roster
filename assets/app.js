@@ -15,6 +15,9 @@ const ROSTER_KEY = "tml-roster"
 const TITLE_KEY = "tml-roster-title"
 // The key TML-traffic v0.9.0 used; a roster saved there is picked up once.
 const LEGACY_KEY = "tml-traffic-roster"
+// 跨裝置同步：token 同雲端版本號都只存喺呢部機
+const KV_KEY = "tml-roster-kv-token"
+const KV_VERSION = "tml-roster-kv-version"
 
 const S = {
   weekdays: ["週一", "週二", "週三", "週四", "週五", "週六", "週日"],
@@ -82,6 +85,20 @@ const S = {
   hintTitle: "提示",
   restShort: "休息唔夠 11 小時",
   restHelp: "休息唔夠鐘：前一日下班到下一個開工唔夠 11 小時，會用閃動紅框標住。",
+  syncTitle: "跨裝置同步",
+  syncHelp: "雲端只存更表（標題、行號、每格代號），唔會存更份卡或者你嘅個人資料。token 只存喺呢部機。⚠️ 拿到呢條網址嘅人都讀寫得到，唔好傳出去。",
+  syncToken: "同步 token",
+  syncRemember: "記住 token",
+  syncUpload: "上傳到雲端",
+  syncDownload: "由雲端下載",
+  syncNoToken: "先貼上同步 token 再撳。",
+  syncRemembered: "已記住 token（只存喺呢部機）。",
+  syncConflict: (at, name) => `雲端有另一個版本（${at}${name ? ` · ${name}` : ""}）。撳「確定」用呢部機覆蓋雲端；撳「取消」就唔覆蓋。`,
+  syncKeptLocal: "冇覆蓋：雲端版本保持不變。",
+  syncEmpty: "雲端未有資料，請先上傳一次。",
+  syncFail: "同步失敗（網絡或者 token 有問題）。",
+  syncUp: (v, at) => `已上傳到雲端（第 ${v} 版 · ${at}）。`,
+  syncDown: (at) => `已由雲端下載（${at}）。`,
   editCode: "改呢日嘅更份編號",
   save: "儲存",
   cancel: "取消",
@@ -713,6 +730,14 @@ function setupHtml() {
         `<div class="me-foot"><button type="button" class="btn me-export">${S.export}</button> ` +
         `<button type="button" class="btn danger me-clear">${S.clear}</button></div>` +
         `<p class="fine"><button type="button" class="linkish me-export-json">${S.exportJson}</button> · ${S.exportHelp}</p></section>`
+      : "") +
+    (roster
+      ? `<section class="panel"><h3>${S.syncTitle}</h3><details class="fine-box"><summary>${S.hintTitle}</summary><p class="fine">${S.syncHelp}</p></details>` +
+        `<div class="field-line"><label for="me-kv-token">${S.syncToken}</label>` +
+        `<input id="me-kv-token" class="mini wide mono" type="password" autocomplete="off" spellcheck="false" maxlength="64" value="${escapeHtml(kvToken())}" placeholder="a1b2c3d4..."></div>` +
+        `<div class="row me-foot"><button type="button" class="btn me-kv-remember">${S.syncRemember}</button>` +
+        `<button type="button" class="btn me-kv-up">${S.syncUpload}</button>` +
+        `<button type="button" class="btn me-kv-down">${S.syncDownload}</button></div></section>`
       : "")
 }
 
@@ -736,6 +761,87 @@ function download(name, text, type) {
   link.click()
   link.remove()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+// 跨裝置同步：一條 token 一條雲端記錄，存喺 Workers KV。token 只留喺呢部機。
+function kvToken() {
+  return String(readPref(KV_KEY) ?? "").trim()
+}
+
+function kvEndpoint() {
+  return `/api/roster/${encodeURIComponent(kvToken())}`
+}
+
+function kvMessage(text) {
+  state.message = text
+  render()
+}
+
+async function kvUpload(force = false) {
+  if (!kvToken()) return kvMessage(S.syncNoToken)
+  let res
+  try {
+    res = await fetch(kvEndpoint(), {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        schema: 1,
+        title,
+        rows: roster.rows,
+        numbers: roster.numbers,
+        version: Number(readPref(KV_VERSION) ?? 0),
+        force,
+      }),
+    })
+  } catch {
+    return kvMessage(S.syncFail)
+  }
+  const body = await res.json().catch(() => null)
+  if (res.status === 409 && body?.reason === "conflict" && !force) {
+    const when = String(body.cloud?.updatedAt ?? "").replace("T", " ").slice(0, 16)
+    if (confirm(S.syncConflict(when, body.cloud?.title ?? ""))) return kvUpload(true)
+    return kvMessage(S.syncKeptLocal)
+  }
+  if (!res.ok || !body?.ok) return kvMessage(S.syncFail)
+  writePref(KV_VERSION, String(body.version))
+  kvMessage(S.syncUp(body.version, String(body.updatedAt ?? "").replace("T", " ").slice(0, 16)))
+}
+
+async function kvDownload() {
+  if (!kvToken()) return kvMessage(S.syncNoToken)
+  let res
+  try {
+    res = await fetch(kvEndpoint(), { headers: { accept: "application/json" } })
+  } catch {
+    return kvMessage(S.syncFail)
+  }
+  const body = await res.json().catch(() => null)
+  if (res.status === 404 && body?.reason === "empty") return kvMessage(S.syncEmpty)
+  if (!res.ok || !body?.ok) return kvMessage(S.syncFail)
+  const rec = body.record ?? {}
+  const rows = Array.isArray(rec.rows) ? rec.rows : []
+  const numbers = Array.isArray(rec.numbers) ? rec.numbers.map(Number) : rows.map((_, i) => i + 1)
+  // 雲端唔存名同 anchor（只存更表本身），沿用呢部機嘅名、行號同基準週。
+  const names = roster?.names?.length === rows.length ? roster.names : []
+  const anchorRow = numbers.includes(Number(roster?.anchor?.row)) ? Number(roster.anchor.row) : numbers[0]
+  const next = cleanRoster({
+    v: 1,
+    rows,
+    numbers,
+    names,
+    anchor: { row: anchorRow ?? 1, monday: roster?.anchor?.monday ?? mondayOf(serviceDate(Date.now())) },
+    overrides: roster?.overrides ?? {},
+  })
+  if (!next) return kvMessage(S.syncFail)
+  const when = String(rec.updatedAt ?? "").replace("T", " ").slice(0, 16)
+  if (!confirm(S.syncConflict(when, rec.title ?? ""))) return kvMessage(S.syncKeptLocal)
+  if (!saveRoster(next)) return kvMessage(S.notStored)
+  if (rec.title) {
+    title = String(rec.title).slice(0, 24)
+    writePref(TITLE_KEY, title)
+  }
+  writePref(KV_VERSION, String(rec.version ?? 0))
+  kvMessage(S.syncDown(when))
 }
 
 // 更表名稱：存喺呢部機，即時反映喺頁首
@@ -828,6 +934,18 @@ function onClick(event) {
   } else if (target.closest(".me-reset")) {
     state.editing = false
     state.message = saveRoster(setOverride(roster, state.date, null)) ? S.saved : S.notStored
+  } else if (target.closest(".me-kv-remember")) {
+    const input = document.getElementById("me-kv-token")
+    const value = String(input?.value ?? "").trim().toLowerCase()
+    state.message = /^[a-z0-9]{20,64}$/.test(value) ? (writePref(KV_KEY, value), S.syncRemembered) : S.syncNoToken
+    render()
+    return
+  } else if (target.closest(".me-kv-up")) {
+    kvUpload()
+    return
+  } else if (target.closest(".me-kv-down")) {
+    kvDownload()
+    return
   } else if (target.closest(".me-export")) {
     // 加 BOM，Excel 開中文唔會亂碼
     download(`tml-roster-${serviceDate(Date.now())}.csv`, "\uFEFF" + csvText(), "text/csv;charset=utf-8")
