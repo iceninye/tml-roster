@@ -1,7 +1,7 @@
 // Offline shell. Only same-origin GETs are cached; a file is revalidated every
 // time the network is up, so a release never pairs a new app.js with old libs.
 
-const CACHE = "tml-roster-shell-v34"
+const CACHE = "tml-roster-shell-v35"
 const SHELL = [
   "./",
   "index.html",
@@ -41,6 +41,8 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const request = event.request
   if (request.method !== "GET" || new URL(request.url).origin !== self.location.origin) return
+  // 雲端同步 API 唔快取：cache 住會離線時攞返舊版本，而且 token 會留喺 cache 網址。
+  if (new URL(request.url).pathname.startsWith("/api/")) return
   event.respondWith(
     fetch(request, { cache: "no-cache" })
       .then((response) => {

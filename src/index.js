@@ -12,6 +12,7 @@ const MAX_BYTES = 128 * 1024
 const CODE_RE = /^[A-Z0-9-]{1,10}$/i
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const MAX_OVERRIDES = 400
+const MAX_NAME = 40 // 同 lib/tml-roster.js 一致，唔好上傳再下載靜靜變短
 
 const reply = (body, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -43,7 +44,7 @@ function cleanRecord(input) {
   if (numbers.some((n) => !Number.isInteger(n) || n < 0 || n > 9999)) return null
 
   const names = Array.isArray(input.names) && input.names.length === rows.length
-    ? input.names.map((name) => String(name ?? "").slice(0, 24))
+    ? input.names.map((name) => String(name ?? "").slice(0, MAX_NAME))
     : rows.map(() => "")
 
   // 基準週：一個日期就要，其他一律當冇，由前端用本機資料補。
@@ -74,6 +75,8 @@ export default {
     }
 
     const parts = url.pathname.split("/").filter(Boolean) // ["api","roster","<token>"]
+    // 前端用嚟問「呢個網址支唔支援同步」（GitHub Pages 版會 404）
+    if (parts[0] === "api" && parts[1] === "ping") return reply({ ok: true, sync: true })
     if (parts.length < 2 || parts[0] !== "api" || parts[1] !== "roster") {
       return reply({ ok: false, reason: "not_found" }, 404)
     }

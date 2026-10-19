@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.9.7 — unreleased
+- 我的更表: **「由雲端下載」確認框講反方向** —— 由 `syncConflict`（用呢部機覆蓋雲端）改為 `syncOverwriteLocal`（雲端會取代呢部機）；取消時訊息亦改為「冇下載：呢部機嘅更表保持不變」。
+- 我的更表: **休息唔夠鐘同編更頁對齊** —— 門檻 11 → **12 小時**（同 `plan.rest` 預設一致）；`shortRestDates()` 改為由**上週日**開始比較，唔會再漏「上週日夜更 → 週一早更」。
+- 我的更表: **service worker 唔再快取 `/api/`** —— 之前會 cache `GET /api/roster/<token>`，離線時靜靜攞返舊版本，而且 token 會留喺 cache 網址。
+- 我的更表: **冇 Workers API 嘅網址（GitHub Pages 版）自動收埋同步面板** —— 開頁探一次 `GET /api/ping`；唔支援就只顯示一句「請用 workers.dev/ice/」，唔會再彈「同步失敗」令人以為 token 錯。
+- 我的更表: 同步說明照實講（雲端會存更表、每行名字、基準週、手動改動）；`spareNote` 改為「後備更未有上下班資料」；頁尾版本 v0.9.3 → **v0.9.6**；修正檔頭「nothing is uploaded」過時註解。
+- 我的更表: 下載時**雲端有 `overrides` 欄位就以雲端為準**（刻意清空都跟），舊記錄冇欄位才沿用本機。
+- 我的更表: 自動重畫由每秒改為 **15 秒**（時間軸以分鐘為單位）。
+- Worker: 新增 `GET /api/ping`；名字長度上限 24 → **40**（同 `lib/tml-roster.js` 一致，避免上傳再下載靜靜變短）。
+
 ## v0.9.6 — unreleased
 - 我的更表: 刪走「記住 token」掣 —— 貼完 token 直接撳「上傳到雲端」或「由雲端下載」就會自動記住（`adoptToken()`），少一個步驟。
 - 我的更表: **雲端記錄補齊 `names` / `anchor` / `overrides`** —— 之前只存 `title + rows + numbers`，第二部裝置下載時冇「基準週」同「手動改動」，會用「今週」做基準，兩邊睇落唔同步。Worker `cleanRecord()` 相應驗證 `anchor.row` 要喺 `numbers` 之內、`anchor.monday` 要 `YYYY-MM-DD`、`overrides` 最多 400 條。
