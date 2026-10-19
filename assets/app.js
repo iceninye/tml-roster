@@ -10,7 +10,7 @@ import { SHIFTS, shiftOf } from "../lib/tml-shift.js"
 import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
 import { serviceDate, serviceSeconds } from "../lib/tml-time.js"
 
-const BUILD = { version: "0.9.9", commit: "dev" }
+const BUILD = { version: "0.9.11", commit: "dev" }
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
 const TITLE_KEY = "tml-roster-title"

@@ -1,6 +1,8 @@
 # Changelog
 
 ## v0.9.11 — unreleased
+- 工具: 新增 `tools/validate_version.mjs` —— 檢查頁尾 `BUILD.version` 同 CHANGELOG 最新一節一致（之前幾次漏 stamp）。
+- 我的更表: 頁尾版本號更新為 v0.9.11（之前漏咗，顯示 0.9.9）。
 - 我的更表: **雲端時間一律用香港時間（GMT+8）顯示** —— 之前直接切 Worker 回傳嘅 UTC ISO 字串，例如雲端 14:58 UTC 會顯示成「14:58」，比實際慢 8 個鐘。現在用 `Intl.DateTimeFormat` 指定 `Asia/Hong_Kong`，就算部機時區唔係香港都一樣顯示 HKT。
 
 ## v0.9.10 — unreleased
