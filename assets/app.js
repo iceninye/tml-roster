@@ -1,6 +1,7 @@
 // TML Roster: your own duty roster over the Tuen Ma Line Duty Sheet cards.
-// Hand-written, no build step. The roster is kept only in this browser's
-// localStorage; nothing is uploaded. Duty cards come from data/duties/, copied
+// Hand-written, no build step. The roster is kept in this browser's
+// localStorage; the optional cross-device sync uploads it to Workers KV only
+// when the user pastes a token and presses 上傳. Duty cards come from data/duties/, copied
 // from https://github.com/iceninye/TML-traffic (see tools/sync-duties.mjs).
 
 import { dutyState, mealMates } from "../lib/tml-duties.js"
@@ -9,7 +10,7 @@ import { shiftOf } from "../lib/tml-shift.js"
 import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
 import { serviceDate, serviceSeconds } from "../lib/tml-time.js"
 
-const BUILD = { version: "0.9.7", commit: "dev" }
+const BUILD = { version: "0.9.8", commit: "dev" }
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
 const TITLE_KEY = "tml-roster-title"
@@ -23,7 +24,7 @@ const S = {
   weekdays: ["週一", "週二", "週三", "週四", "週五", "週六", "週日"],
   status: { RD: "休息日", AL: "年假", SH: "法定假日", HC: "待定" },
   spare: (code) => `後備更 ${code}`,
-  spareNote: "後備更冇固定上下班時間",
+  spareNote: "後備更未有上下班資料",
   noCard: "呢個更份暫時冇上下班資料",
   spareTag: "後備更",
   basicNote: "呢個更份冇逐段行程資料，只有上下班時間同地點。",
@@ -83,13 +84,14 @@ const S = {
   rosterAll: (n) => `全部 ${n} 行`,
   swipeHint: "左右滑動可換週",
   hintTitle: "提示",
-  restShort: "休息唔夠 11 小時",
-  restHelp: "休息唔夠鐘：前一日下班到下一個開工唔夠 11 小時，會用閃動紅框標住。",
+  restShort: "休息唔夠 12 小時",
+  restHelp: "休息唔夠鐘：前一日下班到下一個開工唔夠 12 小時，會用閃動紅框標住（同編更頁一致）。",
   syncTitle: "跨裝置同步",
   syncFirstTitle: "有雲端備份？貼 token 下載",
   syncFirstHelp: "換咗機或者清咗瀏覽器？貼同一條 token，撳「由雲端下載」就攞返更表。token 係你第一次上傳時自己嗰條，只存喺你自己部機。",
-  syncHelp: "雲端只存更表（標題、行號、每格代號），唔會存更份卡或者你嘅個人資料。token 只存喺呢部機。⚠️ 拿到呢條網址嘅人都讀寫得到，唔好傳出去。",
+  syncHelp: "雲端會存：更表（標題、行號、每格代號）、Standard Roster 每行嘅名字、基準週，同你手動改過嘅日子。唔會存更份卡或者編更計劃。token 只存喺呢部機。⚠️ 拿到呢條網址嘅人都讀寫得到，唔好傳出去。",
   syncToken: "同步 token",
+  syncUnsupported: "呢個網址唔支援雲端同步（GitHub Pages 版冇 Workers API）。要同步請開 https://tml-roster.iceninye.workers.dev/ice/",
   syncNew: "產生 token",
   syncCopy: "複製",
   syncNewAsk: "產生新 token 會換走呢部機現有嗰條（雲端舊記錄唔會刪除）。確定？",
@@ -100,7 +102,9 @@ const S = {
   syncDownload: "由雲端下載",
   syncNoToken: "先貼上同步 token 再撳。",
   syncConflict: (at, name) => `雲端有另一個版本（${at}${name ? ` · ${name}` : ""}）。撳「確定」用呢部機覆蓋雲端；撳「取消」就唔覆蓋。`,
+  syncOverwriteLocal: (at, name) => `雲端版本（${at}${name ? ` · ${name}` : ""}）會取代呢部機嘅更表同手動改動。撳「確定」照下載；撳「取消」就唔變。`,
   syncKeptLocal: "冇覆蓋：雲端版本保持不變。",
+  syncKeptDown: "冇下載：呢部機嘅更表保持不變。",
   syncEmpty: "雲端未有資料，請先上傳一次。",
   syncFail: "同步失敗（網絡或者 token 有問題）。",
   syncUp: (v, at) => `已上傳到雲端（第 ${v} 版 · ${at}）。`,
@@ -309,8 +313,8 @@ function offOf(cell) {
   return cell?.duty?.off?.[0] ?? cell?.basic?.off ?? null
 }
 
-// 休息唔夠鐘：前一日下班到下一個開工之間嘅休息（同編更頁一樣當 11 小時）。
-const REST_MIN = 11 * 3600
+// 休息唔夠鐘：前一日下班到下一個開工唔夠 12 小時就標；同編更頁預設（plan.rest）一致，唔好兩頁一紅一唔紅。
+const REST_MIN = 12 * 3600
 
 function restTooShort(prevCell, cell) {
   const off = offOf(prevCell)
@@ -319,13 +323,15 @@ function restTooShort(prevCell, cell) {
   return 86400 + on - off < REST_MIN
 }
 
-// 邊幾日嘅開工時間同前一日嘅休息唔夠 11 小時。
+// 邊幾日嘅開工時間同前一日嘅休息唔夠鐘（會同上週日比較）。
 function shortRestDates(dates) {
   const out = new Set()
-  for (let i = 1; i < dates.length; i += 1) {
-    const prev = cellInfo(dayEntry(roster, dates[i - 1]).code)
-    const cur = cellInfo(dayEntry(roster, dates[i]).code)
-    if (restTooShort(prev, cur)) out.add(dates[i])
+  // 由前一日（上週日）開始比較，唔會漏咗「上週日夜更 → 週一早更」。
+  let prev = cellInfo(dayEntry(roster, addDays(dates[0], -1)).code)
+  for (const date of dates) {
+    const cur = cellInfo(dayEntry(roster, date).code)
+    if (restTooShort(prev, cur)) out.add(date)
+    prev = cur
   }
   return out
 }
@@ -760,15 +766,17 @@ function setupHtml() {
         `<button type="button" class="btn danger me-clear">${S.clear}</button></div>` +
         `<p class="fine"><button type="button" class="linkish me-export-json">${S.exportJson}</button> · ${S.exportHelp}</p></section>`
       : "") +
-    `<section class="panel"><h3>${roster ? S.syncTitle : S.syncFirstTitle}</h3><details class="fine-box"><summary>${S.hintTitle}</summary><p class="fine">${roster ? S.syncHelp : S.syncFirstHelp}</p></details>` +
-    `<div class="field-line"><label for="me-kv-token">${S.syncToken}</label>` +
-    `<input id="me-kv-token" class="mini wide mono" type="password" autocomplete="off" spellcheck="false" maxlength="64" value="${escapeHtml(kvToken())}" placeholder="a1b2c3d4...">` +
-    `<button type="button" class="btn me-kv-new">${S.syncNew}</button>` +
-    `<button type="button" class="btn me-kv-copy">${S.syncCopy}</button></div>` +
-    `<div class="row me-foot">` +
-    (roster ? `<button type="button" class="btn me-kv-up">${S.syncUpload}</button>` : "") +
-    `<button type="button" class="btn ${roster ? "" : "primary "}me-kv-down">${S.syncDownload}</button></div>` +
-    `<p class="me-msg" role="status">${escapeHtml(state.syncMsg)}</p></section>`
+    (syncSupported === false
+      ? `<section class="panel"><h3>${S.syncTitle}</h3><p class="fine">${S.syncUnsupported}</p></section>`
+      : `<section class="panel"><h3>${roster ? S.syncTitle : S.syncFirstTitle}</h3><details class="fine-box"><summary>${S.hintTitle}</summary><p class="fine">${roster ? S.syncHelp : S.syncFirstHelp}</p></details>` +
+        `<div class="field-line"><label for="me-kv-token">${S.syncToken}</label>` +
+        `<input id="me-kv-token" class="mini wide mono" type="password" autocomplete="off" spellcheck="false" maxlength="64" value="${escapeHtml(kvToken())}" placeholder="a1b2c3d4...">` +
+        `<button type="button" class="btn me-kv-new">${S.syncNew}</button>` +
+        `<button type="button" class="btn me-kv-copy">${S.syncCopy}</button></div>` +
+        `<div class="row me-foot">` +
+        (roster ? `<button type="button" class="btn me-kv-up">${S.syncUpload}</button>` : "") +
+        `<button type="button" class="btn ${roster ? "" : "primary "}me-kv-down">${S.syncDownload}</button></div>` +
+        `<p class="me-msg" role="status">${escapeHtml(state.syncMsg)}</p></section>`)
 }
 
 // 匯出：CSV 每行一個星期（行號、名、週一至週日），可以原封不動貼返入「Standard Roster 內容」
@@ -815,6 +823,20 @@ function kvToken() {
 
 function kvEndpoint() {
   return `/api/roster/${encodeURIComponent(kvToken())}`
+}
+
+// 呢個網址有冇 Workers API（GitHub Pages 版冇）：開頁時問一次。
+let syncSupported = null // null = 未問到；true / false
+async function probeSync() {
+  try {
+    const res = await fetch("/api/ping", { headers: { accept: "application/json" }, cache: "no-store" })
+    const body = await res.json().catch(() => null)
+    syncSupported = !!(res.ok && body?.ok)
+  } catch {
+    // 離線或者網絡出錯：唔知支唔支援，照舊顯示同步面板（唔好誤報「唔支援」）
+    return
+  }
+  render()
 }
 
 function kvMessage(text) {
@@ -907,7 +929,8 @@ async function kvDownload() {
     ? Number(rec.anchor.row)
     : (numbers.includes(Number(roster?.anchor?.row)) ? Number(roster.anchor.row) : numbers[0])
   const anchorMonday = isDateStr(rec.anchor?.monday) ? rec.anchor.monday : (roster?.anchor?.monday ?? mondayOf(serviceDate(Date.now())))
-  const overrides = rec.overrides && typeof rec.overrides === "object" && Object.keys(rec.overrides).length
+  // 雲端有呢個欄位就以雲端為準（刻意清空都要跟）；舊記錄冇欄位才沿用本機
+  const overrides = rec.overrides && typeof rec.overrides === "object"
     ? rec.overrides
     : (roster?.overrides ?? {})
   const next = cleanRoster({
@@ -921,7 +944,7 @@ async function kvDownload() {
   if (!next) return kvMessage(S.syncFail)
   const when = String(rec.updatedAt ?? "").replace("T", " ").slice(0, 16)
   const fresh = !roster // 第一次用：冇本地更表，冇嘢會被蓋，唔使問
-  if (!fresh && !confirm(S.syncConflict(when, rec.title ?? ""))) return kvMessage(S.syncKeptLocal)
+  if (!fresh && !confirm(S.syncOverwriteLocal(when, rec.title ?? ""))) return kvMessage(S.syncKeptDown)
   if (!saveRoster(next)) return kvMessage(S.notStored)
   if (rec.title) {
     title = String(rec.title).slice(0, 24)
@@ -1186,11 +1209,13 @@ async function boot() {
     `v${BUILD.version} · ${BUILD.commit === "dev" ? "dev" : `commit ${escapeHtml(BUILD.commit)}`} · ` +
     `更份資料來自 <a href="https://github.com/iceninye/TML-traffic">TML-traffic</a>`
   loadBasic()
+  probeSync()
   open()
   dutyIndexPromise().then((index) => {
     if (index) document.getElementById("foot").insertAdjacentHTML("beforeend", ` · ${S.dutyData(index.sheets.map((s) => s.issued).sort().pop())}`)
   })
-  setInterval(paintData, 1000)
+  // 每 15 秒重畫一次就夠（時間軸以分鐘為單位）；唔好每秒做全套計算。
+  setInterval(paintData, 15000)
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {})
 }
 
