@@ -416,7 +416,15 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .pcell small { color: var(--muted); font-size: 11px; white-space: nowrap; }
 .pcell[data-kind="status"], .pcell[data-kind="other"], .pcell[data-kind="spare"] { background: transparent; color: var(--muted); }
 .pcell[data-kind="status"] b { font-weight: 500; }
-.pcell[data-short="1"] { box-shadow: inset 0 0 0 2px var(--bad); }
+/* 休息唔夠鐘: the red frame breathes, so a short rest is easier to spot. */
+@keyframes plan-short-rest {
+  0%, 100% { box-shadow: inset 0 0 0 2px var(--bad); }
+  50% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--bad) 25%, transparent); }
+}
+.pcell[data-short="1"] { box-shadow: inset 0 0 0 2px var(--bad); animation: plan-short-rest 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .pcell[data-short="1"] { animation: none; }
+}
 .pcell[data-sel="1"] { box-shadow: inset 0 0 0 2px var(--accent); background: color-mix(in srgb, var(--accent) 18%, var(--panel-2)); }
 .dragging .pcell[data-target="1"] { outline: 1px dashed var(--accent); outline-offset: -1px; }
 .pcell .pin { font-style: normal; font-size: 9px; margin-left: 2px; vertical-align: super; }

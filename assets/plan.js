@@ -22,7 +22,7 @@ const S = {
   csvBtn: "由 CSV 匯入 Standard Roster",
   csvHelp: "格式：標題行 `,Name,Mon,Tue,Wed,Thu,Fri,Sat,Sun`，之後每行 行號、名稱、七日更份。有名稱嘅行就係組員；一行七格 TBC 嘅唔跟輪換，留喺原行。",
   csvEmpty: "讀唔到任何一行，請確認係 CSV",
-  csvDone: (rows, named, week) => `已匯入 ${rows} 行${named ? `，有名稱嘅 ${named} 位已設為組員，基準${week}，所有積木已放入待定區；設好假期同喜好後按「自動編排」` : ""}`,
+  csvDone: (rows, named, week) => `已匯入 ${rows} 行${named ? `，有名稱嘅 ${named} 位已設為組員，基準${week}，所有積木已放入待定區；設好假期同喜好後按「自動」` : ""}`,
   importWeek: "CSV 屬於邊個星期（基準星期）",
   templateBtn: "下載匯入範本",
   templateHelp: "範本有 141 行、7 格，RD 只係示範，請換成實際更份。Name 欄填咗名嘅行就係組員。",
@@ -45,10 +45,10 @@ const S = {
   backNext: "回到下週",
   thisWeek: "本週",
   nextWeek: "下週",
-  arrange: "自動編排",
-  arrangeHelp: "自動編排用待定區嘅更份填滿組員嘅空格，按偏好同 12 小時休息分配；一星期未有 RD 嘅組員唔會編；手動改過（📌）嘅格會保留。",
-  undo: "還原上一步",
-  undone: "已還原上一步",
+  arrange: "自動",
+  arrangeHelp: "自動用待定區嘅更份填滿組員嘅空格，按偏好同 12 小時休息分配；一星期未有 RD 嘅組員唔會編；手動改過（📌）嘅格會保留。",
+  undo: "還原",
+  undone: "已還原",
   noUndo: "冇可以還原嘅步驟",
   reset: "本週重新開始",
   resetAsk: "本週所有格會清空，全部積木放返待定區，確定？",
@@ -91,12 +91,12 @@ const S = {
   offDay: "休息日",
   pickDuty: "揀當日更份",
   pickNone: "當日冇未用嘅更份",
-  autoOn: "自動套用：開",
-  autoOff: "自動套用：關",
-  autoTurned: (on) => (on ? "已開自動套用：改組員喜好或者假期，會即刻編嗰行" : "已關自動套用：改動唔會自動填格，要編就撳「自動編排」"),
-  arrangeScope: (rows, days) => `自動編排（${rows ? `${rows} 位` : "全組"}${days ? ` · ${days} 日` : ""}）`,
-  pickRow: "揀呢位組員做自動編排",
-  pickDay: "揀呢日做自動編排",
+  autoOn: "自動填入：開",
+  autoOff: "自動填入：關",
+  autoTurned: (on) => (on ? "已開自動填入：改組員喜好或者假期，會即刻編嗰行" : "已關自動填入：改動唔會自動填格，要編就撳「自動」"),
+  arrangeScope: (rows, days) => `自動（${rows ? `${rows} 位` : "全組"}${days ? ` · ${days} 日` : ""}）`,
+  pickRow: "揀呢位組員做自動",
+  pickDay: "揀呢日做自動",
   pickClear: "清除揀選",
   clearCell: "清空",
   notes: (n) => `注意事項（${n}）`,
@@ -156,12 +156,12 @@ const S = {
   removeBlock: "刪除呢個更份積木",
   blockRemoved: "已刪除積木，其餘空格已按偏好重新編排",
   needRd: "每位組員一星期要有一日 RD，未有 RD 就唔會自動填更份",
-  setupDone: "已儲存組員，積木已放入待定區；設好假期同喜好後按「自動編排」",
+  setupDone: "已儲存組員，積木已放入待定區；設好假期同喜好後按「自動」",
   emptyCount: (n) => `空 ${n}`,
 }
 
 const view = document.getElementById("view")
-const state = { monday: null, sel: null, message: "", tray: { tab: "blocks", filter: [], sort: "on" }, pick: { rows: [], days: [] }, notesOpen: true, leaveOpen: false }
+const state = { monday: null, sel: null, message: "", tray: { tab: "blocks", filter: [], sort: "on" }, pick: { rows: [], days: [] }, notesOpen: false, leaveOpen: false }
 // How the tray is shown (tab, filter, sort) is this viewer's own; kept in the browser.
 const TRAY_KEY = "tml-plan-tray-view"
 // Earlier { plan, roster } pairs, for 還原上一步; kept for this visit only.
