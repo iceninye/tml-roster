@@ -135,7 +135,8 @@ a.btn { display: inline-flex; align-items: center; text-decoration: none; }
 }
 .today .badge, .today[data-shift] .badge.shift { background: rgba(255, 255, 255, 0.2); color: #fff; box-shadow: none; }
 .today-label { font-size: 13px; font-weight: 600; opacity: 0.85; letter-spacing: 0.03em; }
-.today-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+/* 代號一律 700 粗、同一個字級：今日卡同日子卡都係 15px。 */
+.today-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .today-times { font-size: 36px; line-height: 1.15; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
 .today-times .nd { color: rgba(255, 255, 255, 0.8); }
 .today-note { font-size: 14px; opacity: 0.88; }
@@ -147,7 +148,7 @@ a.btn { display: inline-flex; align-items: center; text-decoration: none; }
 @keyframes pulse { 70% { box-shadow: 0 0 0 9px rgba(125, 255, 192, 0); } 100% { box-shadow: 0 0 0 0 rgba(125, 255, 192, 0); } }
 @media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
 
-.day-list { list-style: none; padding: 0; display: grid; gap: 10px; }
+.day-list { list-style: none; padding: 0; display: grid; gap: 10px; grid-auto-rows: 1fr; }
 .day {
   display: grid;
   grid-template-columns: 48px 1fr;
@@ -179,7 +180,21 @@ a.btn { display: inline-flex; align-items: center; text-decoration: none; }
 .day-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .day-times { font-size: 22px; line-height: 1.2; font-weight: 800; font-variant-numeric: tabular-nums; }
 .day[data-tone="rest"], .day[data-tone="tbd"], .day[data-tone="spare"] { background: transparent; box-shadow: none; }
-.day[data-tone="rest"] .day-title { color: var(--muted); font-weight: 500; }
+/* 休息日代號同工作日一樣粗，只係灰一級（唔再變幼）。 */
+.day[data-tone="rest"] .day-title { color: var(--muted); font-weight: 700; }
+/* B1: 同一行嘅卡自動等高（grid row stretch），休息日唔會矮一截。 */
+.day-list > li { display: flex; }
+.day { min-height: 96px; height: 100%; }
+/* B2: 休息日只出代號（粗）＋細字「休息日」。 */
+.day-sub { font-size: 12px; font-weight: 600; color: var(--muted); }
+/* B3: 左邊顏色條 —— 更份跟班別色，休息綠、待定黃、後備灰。 */
+.day[data-tone="rest"]::before { background: var(--ok); }
+.day[data-tone="leave"]::before { background: var(--mid); }
+.day[data-tone="leave"] .day-title { color: var(--muted); font-weight: 700; }
+.day[data-tone="tbd"]::before { background: var(--warn); }
+.day[data-tone="spare"]::before { background: var(--muted); }
+/* B5: 每張卡右下角工時細字。 */
+.day-hours { justify-self: end; font-size: 12px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
 .day[data-tone="tbd"] .day-title { color: var(--warn); }
 
 /* 今日時間軸：粗啲，加每 4 小時刻度，同一個「現時」光點。 */
@@ -325,7 +340,7 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .rtable table { width: 100%; border-collapse: collapse; font-size: 11px; font-variant-numeric: tabular-nums; text-align: center; }
 /* A6: 同編更頁一致 —— 每格 58px 高。 */
 .rtable th, .rtable td { height: 58px; padding: 7px 2px; border-bottom: 1px solid var(--edge); white-space: nowrap; }
-.rtable td { font-size: 12px; font-weight: 600; vertical-align: middle; }
+.rtable td { font-size: 12px; font-weight: 700; vertical-align: middle; }
 .rtable thead th { position: sticky; top: 0; z-index: 1; background: var(--panel-2); color: var(--muted); font-weight: 700; }
 .rtable tbody th { position: sticky; left: 0; padding: 6px 4px; background: var(--panel-2); color: var(--muted); font-weight: 700; }
 .rtable tr:last-child th, .rtable tr:last-child td { border-bottom: 0; }
