@@ -390,10 +390,12 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .top h1.me-title-edit { cursor: pointer; }
 
 /* 今日卡顏色跟更類（早／中／夜），唔再一律橙 */
-.today[data-tone="rest"], .today[data-tone="tbd"] {
+.today[data-tone="rest"], .today[data-tone="leave"], .today[data-tone="tbd"], .today[data-tone="spare"] {
   background: linear-gradient(145deg, #3a4356, #232a3a);
   box-shadow: 0 8px 24px rgba(20, 26, 40, 0.28);
 }
+/* 今日冇時間條（休息／假期／待定）時保持返一定高度，唔好縮成一條 bar。 */
+.today[data-tone="rest"], .today[data-tone="leave"], .today[data-tone="tbd"], .today[data-tone="spare"] { min-height: 116px; }
 .today[data-shift="dawn"] { background: linear-gradient(145deg, #a2521f, #5c2a0c); box-shadow: 0 8px 24px rgba(162, 82, 31, 0.26); }
 .today[data-shift="night"] { background: linear-gradient(145deg, #2c3a55, #0f1626); box-shadow: 0 8px 24px rgba(20, 30, 55, 0.32); }
 .today[data-shift="early"] { background: linear-gradient(145deg, #b0741b, #6d4409); box-shadow: 0 8px 24px rgba(176, 116, 27, 0.26); }
