@@ -531,13 +531,10 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .plan-leave-all[hidden] { display: none; }
 .p-leave[data-spent="1"] { opacity: 0.45; }
 
-.p-sheet { display: block; width: 100%; margin: 3px 0 0; padding: 1px 0; font: inherit; font-size: 11px; font-weight: 700; color: var(--muted); text-align: center; background: var(--panel); border: 1px solid var(--edge); border-radius: 7px; }
-.p-sheet[data-set="1"] { color: #fff; background: var(--tml); border-color: var(--tml); }
 .pcell[data-missing="1"] { color: var(--bad); outline: 1px dashed var(--bad); outline-offset: -3px; background: transparent; }
 .block[data-kind="leave"] { color: var(--muted); }
 .block[data-kind="leave"] b { font-weight: 500; }
 .pcell[data-leave="1"] { cursor: grab; }
-.csv-import { margin: 0 0 12px; }
 .me-setup label.filebtn, .csv-import label.filebtn { display: inline-flex; align-items: center; }
 .block .blk-x { position: absolute; top: 1px; right: 2px; width: 18px; height: 18px; display: grid; place-items: center; border-radius: 9px; font-size: 11px; line-height: 1; color: var(--muted); cursor: pointer; }
 .block .blk-x:hover { color: var(--text); background: var(--panel); }
@@ -571,7 +568,9 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 /* 編更: pick for 自動編排, 其他 blocks, auto switch */
 .ptable input.pick { width: 14px; height: 14px; margin: 0 4px 0 0; vertical-align: -2px; accent-color: var(--accent); }
-.ptable thead th input.pick { display: block; margin: 0 auto 2px; }
+.ptable thead th .who-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; color: var(--text); }
+.ptable thead th .who-head .pchip { padding: 1px 7px; font-size: 11px; color: var(--text); }
+.ptable thead th .who-head .pchip[aria-pressed="true"] { color: #fff; background: var(--accent); }
 .ptable th.who .p-name { width: calc(100% - 20px); }
 .ptable th.who small { display: block; }
 .ptable tr[data-picked="1"] th.who { box-shadow: inset 3px 0 0 var(--accent); }
@@ -671,3 +670,13 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 }
 /* 淨係俾讀屏用嘅 label 唔好佔位，輸入框先會同其他欄位對齊 */
 .field-line > label:has(> .sr:only-child) { position: absolute; }
+
+/* 匯入下星期 Standard Roster, 使用步驟 */
+.csv-import { margin: 0 0 10px; padding: 8px 14px; }
+.csv-import .me-setup { margin: 10px 0 2px; gap: 8px; }
+.csv-import summary, .p-steps summary { cursor: pointer; font-weight: 700; }
+.csv-import summary .meta { margin-left: 8px; font-weight: 500; }
+.csv-import .p-current { margin: 0; color: var(--text); }
+.p-steps { margin: 10px 0; padding: 8px 14px; }
+.p-steps ol { margin: 6px 0 2px; padding-left: 20px; display: grid; gap: 4px; font-size: 14px; line-height: 1.5; }
+.plan-legend { line-height: 1.7; }
