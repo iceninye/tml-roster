@@ -313,8 +313,7 @@ function offOf(cell) {
   return cell?.duty?.off?.[0] ?? cell?.basic?.off ?? null
 }
 
-// 休息唔夠鐘：前一日下班到下一個開工之間嘅休息唔夠 12 小時就標（同編更頁預設一致）。
-// 休息門檻：同編更頁預設（plan.rest = 12 小時）一致，唔好兩頁一紅一唔紅。
+// 休息唔夠鐘：前一日下班到下一個開工唔夠 12 小時就標；同編更頁預設（plan.rest）一致，唔好兩頁一紅一唔紅。
 const REST_MIN = 12 * 3600
 
 function restTooShort(prevCell, cell) {
@@ -834,7 +833,8 @@ async function probeSync() {
     const body = await res.json().catch(() => null)
     syncSupported = !!(res.ok && body?.ok)
   } catch {
-    syncSupported = false
+    // 離線或者網絡出錯：唔知支唔支援，照舊顯示同步面板（唔好誤報「唔支援」）
+    return
   }
   render()
 }
