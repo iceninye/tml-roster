@@ -86,6 +86,8 @@ const S = {
   restShort: "休息唔夠 11 小時",
   restHelp: "休息唔夠鐘：前一日下班到下一個開工唔夠 11 小時，會用閃動紅框標住。",
   syncTitle: "跨裝置同步",
+  syncFirstTitle: "有雲端備份？貼 token 下載",
+  syncFirstHelp: "換咗機或者清咗瀏覽器？貼同一條 token，撳「由雲端下載」就攞返更表。token 係你第一次上傳時自己嗰條，只存喺你自己部機。",
   syncHelp: "雲端只存更表（標題、行號、每格代號），唔會存更份卡或者你嘅個人資料。token 只存喺呢部機。⚠️ 拿到呢條網址嘅人都讀寫得到，唔好傳出去。",
   syncToken: "同步 token",
   syncRemember: "記住 token",
@@ -106,7 +108,7 @@ const S = {
   badCode: "格式唔啱：請輸入 7 位更份編號，或者 RD、AL、SH、HC、HSP1、KSP3 呢類代號",
   setupTitle: "設定我的更表",
   settingsTitle: "更表設定",
-  setupIntro: "第一次使用，請完成下面兩步。你嘅更表只會儲存喺呢部機嘅瀏覽器，唔會上傳，其他人睇唔到。",
+  setupIntro: "第一次使用，請完成下面兩步。更表預設只會儲存喺呢部機嘅瀏覽器；想跨裝置就喺下面貼同步 token。",
   step1: "貼上 Standard Roster",
   step2: "行號",
   howTitle: "應該貼成點樣？",
@@ -747,14 +749,12 @@ function setupHtml() {
         `<button type="button" class="btn danger me-clear">${S.clear}</button></div>` +
         `<p class="fine"><button type="button" class="linkish me-export-json">${S.exportJson}</button> · ${S.exportHelp}</p></section>`
       : "") +
-    (roster
-      ? `<section class="panel"><h3>${S.syncTitle}</h3><details class="fine-box"><summary>${S.hintTitle}</summary><p class="fine">${S.syncHelp}</p></details>` +
-        `<div class="field-line"><label for="me-kv-token">${S.syncToken}</label>` +
-        `<input id="me-kv-token" class="mini wide mono" type="password" autocomplete="off" spellcheck="false" maxlength="64" value="${escapeHtml(kvToken())}" placeholder="a1b2c3d4..."></div>` +
-        `<div class="row me-foot"><button type="button" class="btn me-kv-remember">${S.syncRemember}</button>` +
-        `<button type="button" class="btn me-kv-up">${S.syncUpload}</button>` +
-        `<button type="button" class="btn me-kv-down">${S.syncDownload}</button></div></section>`
-      : "")
+    `<section class="panel"><h3>${roster ? S.syncTitle : S.syncFirstTitle}</h3><details class="fine-box"><summary>${S.hintTitle}</summary><p class="fine">${roster ? S.syncHelp : S.syncFirstHelp}</p></details>` +
+    `<div class="field-line"><label for="me-kv-token">${S.syncToken}</label>` +
+    `<input id="me-kv-token" class="mini wide mono" type="password" autocomplete="off" spellcheck="false" maxlength="64" value="${escapeHtml(kvToken())}" placeholder="a1b2c3d4..."></div>` +
+    `<div class="row me-foot"><button type="button" class="btn me-kv-remember">${S.syncRemember}</button>` +
+    (roster ? `<button type="button" class="btn me-kv-up">${S.syncUpload}</button>` : "") +
+    `<button type="button" class="btn ${roster ? "" : "primary "}me-kv-down">${S.syncDownload}</button></div></section>`
 }
 
 // 匯出：CSV 每行一個星期（行號、名、週一至週日），可以原封不動貼返入「Standard Roster 內容」
@@ -850,13 +850,18 @@ async function kvDownload() {
   })
   if (!next) return kvMessage(S.syncFail)
   const when = String(rec.updatedAt ?? "").replace("T", " ").slice(0, 16)
-  if (!confirm(S.syncConflict(when, rec.title ?? ""))) return kvMessage(S.syncKeptLocal)
+  const fresh = !roster // 第一次用：冇本地更表，冇嘢會被蓋，唔使問
+  if (!fresh && !confirm(S.syncConflict(when, rec.title ?? ""))) return kvMessage(S.syncKeptLocal)
   if (!saveRoster(next)) return kvMessage(S.notStored)
   if (rec.title) {
     title = String(rec.title).slice(0, 24)
     writePref(TITLE_KEY, title)
   }
   writePref(KV_VERSION, String(rec.version ?? 0))
+  if (fresh) {
+    state.page = "week"
+    state.monday = mondayOf(serviceDate(Date.now()))
+  }
   kvMessage(S.syncDown(when))
 }
 
