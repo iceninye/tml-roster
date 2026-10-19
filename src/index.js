@@ -10,6 +10,8 @@
 const TOKEN_RE = /^[a-z0-9]{20,64}$/
 const MAX_BYTES = 128 * 1024
 const CODE_RE = /^[A-Z0-9-]{1,10}$/i
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+const MAX_OVERRIDES = 400
 
 const reply = (body, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -17,7 +19,9 @@ const reply = (body, status = 200) =>
     headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
   })
 
-// 只收最少量：標題、每行 7 日嘅代號、行號。唔收 duty 卡、計劃、個人資料。
+// 收嘅係一份完整嘅「我的更表」：標題、行號、每行 7 日代號、名、基準週（week number）
+// 同手動改動。唔收 duty 卡、編更計劃。
+// anchor.monday 一定要同步，唔係第二部機會用「今日」做基準週，兩邊顯示唔同。
 function cleanRecord(input) {
   if (!input || input.schema !== 1) return null
   const title = typeof input.title === "string" ? input.title.slice(0, 24) : ""
@@ -37,7 +41,28 @@ function cleanRecord(input) {
     ? input.numbers.map(Number)
     : rows.map((_, i) => i + 1)
   if (numbers.some((n) => !Number.isInteger(n) || n < 0 || n > 9999)) return null
-  return { schema: 1, title, rows, numbers }
+
+  const names = Array.isArray(input.names) && input.names.length === rows.length
+    ? input.names.map((name) => String(name ?? "").slice(0, 24))
+    : rows.map(() => "")
+
+  // 基準週：一個日期就要，其他一律當冇，由前端用本機資料補。
+  const anchorIn = input.anchor ?? {}
+  const anchor = {
+    row: Number.isInteger(Number(anchorIn.row)) && numbers.includes(Number(anchorIn.row)) ? Number(anchorIn.row) : null,
+    monday: DATE_RE.test(String(anchorIn.monday ?? "")) ? String(anchorIn.monday) : null,
+  }
+
+  // 手動改動：日期 -> 代號；數量封頂，唔好比人塞爆 KV。
+  const overrides = {}
+  let count = 0
+  for (const [date, code] of Object.entries(input.overrides ?? {})) {
+    if (++count > MAX_OVERRIDES) break
+    const clean = String(code ?? "").trim().toUpperCase()
+    if (DATE_RE.test(date) && CODE_RE.test(clean)) overrides[date] = clean
+  }
+
+  return { schema: 1, title, rows, numbers, names, anchor, overrides }
 }
 
 export default {
