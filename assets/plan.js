@@ -63,13 +63,12 @@ const S = {
   tooShort: (h) => `休息只有 ${h} 小時`,
   selected: (who, day, code) => `${who} · 週${day}：${code}`,
   selHelp: "再撳同一日另一格就對調；電腦直接拖放，手機長按後拖。",
-  editLabel: "改做",
+  editLabel: "更份編號",
   editSave: "改",
   cancel: "取消",
   badCode: "格式唔啱：請輸入 7 位更份編號，或者 RD、AL、SH、HC、HSP1 呢類代號",
-  quickLeave: "加積木",
-  quickOther: "＋ 其他",
-  leaveHelp: "撳一粒即刻放入呢格，會扣當日待定區同款積木。",
+  quickLeave: "加假期/其他",
+  quickOther: "其他",
   leaveNoBlock: (day, code) => `待定區已經冇「${code}（${day}）」積木，冇得放。`,
   leaveAlertTitle: "冇積木",
   sameDay: "只可以同一日嘅格對調",
@@ -451,12 +450,11 @@ const trayHas = (day, code) => trayView(plan, state.monday)[day].includes(code)
 // be in that day's tray; the 13 other codes are free of the tray, as before.
 function leaveQuickHtml(day) {
   const btn = (code) => `<button type="button" class="btn p-leave" data-code="${code}"` +
-    `${LEAVE.includes(code) && !trayHas(day, code) ? ' data-spent="1"' : ""}>＋ ${code}</button>`
+    `${LEAVE.includes(code) && !trayHas(day, code) ? ' data-spent="1"' : ""}>${code}</button>`
   const others = EXTRA.filter((code) => !LEAVE.includes(code)).map(btn).join("")
   return `<div class="plan-leave"><span class="meta">${S.quickLeave}</span>` + LEAVE.map(btn).join("") +
     `<button type="button" class="btn p-leave-more" aria-expanded="${state.leaveOpen ? "true" : "false"}">${S.quickOther}</button>` +
-    `<span class="plan-leave-all"${state.leaveOpen ? "" : " hidden"}>${others}</span>` +
-    `<span class="meta plan-leave-help">${S.leaveHelp}</span></div>`
+    `<span class="plan-leave-all"${state.leaveOpen ? "" : " hidden"}>${others}</span></div>`
 }
 
 // Say so and stop, rather than quietly taking the member's own Standard duty block.
