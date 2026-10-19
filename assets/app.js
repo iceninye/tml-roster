@@ -6,11 +6,11 @@
 
 import { dutyState, mealMates } from "../lib/tml-duties.js"
 import { addDays, classify, cleanRoster, dayEntry, mondayOf, newRoster, normaliseCode, parseRoster, rowLabelFor, setOverride, weekDates, weekdayIndex } from "../lib/tml-roster.js"
-import { shiftOf } from "../lib/tml-shift.js"
+import { SHIFTS, shiftOf } from "../lib/tml-shift.js"
 import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
 import { serviceDate, serviceSeconds } from "../lib/tml-time.js"
 
-const BUILD = { version: "0.9.8", commit: "dev" }
+const BUILD = { version: "0.9.9", commit: "dev" }
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
 const TITLE_KEY = "tml-roster-title"
@@ -19,6 +19,8 @@ const LEGACY_KEY = "tml-traffic-roster"
 // 跨裝置同步：token 同雲端版本號都只存喺呢部機
 const KV_KEY = "tml-roster-kv-token"
 const KV_VERSION = "tml-roster-kv-version"
+// 最後一次上傳／下載時嘅更表指紋：同而家唔同就喺齒輪旁加一粒「未上傳」點
+const KV_SYNCED = "tml-roster-kv-synced"
 
 const S = {
   weekdays: ["週一", "週二", "週三", "週四", "週五", "週六", "週日"],
@@ -105,6 +107,11 @@ const S = {
   syncOverwriteLocal: (at, name) => `雲端版本（${at}${name ? ` · ${name}` : ""}）會取代呢部機嘅更表同手動改動。撳「確定」照下載；撳「取消」就唔變。`,
   syncKeptLocal: "冇覆蓋：雲端版本保持不變。",
   syncKeptDown: "冇下載：呢部機嘅更表保持不變。",
+  syncDirty: "呢部機有改動未上傳到雲端。",
+  sumTitle: "本週概況",
+  sumShort: (n) => `休息唔夠 ${n} 日`,
+  sumRest: (n) => `休息 ${n} 日`,
+  sumLeave: (n) => `假期 ${n} 日`,
   syncEmpty: "雲端未有資料，請先上傳一次。",
   syncFail: "同步失敗（網絡或者 token 有問題）。",
   syncUp: (v, at) => `已上傳到雲端（第 ${v} 版 · ${at}）。`,
@@ -545,6 +552,40 @@ function weekSummary(dates) {
   })
 }
 
+// 本週出現最多次嘅組別；冇就 null
+function usualGroup(dates) {
+  const count = new Map()
+  for (const date of dates) {
+    const group = cellInfo(dayEntry(roster, date).code).group
+    if (group) count.set(group, (count.get(group) ?? 0) + 1)
+  }
+  let best = null
+  for (const [group, n] of count) if (!best || n > count.get(best)) best = group
+  return best
+}
+
+// 桌面版左欄：今日卡下面放本週概況（開工、工時、各更類日數、休息唔夠）
+function weekCardHtml(dates, short) {
+  const s = weekSummary(dates)
+  const shifts = new Map()
+  for (const date of dates) {
+    const cell = cellInfo(dayEntry(roster, date).code)
+    const shift = shiftOf(cell.on, offOf(cell))
+    if (shift) shifts.set(shift, (shifts.get(shift) ?? 0) + 1)
+  }
+  const parts = [
+    s.days ? `<li><b>${S.sumDays(s.days)}</b></li>` : "",
+    s.days ? `<li>${S.sumWork} <b>${S.workMin(s.minutes)}</b></li>` : "",
+    s.rest ? `<li>${S.sumRest(s.rest)}</li>` : "",
+    s.leave ? `<li>${S.sumLeave(s.leave)}</li>` : "",
+    short.size ? `<li class="bad">${S.sumShort(short.size)}</li>` : "",
+  ].join("")
+  const legend = SHIFTS.filter((k) => shifts.has(k))
+    .map((k) => `<li data-shift="${k}"><i></i>${S.shift[k]} ${shifts.get(k)}</li>`).join("")
+  return `<section class="week-card"><h3>${S.sumTitle}</h3><ul class="week-facts">${parts}</ul>` +
+    (legend ? `<ul class="week-shifts">${legend}</ul>` : "") + `</section>`
+}
+
 // 一句話講本週：行號 + 開工日數 + 工時（頁首副標用）
 function subLine(monday) {
   const row = rowLabelFor(roster, monday)
@@ -625,6 +666,11 @@ function setSub(text) {
 }
 
 function render() {
+  renderPage()
+  paintDirty()
+}
+
+function renderPage() {
   shown = ""
   if (state.page === "setup") {
     view.innerHTML = setupHtml()
@@ -707,6 +753,8 @@ function paintData() {
     const heroHtml = week.includes(today) ? todayHtml(today, dayEntry(roster, today), cellInfo(dayEntry(roster, today).code), short.has(today)) : ""
     // 今日已經有 hero，列表唔再重複
     const listDays = week.includes(today) ? week.filter((date) => date !== today) : week
+    // 本週最常見嘅組別（例如 KSR）唔使每張卡都寫，唔同先顯示
+    const usual = usualGroup(week)
     const listHtml = `<ul class="day-list">${listDays.map((date) => {
       const entry = dayEntry(roster, date)
       const cell = cellInfo(entry.code)
@@ -714,7 +762,7 @@ function paintData() {
       const badges = (date === today ? `<span class="badge now">${S.today}</span>` : "") +
         (entry.source === "override" ? `<span class="badge plain">${S.changed}</span>` : "")
       const shift = shiftOf(cell.on, offOf(cell))
-      const tags = (cell.group ? `<span class="badge plain">${cell.group}</span>` : "") + (cell.tag ? `<span class="badge plain">${cell.tag}</span>` : "") +
+      const tags = (cell.group && cell.group !== usual ? `<span class="badge plain">${cell.group}</span>` : "") + (cell.tag ? `<span class="badge plain">${cell.tag}</span>` : "") +
         (shift ? `<span class="badge shift">${S.shift[shift]}</span>` : "")
       return `<li><button type="button" class="day me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}" data-today="${date === today ? 1 : 0}"${short.has(date) ? ' data-short="1"' : ""}>` +
         `<span class="day-date"><small>${S.weekdays[weekdayIndex(date)]}</small><b>${Number(date.slice(8))}</b></span>` +
@@ -723,7 +771,7 @@ function paintData() {
         (noteWithHours(lines.note, cell) ? `<span class="meta">${escapeHtml(noteWithHours(lines.note, cell))}</span>` : "") +
         `</span></button></li>`
     }).join("")}</ul>`
-    html = `<div class="me-cols"><div class="me-col-a">${heroHtml}</div>` +
+    html = `<div class="me-cols"><div class="me-col-a">${heroHtml}${weekCardHtml(week, short)}</div>` +
       `<div class="me-col-b">${listHtml}</div></div>`
     // 更份資料載入後工時先算得出：每次重畫順手更新副標
     setSub(subLine(state.monday))
@@ -776,7 +824,8 @@ function setupHtml() {
         `<div class="row me-foot">` +
         (roster ? `<button type="button" class="btn me-kv-up">${S.syncUpload}</button>` : "") +
         `<button type="button" class="btn ${roster ? "" : "primary "}me-kv-down">${S.syncDownload}</button></div>` +
-        `<p class="me-msg" role="status">${escapeHtml(state.syncMsg)}</p></section>`)
+        (kvDirty() ? `<p class="fine me-sync-dirty">${S.syncDirty}</p>` : "") +
+        `<p class="me-msg me-sync-msg" role="status">${escapeHtml(state.syncMsg)}</p></section>`)
 }
 
 // 匯出：CSV 每行一個星期（行號、名、週一至週日），可以原封不動貼返入「Standard Roster 內容」
@@ -819,6 +868,28 @@ function isDateStr(value) {
 
 function kvToken() {
   return String(readPref(KV_KEY) ?? "").trim()
+}
+
+// 會上傳嘅內容嘅指紋（FNV-1a），用嚟知道上次同步之後有冇改過。
+function kvPrint() {
+  if (!roster) return ""
+  const text = JSON.stringify([title, roster.rows, roster.numbers, roster.names, roster.anchor, roster.overrides])
+  let h = 0x811c9dc5
+  for (let i = 0; i < text.length; i += 1) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193)
+  return (h >>> 0).toString(36)
+}
+
+// 有 token、網址支援同步，而且更表同上次同步唔同
+function kvDirty() {
+  return !!roster && !!kvToken() && syncSupported !== false && readPref(KV_SYNCED) !== kvPrint()
+}
+
+function paintDirty() {
+  const button = document.querySelector(".me-settings")
+  if (!button) return
+  const dirty = kvDirty()
+  button.classList.toggle("dirty", dirty)
+  button.setAttribute("aria-label", dirty ? `${S.settings}（${S.syncDirty}）` : S.settings)
 }
 
 function kvEndpoint() {
@@ -904,6 +975,7 @@ async function kvUpload(force = false) {
   }
   if (!res.ok || !body?.ok) return kvMessage(S.syncFail)
   writePref(KV_VERSION, String(body.version))
+  writePref(KV_SYNCED, kvPrint())
   kvMessage(S.syncUp(body.version, String(body.updatedAt ?? "").replace("T", " ").slice(0, 16)))
 }
 
@@ -951,6 +1023,7 @@ async function kvDownload() {
     writePref(TITLE_KEY, title)
   }
   writePref(KV_VERSION, String(rec.version ?? 0))
+  writePref(KV_SYNCED, kvPrint())
   if (fresh) {
     state.page = "week"
     state.monday = mondayOf(serviceDate(Date.now()))
