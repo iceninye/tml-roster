@@ -410,7 +410,7 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .ptable th.who .p-name { width: 100%; padding: 2px 4px; font-size: 13px; font-weight: 700; }
 .ptable th.who small { color: var(--muted); font-weight: 500; }
 .ptag { display: inline-block; padding: 0 5px; border-radius: 6px; font-size: 10.5px; font-weight: 700; line-height: 1.6; color: var(--sh, var(--muted)); box-shadow: inset 0 0 0 1px currentColor; }
-.pcell { position: relative; display: grid; justify-items: center; gap: 1px; width: 100%; min-width: 74px; min-height: 52px; padding: 4px 3px 4px 7px; border-radius: 8px; background: var(--panel-2); line-height: 1.25; touch-action: manipulation; }
+.pcell { position: relative; display: grid; grid-template-rows: auto auto auto; align-content: start; justify-items: center; gap: 1px; width: 100%; min-width: 74px; min-height: 58px; padding: 4px 3px 4px 7px; border-radius: 8px; background: var(--panel-2); line-height: 1.25; touch-action: manipulation; }
 .pcell::before { content: ""; position: absolute; inset: 3px auto 3px 2px; width: 3px; border-radius: 2px; background: var(--sh, transparent); }
 .pcell b { font-size: 12.5px; white-space: nowrap; }
 .pcell small { color: var(--muted); font-size: 11px; white-space: nowrap; }
@@ -447,11 +447,20 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .tray-day { display: block; margin: 0 0 4px 2px; font-size: 11px; font-weight: 700; color: var(--muted); }
 .tray-blocks { display: grid; gap: 4px; }
 .tray-none { text-align: center; color: var(--edge); }
-.block { position: relative; display: grid; justify-items: center; gap: 1px; width: 100%; padding: 4px 3px 4px 7px; border-radius: 8px; background: var(--panel-2); line-height: 1.25; font-variant-numeric: tabular-nums; }
+.block { position: relative; display: grid; grid-template-rows: auto auto auto; align-content: start; justify-items: center; gap: 1px; width: 100%; min-height: 58px; padding: 4px 3px 4px 7px; border-radius: 8px; background: var(--panel-2); line-height: 1.25; font-variant-numeric: tabular-nums; }
 .block::before { content: ""; position: absolute; inset: 3px auto 3px 2px; width: 3px; border-radius: 2px; background: var(--sh, transparent); }
 .block b { font-size: 12.5px; }
 .block small { color: var(--muted); font-size: 11px; }
 .block[data-sel="1"] { box-shadow: inset 0 0 0 2px var(--accent); }
+
+/* 編更: the leave blocks offered next to the code input of an empty cell */
+.plan-leave { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.plan-leave .meta { flex: 0 0 auto; }
+.plan-leave .btn { padding: 5px 10px; font-size: 13px; }
+.plan-leave-all { display: flex; flex-wrap: wrap; gap: 6px; }
+.plan-leave-all[hidden] { display: none; }
+.p-leave[data-spent="1"] { opacity: 0.45; }
+.plan-leave-help { flex-basis: 100%; font-size: 12px; }
 
 .p-sheet { display: block; width: 100%; margin: 3px 0 0; padding: 1px 0; font: inherit; font-size: 11px; font-weight: 700; color: var(--muted); text-align: center; background: var(--panel); border: 1px solid var(--edge); border-radius: 7px; }
 .p-sheet[data-set="1"] { color: #fff; background: var(--tml); border-color: var(--tml); }
