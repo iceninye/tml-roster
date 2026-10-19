@@ -395,7 +395,7 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   box-shadow: 0 8px 24px rgba(20, 26, 40, 0.28);
 }
 .today[data-shift="dawn"] { background: linear-gradient(145deg, #a2521f, #5c2a0c); box-shadow: 0 8px 24px rgba(162, 82, 31, 0.26); }
-.today[data-shift="night"] { background: linear-gradient(145deg, #3b3f9e, #1e2059); box-shadow: 0 8px 24px rgba(59, 63, 158, 0.28); }
+.today[data-shift="night"] { background: linear-gradient(145deg, #2c3a55, #0f1626); box-shadow: 0 8px 24px rgba(20, 30, 55, 0.32); }
 .today[data-shift="early"] { background: linear-gradient(145deg, #b0741b, #6d4409); box-shadow: 0 8px 24px rgba(176, 116, 27, 0.26); }
 .today[data-shift="mid"] { background: linear-gradient(145deg, #2c6ea4, #143f63); box-shadow: 0 8px 24px rgba(44, 110, 164, 0.26); }
 .today[data-shift="late"] { background: linear-gradient(145deg, #5a44a8, #332552); box-shadow: 0 8px 24px rgba(90, 68, 168, 0.26); }
@@ -416,8 +416,9 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 }
 
 /* ---- 編更 (plan.html) ---- */
-:root { --dawn: #e2703a; --night: #5b5fd6; }
-@media (prefers-color-scheme: light) { :root { --dawn: #c2541c; --night: #4245b8; } }
+/* 死夜用深灰藍（唔再係靛藍），同夜嘅紫色拉開明度 */
+:root { --dawn: #e2703a; --night: #8796b4; }
+@media (prefers-color-scheme: light) { :root { --dawn: #c2541c; --night: #3d4a63; } }
 .app.wide { max-width: 1180px; }
 [data-shift="dawn"] { --sh: var(--dawn); }
 [data-shift="early"] { --sh: var(--early); }
@@ -581,3 +582,63 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 /* ---- 同步 token：產生／複製 ---- */
 .field-line .me-kv-new, .field-line .me-kv-copy { padding: 6px 12px; min-height: 36px; font-size: 13px; }
+
+/* ---- 死夜色條加斜紋：唔淨靠顏色分「夜」同「死夜」 ---- */
+.day[data-shift="night"]::before,
+[data-shift="night"] .bar i,
+.week-shifts [data-shift="night"] i {
+  background: repeating-linear-gradient(135deg, var(--night) 0 3px, color-mix(in srgb, var(--night) 45%, transparent) 3px 6px);
+}
+.today[data-shift="night"] .bar i { background: repeating-linear-gradient(135deg, #fff 0 3px, rgba(255, 255, 255, 0.5) 3px 6px); }
+
+/* ---- 日卡唔使 4 小時刻度（只留今日卡） ---- */
+.day .bar { background-image: none; }
+
+/* ---- 設定頁輸入框統一：灰底、12px 圓角、同按鈕一樣高 ---- */
+.field-line input.mini {
+  min-height: 44px;
+  font: inherit;
+  font-size: 16px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+}
+.field-line .me-kv-new, .field-line .me-kv-copy { min-height: 44px; }
+
+/* ---- 齒輪旁「未上傳」點 ---- */
+.me-settings { position: relative; }
+.me-settings.dirty::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--warn);
+  box-shadow: 0 0 0 2px var(--panel);
+}
+.me-sync-dirty { color: var(--warn); font-weight: 600; }
+
+/* ---- 本週概況：只喺桌面左欄（今日卡下面）顯示 ---- */
+.week-card { display: none; }
+@media (min-width: 900px) {
+  .week-card {
+    display: block;
+    margin: 14px 0 0;
+    padding: 16px 18px;
+    background: var(--panel);
+    border: 1px solid var(--edge);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+  .week-card h3 { margin: 0 0 10px; font-size: 14px; color: var(--muted); }
+  .week-facts, .week-shifts { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0; padding: 0; list-style: none; font-size: 14px; }
+  .week-facts .bad { color: var(--bad); font-weight: 700; }
+  .week-shifts { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--edge); color: var(--muted); font-size: 13px; }
+  .week-shifts i { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 3px; vertical-align: -1px; background: var(--sh, var(--muted)); }
+  .me-col-a:empty { display: none; }
+}
+/* 淨係俾讀屏用嘅 label 唔好佔位，輸入框先會同其他欄位對齊 */
+.field-line > label:has(> .sr:only-child) { position: absolute; }
