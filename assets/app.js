@@ -15,6 +15,9 @@ const ROSTER_KEY = "tml-roster"
 const TITLE_KEY = "tml-roster-title"
 // The key TML-traffic v0.9.0 used; a roster saved there is picked up once.
 const LEGACY_KEY = "tml-traffic-roster"
+// 跨裝置同步：token 同雲端版本號都只存喺呢部機
+const KV_KEY = "tml-roster-kv-token"
+const KV_VERSION = "tml-roster-kv-version"
 
 const S = {
   weekdays: ["週一", "週二", "週三", "週四", "週五", "週六", "週日"],
@@ -79,10 +82,27 @@ const S = {
   rosterNear: "只睇附近",
   rosterAll: (n) => `全部 ${n} 行`,
   swipeHint: "左右滑動可換週",
+  hintTitle: "提示",
+  restShort: "休息唔夠 11 小時",
+  restHelp: "休息唔夠鐘：前一日下班到下一個開工唔夠 11 小時，會用閃動紅框標住。",
+  syncTitle: "跨裝置同步",
+  syncHelp: "雲端只存更表（標題、行號、每格代號），唔會存更份卡或者你嘅個人資料。token 只存喺呢部機。⚠️ 拿到呢條網址嘅人都讀寫得到，唔好傳出去。",
+  syncToken: "同步 token",
+  syncRemember: "記住 token",
+  syncUpload: "上傳到雲端",
+  syncDownload: "由雲端下載",
+  syncNoToken: "先貼上同步 token 再撳。",
+  syncRemembered: "已記住 token（只存喺呢部機）。",
+  syncConflict: (at, name) => `雲端有另一個版本（${at}${name ? ` · ${name}` : ""}）。撳「確定」用呢部機覆蓋雲端；撳「取消」就唔覆蓋。`,
+  syncKeptLocal: "冇覆蓋：雲端版本保持不變。",
+  syncEmpty: "雲端未有資料，請先上傳一次。",
+  syncFail: "同步失敗（網絡或者 token 有問題）。",
+  syncUp: (v, at) => `已上傳到雲端（第 ${v} 版 · ${at}）。`,
+  syncDown: (at) => `已由雲端下載（${at}）。`,
   editCode: "改呢日嘅更份編號",
   save: "儲存",
   cancel: "取消",
-  reset: "還原預設",
+  reset: "還原",
   badCode: "格式唔啱：請輸入 7 位更份編號，或者 RD、AL、SH、HC、HSP1、KSP3 呢類代號",
   setupTitle: "設定我的更表",
   settingsTitle: "更表設定",
@@ -108,7 +128,7 @@ const S = {
   rosterTitle: (n) => `我嘅 roster（${n} 行）`,
   rosterHelp: "紅色係今個星期，紅框係今日。",
   rowHead: "行",
-  pasteLabel: "Roster 內容",
+  pasteLabel: "Standard Roster 內容",
   pastePlaceholder: "喺度貼上，每行一個星期",
   pasteKeep: "留空就保留現有更表；貼上新內容會取代舊嘅，但你手動改過嘅日子會保留",
   rowLabel: (monday) => `今個星期（${monday} 起）係第幾行？`,
@@ -117,10 +137,10 @@ const S = {
   saved: "已儲存",
   notStored: "已讀入，但呢部機儲存唔到，關閉頁面後會冇咗",
   backupTitle: "備份同清除",
-  backupHelp: "換手機或者清除瀏覽器資料之前，先匯出備份。要還原就將備份內容貼返入上面「Roster 內容」再儲存。",
-  export: "匯出 CSV",
-  exportJson: "連手動改動（JSON）",
-  exportHelp: "下載之後可以貼返入上面「Roster 內容」還原。",
+  backupHelp: "換手機或者清除瀏覽器資料之前，先匯出備份。要還原就將備份內容貼返入上面「Standard Roster 內容」再儲存。",
+  export: "匯出 CSV（一週一行）",
+  exportJson: "匯出備份（JSON，包手動改動）",
+  exportHelp: "下載之後可以貼返入上面「Standard Roster 內容」還原。",
   exported: "已匯出檔案",
   clear: "清除我的更表",
   clearAsk: "清除之後要重新貼上 roster，確定？",
@@ -282,6 +302,27 @@ function offOf(cell) {
   return cell?.duty?.off?.[0] ?? cell?.basic?.off ?? null
 }
 
+// 休息唔夠鐘：前一日下班到下一個開工之間嘅休息（同編更頁一樣當 11 小時）。
+const REST_MIN = 11 * 3600
+
+function restTooShort(prevCell, cell) {
+  const off = offOf(prevCell)
+  const on = cell?.on
+  if (off == null || on == null) return false
+  return 86400 + on - off < REST_MIN
+}
+
+// 邊幾日嘅開工時間同前一日嘅休息唔夠 11 小時。
+function shortRestDates(dates) {
+  const out = new Set()
+  for (let i = 1; i < dates.length; i += 1) {
+    const prev = cellInfo(dayEntry(roster, dates[i - 1]).code)
+    const cur = cellInfo(dayEntry(roster, dates[i]).code)
+    if (restTooShort(prev, cur)) out.add(dates[i])
+  }
+  return out
+}
+
 // A duty known only by its book-on/off row: [on, place, off, place, hours, DE/DL].
 function basicOf(code) {
   const row = basic?.[String(code).toUpperCase()]
@@ -439,21 +480,21 @@ function barHtml(span, nowAt = null) {
   if (!span) return ""
   const pct = (sec) => Math.min(100, Math.max(0, ((sec - 14400) / 86400) * 100))
   const left = pct(span[0])
-  const mark = nowAt == null ? "" : `<b class="bar-now" style="left:${pct(nowAt).toFixed(1)}%"></b>`
+  const mark = nowAt == null ? "" : `<b class="bar-now" style="left:${pct(nowAt).toFixed(1)}%"><s></s></b>`
   return `<span class="bar" aria-hidden="true"><i style="left:${left.toFixed(1)}%;width:${Math.max(2, pct(span[1]) - left).toFixed(1)}%"></i>${mark}</span>`
 }
 
 // Today, big, with what the duty is doing right now.
-function todayHtml(date, entry, cell) {
+function todayHtml(date, entry, cell, short = false) {
   const lines = dayLines(cell)
   const shift = shiftOf(cell.on, offOf(cell))
   const live = cell.status === "ok" ? dutyState(cell.duty, serviceSeconds(Date.now())) : null
   const tags = (cell.group ? `<span class="badge plain">${cell.group}</span>` : "") + (cell.tag ? `<span class="badge plain">${cell.tag}</span>` : "") +
     (shift ? `<span class="badge shift">${S.shift[shift]}</span>` : "") +
     (entry.source === "override" ? `<span class="badge plain">${S.changed}</span>` : "")
-  return `<button type="button" class="today me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}">` +
+  return `<button type="button" class="today me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}"${short ? ' data-short="1"' : ""}>` +
     `<span class="today-label">${S.today} · ${S.weekdays[weekdayIndex(date)]} ${meDate(date)}</span>` +
-    `<span class="today-title">${escapeHtml(cell.label)}${tags}</span>` +
+    `<span class="today-title">${escapeHtml(cell.label)}${tags}${short ? `<span class="badge rest-short">${S.restShort}</span>` : ""}</span>` +
     (lines.times ? `<span class="today-times">${lines.times}</span>${barHtml(lines.span, serviceSeconds(Date.now()))}` : "") +
     (lines.note ? `<span class="today-note">${escapeHtml(lines.note)}</span>` : "") +
     (live ? `<span class="today-live"><i class="pulse"></i><span>${S.now}：${escapeHtml(dutyPhaseText(live))} <small>${S.until(hhmm(live.until))}</small></span></span>` : "") +
@@ -595,7 +636,7 @@ function render() {
     `<span>${state.monday === current ? S.thisWeek : `<button type="button" class="link me-this">${S.backThis}</button>`}</span></div>` +
     `<button type="button" class="btn me-next" aria-label="${S.next}">›</button></div>` +
     `<div id="me-data"></div>` +
-    `<p class="fine">${S.weekHint} · ${S.swipeHint}</p>` +
+    `<details class="fine-box hints"><summary>${S.hintTitle}</summary><p class="fine">${S.weekHint} · ${S.swipeHint} · ${S.restHelp}</p></details>` +
     `<details class="panel roster-box"><summary>${S.rosterTitle(roster.rows.length)}</summary>` +
     `<div class="roster-tools"><p class="fine">${S.rosterHelp}</p>` +
     `<button type="button" class="link me-roster-toggle">${state.rosterAll ? S.rosterNear : S.rosterAll(roster.rows.length)}</button></div>` +
@@ -627,7 +668,8 @@ function paintData() {
   } else if (state.page === "week") {
     const today = serviceDate(Date.now())
     const week = weekDates(state.monday)
-    const heroHtml = week.includes(today) ? todayHtml(today, dayEntry(roster, today), cellInfo(dayEntry(roster, today).code)) : ""
+    const short = shortRestDates(week)
+    const heroHtml = week.includes(today) ? todayHtml(today, dayEntry(roster, today), cellInfo(dayEntry(roster, today).code), short.has(today)) : ""
     // 今日已經有 hero，列表唔再重複
     const listDays = week.includes(today) ? week.filter((date) => date !== today) : week
     const listHtml = `<ul class="day-list">${listDays.map((date) => {
@@ -639,9 +681,9 @@ function paintData() {
       const shift = shiftOf(cell.on, offOf(cell))
       const tags = (cell.group ? `<span class="badge plain">${cell.group}</span>` : "") + (cell.tag ? `<span class="badge plain">${cell.tag}</span>` : "") +
         (shift ? `<span class="badge shift">${S.shift[shift]}</span>` : "")
-      return `<li><button type="button" class="day me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}" data-today="${date === today ? 1 : 0}">` +
+      return `<li><button type="button" class="day me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}" data-today="${date === today ? 1 : 0}"${short.has(date) ? ' data-short="1"' : ""}>` +
         `<span class="day-date"><small>${S.weekdays[weekdayIndex(date)]}</small><b>${Number(date.slice(8))}</b></span>` +
-        `<span class="day-main"><span class="day-title">${escapeHtml(cell.label)}${tags}${badges}</span>` +
+        `<span class="day-main"><span class="day-title">${escapeHtml(cell.label)}${tags}${badges}${short.has(date) ? `<span class="badge rest-short">${S.restShort}</span>` : ""}</span>` +
         (lines.times ? `<span class="day-times">${lines.times}</span>${barHtml(lines.span)}` : "") +
         (lines.note ? `<span class="meta">${escapeHtml(lines.note)}</span>` : "") +
         `</span></button></li>`
@@ -684,14 +726,22 @@ function setupHtml() {
         `<button type="submit" class="btn primary">${S.ok}</button></div></form></section>`
       : "") +
     (roster
-      ? `<section class="panel"><h3>${S.backupTitle}</h3><p class="fine">${S.backupHelp}</p>` +
+      ? `<section class="panel"><h3>${S.backupTitle}</h3><details class="fine-box"><summary>${S.hintTitle}</summary><p class="fine">${S.backupHelp}</p></details>` +
         `<div class="me-foot"><button type="button" class="btn me-export">${S.export}</button> ` +
         `<button type="button" class="btn danger me-clear">${S.clear}</button></div>` +
         `<p class="fine"><button type="button" class="linkish me-export-json">${S.exportJson}</button> · ${S.exportHelp}</p></section>`
+      : "") +
+    (roster
+      ? `<section class="panel"><h3>${S.syncTitle}</h3><details class="fine-box"><summary>${S.hintTitle}</summary><p class="fine">${S.syncHelp}</p></details>` +
+        `<div class="field-line"><label for="me-kv-token">${S.syncToken}</label>` +
+        `<input id="me-kv-token" class="mini wide mono" type="password" autocomplete="off" spellcheck="false" maxlength="64" value="${escapeHtml(kvToken())}" placeholder="a1b2c3d4..."></div>` +
+        `<div class="row me-foot"><button type="button" class="btn me-kv-remember">${S.syncRemember}</button>` +
+        `<button type="button" class="btn me-kv-up">${S.syncUpload}</button>` +
+        `<button type="button" class="btn me-kv-down">${S.syncDownload}</button></div></section>`
       : "")
 }
 
-// 匯出：CSV 每行一個星期（行號、名、週一至週日），可以原封不動貼返入「Roster 內容」
+// 匯出：CSV 每行一個星期（行號、名、週一至週日），可以原封不動貼返入「Standard Roster 內容」
 function csvText() {
   const cell = (value) => {
     const text = String(value ?? "")
@@ -711,6 +761,87 @@ function download(name, text, type) {
   link.click()
   link.remove()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+// 跨裝置同步：一條 token 一條雲端記錄，存喺 Workers KV。token 只留喺呢部機。
+function kvToken() {
+  return String(readPref(KV_KEY) ?? "").trim()
+}
+
+function kvEndpoint() {
+  return `/api/roster/${encodeURIComponent(kvToken())}`
+}
+
+function kvMessage(text) {
+  state.message = text
+  render()
+}
+
+async function kvUpload(force = false) {
+  if (!kvToken()) return kvMessage(S.syncNoToken)
+  let res
+  try {
+    res = await fetch(kvEndpoint(), {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        schema: 1,
+        title,
+        rows: roster.rows,
+        numbers: roster.numbers,
+        version: Number(readPref(KV_VERSION) ?? 0),
+        force,
+      }),
+    })
+  } catch {
+    return kvMessage(S.syncFail)
+  }
+  const body = await res.json().catch(() => null)
+  if (res.status === 409 && body?.reason === "conflict" && !force) {
+    const when = String(body.cloud?.updatedAt ?? "").replace("T", " ").slice(0, 16)
+    if (confirm(S.syncConflict(when, body.cloud?.title ?? ""))) return kvUpload(true)
+    return kvMessage(S.syncKeptLocal)
+  }
+  if (!res.ok || !body?.ok) return kvMessage(S.syncFail)
+  writePref(KV_VERSION, String(body.version))
+  kvMessage(S.syncUp(body.version, String(body.updatedAt ?? "").replace("T", " ").slice(0, 16)))
+}
+
+async function kvDownload() {
+  if (!kvToken()) return kvMessage(S.syncNoToken)
+  let res
+  try {
+    res = await fetch(kvEndpoint(), { headers: { accept: "application/json" } })
+  } catch {
+    return kvMessage(S.syncFail)
+  }
+  const body = await res.json().catch(() => null)
+  if (res.status === 404 && body?.reason === "empty") return kvMessage(S.syncEmpty)
+  if (!res.ok || !body?.ok) return kvMessage(S.syncFail)
+  const rec = body.record ?? {}
+  const rows = Array.isArray(rec.rows) ? rec.rows : []
+  const numbers = Array.isArray(rec.numbers) ? rec.numbers.map(Number) : rows.map((_, i) => i + 1)
+  // 雲端唔存名同 anchor（只存更表本身），沿用呢部機嘅名、行號同基準週。
+  const names = roster?.names?.length === rows.length ? roster.names : []
+  const anchorRow = numbers.includes(Number(roster?.anchor?.row)) ? Number(roster.anchor.row) : numbers[0]
+  const next = cleanRoster({
+    v: 1,
+    rows,
+    numbers,
+    names,
+    anchor: { row: anchorRow ?? 1, monday: roster?.anchor?.monday ?? mondayOf(serviceDate(Date.now())) },
+    overrides: roster?.overrides ?? {},
+  })
+  if (!next) return kvMessage(S.syncFail)
+  const when = String(rec.updatedAt ?? "").replace("T", " ").slice(0, 16)
+  if (!confirm(S.syncConflict(when, rec.title ?? ""))) return kvMessage(S.syncKeptLocal)
+  if (!saveRoster(next)) return kvMessage(S.notStored)
+  if (rec.title) {
+    title = String(rec.title).slice(0, 24)
+    writePref(TITLE_KEY, title)
+  }
+  writePref(KV_VERSION, String(rec.version ?? 0))
+  kvMessage(S.syncDown(when))
 }
 
 // 更表名稱：存喺呢部機，即時反映喺頁首
@@ -803,6 +934,18 @@ function onClick(event) {
   } else if (target.closest(".me-reset")) {
     state.editing = false
     state.message = saveRoster(setOverride(roster, state.date, null)) ? S.saved : S.notStored
+  } else if (target.closest(".me-kv-remember")) {
+    const input = document.getElementById("me-kv-token")
+    const value = String(input?.value ?? "").trim().toLowerCase()
+    state.message = /^[a-z0-9]{20,64}$/.test(value) ? (writePref(KV_KEY, value), S.syncRemembered) : S.syncNoToken
+    render()
+    return
+  } else if (target.closest(".me-kv-up")) {
+    kvUpload()
+    return
+  } else if (target.closest(".me-kv-down")) {
+    kvDownload()
+    return
   } else if (target.closest(".me-export")) {
     // 加 BOM，Excel 開中文唔會亂碼
     download(`tml-roster-${serviceDate(Date.now())}.csv`, "\uFEFF" + csvText(), "text/csv;charset=utf-8")

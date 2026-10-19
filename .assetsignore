@@ -1,6 +1,7 @@
 .git
 .github
 tools
+src
 docs
 wrangler.jsonc
 .assetsignore

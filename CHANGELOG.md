@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.9.5 — unreleased
+- Workers: 「我的更表」多一個入口 `/ice/`（同 `/roster` 一樣），靠 `_redirects` 嘅 `/ice/* /:splat 200` 令相對路徑資產照樣載入；GitHub Pages 唔識 `_redirects`，完全唔受影響。
+- 我的更表: 加「休息唔夠 11 小時」提示 —— 前一日下班到下一個開工唔夠 11 小時，該日會顯示紅色標籤同**呼吸式閃動紅框**（同編更頁一致，跟系統 `prefers-reduced-motion`）。
+- 我的更表: 更表預覽表格每格高度統一 58px、字級 12px（同編更頁一致）。
+- 我的更表: 頁尾「提示」同備份說明改為預設收埋，撳一下才展開。
+- 我的更表: 今日時間軸加粗到 10px、加每 4 小時刻度、加「現時」光點。
+- 我的更表: 設定頁新增「跨裝置同步」（Workers KV）—— 貼一條 token 就可以上傳／下載更表；寫入帶 version，雲端有新版本就 **409 + 問你**，唔會無聲蓋掉（B1）。token 只存喺本機 localStorage。
+- Workers: `src/index.js` 加 `/api/roster/<token>`（GET/PUT）；冇 token 一律 404（冇 listing）、token 要 `[a-z0-9]{20,64}`、body ≤128 KiB、`no-store`；`src/` 已加入 `.assetsignore`，Worker 原始碼唔會公開。
+- 我的更表: 字眼同編更頁對齊 —— `Roster 內容` → `Standard Roster 內容`、`匯出 CSV` → `匯出 CSV（一週一行）`、`連手動改動（JSON）` → `匯出備份（JSON，包手動改動）`、`還原預設` → `還原`。
 ## v0.9.4 — unreleased
 - 編更: 所有積木（週表格仔、待定區積木、其他積木）統一高度 58px、固定三行（代號／時間／班別），假期積木冇時間都佔返同一高度，唔會再矮一截。
 - 編更: 撳空格之後，bar 上面「更份編號」輸入格隔籬多一排「加假期/其他」掣：`RD`、`AL`、`SH`，同埋「其他」（展開 12 個其他積木：CL、CP、GH、PH、SL、WB、SPH7、SPT7、SPT75、TRG、TRGK、TRGL）。撳一粒即刻放入呢格，唔使再按「改」。
