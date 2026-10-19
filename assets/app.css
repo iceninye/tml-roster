@@ -390,12 +390,39 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .top h1.me-title-edit { cursor: pointer; }
 
 /* 今日卡顏色跟更類（早／中／夜），唔再一律橙 */
+/* 今日卡（休息／假期／待定）：代號大字、狀態細字，左邊一條色帶，高度同開工卡有得比。 */
 .today[data-tone="rest"], .today[data-tone="leave"], .today[data-tone="tbd"], .today[data-tone="spare"] {
-  background: linear-gradient(145deg, #3a4356, #232a3a);
-  box-shadow: 0 8px 24px rgba(20, 26, 40, 0.28);
+  position: relative;
+  overflow: hidden;
+  align-content: center;
+  gap: 4px;
+  padding-left: 24px;
+  min-height: 132px;
+  box-shadow: 0 8px 24px rgba(16, 22, 34, 0.32);
 }
-/* 今日冇時間條（休息／假期／待定）時保持返一定高度，唔好縮成一條 bar。 */
-.today[data-tone="rest"], .today[data-tone="leave"], .today[data-tone="tbd"], .today[data-tone="spare"] { min-height: 116px; }
+.today[data-tone="rest"] { background: linear-gradient(145deg, #2f5847, #16281f); }
+.today[data-tone="leave"] { background: linear-gradient(145deg, #27415f, #121d2c); }
+.today[data-tone="tbd"] { background: linear-gradient(145deg, #5a4a12, #2a2308); }
+.today[data-tone="spare"] { background: linear-gradient(145deg, #3a4356, #232a3a); }
+/* 左邊色帶：休息綠、假期藍、待定黃、後備灰（同右欄日卡一致） */
+.today[data-tone]::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 6px; }
+.today[data-tone="rest"]::before { background: var(--ok); }
+.today[data-tone="leave"]::before { background: var(--mid); }
+.today[data-tone="tbd"]::before { background: var(--warn); }
+.today[data-tone="spare"]::before { background: var(--muted); }
+/* 代號做大字，狀態字跟住大細分级，唔好一齊 15px 排成一句 */
+.today[data-tone] .today-title { align-items: baseline; gap: 10px; }
+.today[data-tone] .today-title b.code {
+  font-size: 44px;
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.today[data-tone] .today-title .day-sub { font-size: 16px; font-weight: 600; opacity: 0.82; }
+.today[data-tone] .today-label { opacity: 0.7; }
+.today[data-tone] .today-title .badge { align-self: center; }
+@media (max-width: 380px) { .today[data-tone] .today-title b.code { font-size: 38px; } }
 .today[data-shift="dawn"] { background: linear-gradient(145deg, #a2521f, #5c2a0c); box-shadow: 0 8px 24px rgba(162, 82, 31, 0.26); }
 .today[data-shift="night"] { background: linear-gradient(145deg, #2c3a55, #0f1626); box-shadow: 0 8px 24px rgba(20, 30, 55, 0.32); }
 .today[data-shift="early"] { background: linear-gradient(145deg, #b0741b, #6d4409); box-shadow: 0 8px 24px rgba(176, 116, 27, 0.26); }
