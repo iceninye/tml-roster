@@ -90,11 +90,9 @@ const S = {
   syncFirstHelp: "換咗機或者清咗瀏覽器？貼同一條 token，撳「由雲端下載」就攞返更表。token 係你第一次上傳時自己嗰條，只存喺你自己部機。",
   syncHelp: "雲端只存更表（標題、行號、每格代號），唔會存更份卡或者你嘅個人資料。token 只存喺呢部機。⚠️ 拿到呢條網址嘅人都讀寫得到，唔好傳出去。",
   syncToken: "同步 token",
-  syncRemember: "記住 token",
   syncUpload: "上傳到雲端",
   syncDownload: "由雲端下載",
   syncNoToken: "先貼上同步 token 再撳。",
-  syncRemembered: "已記住 token（只存喺呢部機）。",
   syncConflict: (at, name) => `雲端有另一個版本（${at}${name ? ` · ${name}` : ""}）。撳「確定」用呢部機覆蓋雲端；撳「取消」就唔覆蓋。`,
   syncKeptLocal: "冇覆蓋：雲端版本保持不變。",
   syncEmpty: "雲端未有資料，請先上傳一次。",
@@ -752,7 +750,7 @@ function setupHtml() {
     `<section class="panel"><h3>${roster ? S.syncTitle : S.syncFirstTitle}</h3><details class="fine-box"><summary>${S.hintTitle}</summary><p class="fine">${roster ? S.syncHelp : S.syncFirstHelp}</p></details>` +
     `<div class="field-line"><label for="me-kv-token">${S.syncToken}</label>` +
     `<input id="me-kv-token" class="mini wide mono" type="password" autocomplete="off" spellcheck="false" maxlength="64" value="${escapeHtml(kvToken())}" placeholder="a1b2c3d4..."></div>` +
-    `<div class="row me-foot"><button type="button" class="btn me-kv-remember">${S.syncRemember}</button>` +
+    `<div class="row me-foot">` +
     (roster ? `<button type="button" class="btn me-kv-up">${S.syncUpload}</button>` : "") +
     `<button type="button" class="btn ${roster ? "" : "primary "}me-kv-down">${S.syncDownload}</button></div></section>`
 }
@@ -779,7 +777,19 @@ function download(name, text, type) {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
+// 上傳／下載之前，採用輸入框裡面嘅 token（唔使另外撳「記住」，用一次就會記住）。
+function adoptToken() {
+  const value = String(document.getElementById("me-kv-token")?.value ?? "").trim().toLowerCase()
+  if (/^[a-z0-9]{20,64}$/.test(value) && value !== kvToken()) writePref(KV_KEY, value)
+  return kvToken()
+}
+
 // 跨裝置同步：一條 token 一條雲端記錄，存喺 Workers KV。token 只留喺呢部機。
+// 雲端回來嘅日期係唔係 YYYY-MM-DD（唔信外部資料）
+function isDateStr(value) {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+}
+
 function kvToken() {
   return String(readPref(KV_KEY) ?? "").trim()
 }
@@ -805,6 +815,9 @@ async function kvUpload(force = false) {
         title,
         rows: roster.rows,
         numbers: roster.numbers,
+        names: roster.names,
+        anchor: roster.anchor, // 基準週（week number）要同步，唔係第二部機會自己揀「今週」
+        overrides: roster.overrides,
         version: Number(readPref(KV_VERSION) ?? 0),
         force,
       }),
@@ -837,16 +850,24 @@ async function kvDownload() {
   const rec = body.record ?? {}
   const rows = Array.isArray(rec.rows) ? rec.rows : []
   const numbers = Array.isArray(rec.numbers) ? rec.numbers.map(Number) : rows.map((_, i) => i + 1)
-  // 雲端唔存名同 anchor（只存更表本身），沿用呢部機嘅名、行號同基準週。
-  const names = roster?.names?.length === rows.length ? roster.names : []
-  const anchorRow = numbers.includes(Number(roster?.anchor?.row)) ? Number(roster.anchor.row) : numbers[0]
+  // 雲端有嘅（名、基準週、手動改動）一律用雲端；舊記錄冇就跟呢部機。
+  const names = Array.isArray(rec.names) && rec.names.length === rows.length
+    ? rec.names.map((n) => String(n ?? ""))
+    : (roster?.names?.length === rows.length ? roster.names : [])
+  const anchorRow = numbers.includes(Number(rec.anchor?.row))
+    ? Number(rec.anchor.row)
+    : (numbers.includes(Number(roster?.anchor?.row)) ? Number(roster.anchor.row) : numbers[0])
+  const anchorMonday = isDateStr(rec.anchor?.monday) ? rec.anchor.monday : (roster?.anchor?.monday ?? mondayOf(serviceDate(Date.now())))
+  const overrides = rec.overrides && typeof rec.overrides === "object" && Object.keys(rec.overrides).length
+    ? rec.overrides
+    : (roster?.overrides ?? {})
   const next = cleanRoster({
     v: 1,
     rows,
     numbers,
     names,
-    anchor: { row: anchorRow ?? 1, monday: roster?.anchor?.monday ?? mondayOf(serviceDate(Date.now())) },
-    overrides: roster?.overrides ?? {},
+    anchor: { row: anchorRow ?? 1, monday: anchorMonday },
+    overrides,
   })
   if (!next) return kvMessage(S.syncFail)
   const when = String(rec.updatedAt ?? "").replace("T", " ").slice(0, 16)
@@ -955,16 +976,12 @@ function onClick(event) {
   } else if (target.closest(".me-reset")) {
     state.editing = false
     state.message = saveRoster(setOverride(roster, state.date, null)) ? S.saved : S.notStored
-  } else if (target.closest(".me-kv-remember")) {
-    const input = document.getElementById("me-kv-token")
-    const value = String(input?.value ?? "").trim().toLowerCase()
-    state.message = /^[a-z0-9]{20,64}$/.test(value) ? (writePref(KV_KEY, value), S.syncRemembered) : S.syncNoToken
-    render()
-    return
   } else if (target.closest(".me-kv-up")) {
+    adoptToken()
     kvUpload()
     return
   } else if (target.closest(".me-kv-down")) {
+    adoptToken()
     kvDownload()
     return
   } else if (target.closest(".me-export")) {
