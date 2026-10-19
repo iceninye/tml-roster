@@ -9,7 +9,7 @@ import { shiftOf } from "../lib/tml-shift.js"
 import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
 import { serviceDate, serviceSeconds } from "../lib/tml-time.js"
 
-const BUILD = { version: "0.9.3", commit: "dev" }
+const BUILD = { version: "0.9.7", commit: "dev" }
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
 const TITLE_KEY = "tml-roster-title"
@@ -90,6 +90,12 @@ const S = {
   syncFirstHelp: "換咗機或者清咗瀏覽器？貼同一條 token，撳「由雲端下載」就攞返更表。token 係你第一次上傳時自己嗰條，只存喺你自己部機。",
   syncHelp: "雲端只存更表（標題、行號、每格代號），唔會存更份卡或者你嘅個人資料。token 只存喺呢部機。⚠️ 拿到呢條網址嘅人都讀寫得到，唔好傳出去。",
   syncToken: "同步 token",
+  syncNew: "產生 token",
+  syncCopy: "複製",
+  syncNewAsk: "產生新 token 會換走呢部機現有嗰條（雲端舊記錄唔會刪除）。確定？",
+  syncNewDone: "已產生新 token 並記住。請撳「複製」存好佢；另一部機貼同一條，就可以下載同一份更表。",
+  syncCopied: "已複製 token。",
+  syncCopyFail: "複製唔到，請手動選取輸入框內容。",
   syncUpload: "上傳到雲端",
   syncDownload: "由雲端下載",
   syncNoToken: "先貼上同步 token 再撳。",
@@ -163,6 +169,7 @@ const state = {
   message: "",
   rosterAll: false,
   editing: false,
+  syncMsg: "",
 }
 
 let roster = null
@@ -387,6 +394,13 @@ function cardHours(cell) {
   if (cell.basic?.hours != null) return S.hours(cell.basic.hours)
   if (cell.duty?.work != null) return S.hours(Math.round((cell.duty.work / 60) * 100) / 100)
   return ""
+}
+
+// 路線行尾加工時（例如「錦上路 · 用膳 19:16 · 7 小時」），唔再另佔一行。
+function noteWithHours(note, cell) {
+  const hours = cardHours(cell)
+  if (!hours || (note || "").includes("小時")) return note || ""
+  return note ? `${note} · ${hours}` : hours
 }
 
 // 休息日／待定：代號（粗）＋細字狀態，唔再排成一句「休息日 RD」。
@@ -700,8 +714,7 @@ function paintData() {
         `<span class="day-date"><small>${S.weekdays[weekdayIndex(date)]}</small><b>${Number(date.slice(8))}</b></span>` +
         `<span class="day-main"><span class="day-title">${isOffTone(cell) ? offTitleHtml(entry.code, cell) : escapeHtml(cell.label)}${tags}${badges}${short.has(date) ? `<span class="badge rest-short">${S.restShort}</span>` : ""}</span>` +
         (lines.times ? `<span class="day-times">${lines.times}</span>${barHtml(lines.span)}` : "") +
-        (lines.note ? `<span class="meta">${escapeHtml(lines.note)}</span>` : "") +
-        (cardHours(cell) && !(lines.note || "").includes("小時") ? `<span class="day-hours">${escapeHtml(cardHours(cell))}</span>` : "") +
+        (noteWithHours(lines.note, cell) ? `<span class="meta">${escapeHtml(noteWithHours(lines.note, cell))}</span>` : "") +
         `</span></button></li>`
     }).join("")}</ul>`
     html = `<div class="me-cols"><div class="me-col-a">${heroHtml}</div>` +
@@ -749,10 +762,13 @@ function setupHtml() {
       : "") +
     `<section class="panel"><h3>${roster ? S.syncTitle : S.syncFirstTitle}</h3><details class="fine-box"><summary>${S.hintTitle}</summary><p class="fine">${roster ? S.syncHelp : S.syncFirstHelp}</p></details>` +
     `<div class="field-line"><label for="me-kv-token">${S.syncToken}</label>` +
-    `<input id="me-kv-token" class="mini wide mono" type="password" autocomplete="off" spellcheck="false" maxlength="64" value="${escapeHtml(kvToken())}" placeholder="a1b2c3d4..."></div>` +
+    `<input id="me-kv-token" class="mini wide mono" type="password" autocomplete="off" spellcheck="false" maxlength="64" value="${escapeHtml(kvToken())}" placeholder="a1b2c3d4...">` +
+    `<button type="button" class="btn me-kv-new">${S.syncNew}</button>` +
+    `<button type="button" class="btn me-kv-copy">${S.syncCopy}</button></div>` +
     `<div class="row me-foot">` +
     (roster ? `<button type="button" class="btn me-kv-up">${S.syncUpload}</button>` : "") +
-    `<button type="button" class="btn ${roster ? "" : "primary "}me-kv-down">${S.syncDownload}</button></div></section>`
+    `<button type="button" class="btn ${roster ? "" : "primary "}me-kv-down">${S.syncDownload}</button></div>` +
+    `<p class="me-msg" role="status">${escapeHtml(state.syncMsg)}</p></section>`
 }
 
 // 匯出：CSV 每行一個星期（行號、名、週一至週日），可以原封不動貼返入「Standard Roster 內容」
@@ -780,7 +796,10 @@ function download(name, text, type) {
 // 上傳／下載之前，採用輸入框裡面嘅 token（唔使另外撳「記住」，用一次就會記住）。
 function adoptToken() {
   const value = String(document.getElementById("me-kv-token")?.value ?? "").trim().toLowerCase()
-  if (/^[a-z0-9]{20,64}$/.test(value) && value !== kvToken()) writePref(KV_KEY, value)
+  if (/^[a-z0-9]{20,64}$/.test(value) && value !== kvToken()) {
+    writePref(KV_KEY, value)
+    writePref(KV_VERSION, "0") // 換咗 token：手上版本號唔再適用
+  }
   return kvToken()
 }
 
@@ -799,8 +818,38 @@ function kvEndpoint() {
 }
 
 function kvMessage(text) {
-  state.message = text
+  state.syncMsg = text
   render()
+}
+
+// 32 個 [a-z0-9] 字元，用 crypto.getRandomValues；捨棄 >= 252 嘅值，令每個字元機會均等。
+function newToken() {
+  const abc = "abcdefghijklmnopqrstuvwxyz0123456789"
+  let out = ""
+  while (out.length < 32) {
+    for (const byte of crypto.getRandomValues(new Uint8Array(48))) {
+      if (byte < 252 && out.length < 32) out += abc[byte % 36]
+    }
+  }
+  return out
+}
+
+function kvNewToken() {
+  if (kvToken() && !confirm(S.syncNewAsk)) return
+  writePref(KV_KEY, newToken())
+  writePref(KV_VERSION, "0") // 新記錄由第 0 版開始
+  kvMessage(S.syncNewDone)
+}
+
+async function kvCopyToken() {
+  const token = adoptToken()
+  if (!token) return kvMessage(S.syncNoToken)
+  try {
+    await navigator.clipboard.writeText(token)
+    kvMessage(S.syncCopied)
+  } catch {
+    kvMessage(S.syncCopyFail)
+  }
 }
 
 async function kvUpload(force = false) {
@@ -973,9 +1022,16 @@ function onClick(event) {
   else if (target.closest(".me-settings")) {
     state.page = "setup"
     state.message = ""
+    state.syncMsg = ""
   } else if (target.closest(".me-reset")) {
     state.editing = false
     state.message = saveRoster(setOverride(roster, state.date, null)) ? S.saved : S.notStored
+  } else if (target.closest(".me-kv-new")) {
+    kvNewToken()
+    return
+  } else if (target.closest(".me-kv-copy")) {
+    kvCopyToken()
+    return
   } else if (target.closest(".me-kv-up")) {
     adoptToken()
     kvUpload()
@@ -1084,6 +1140,7 @@ function wireSettings() {
     state.page = state.page === "setup" && roster ? "week" : "setup"
     state.editing = false
     state.message = ""
+    state.syncMsg = ""
     render()
     window.scrollTo(0, 0)
   })
