@@ -193,7 +193,8 @@ check(cleanPlan(JSON.parse(JSON.stringify(sat))).sheets["2026-10-17"] === "8022"
   const start = allToTray(roster, plan, week, timeOf)
   const count = (p, d) => trayView(p, week)[d].length + weekView(roster, p, week).filter((l) => l.codes[d] !== "-").length
   const al = setCell(roster, start, week, 2, 0, "AL")
-  check(trayView(al, week)[0].length === trayView(start, week)[0].length - 1, "a leave typed in takes the member's own block when the tray has no such leave")
+  const alCell = weekView(roster, al, week).find((l) => l.member.row === 2).codes[0]
+  check(alCell === "AL" && trayView(al, week)[0].length === trayView(start, week)[0].length, "a leave typed in never takes a duty block when the tray has no such leave")
   const again = setCell(roster, al, week, 2, 0, "AL")
   check(again === al, "typing the same code again uses nothing more")
   const over = setCell(roster, al, week, 2, 0, "1101002")

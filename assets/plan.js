@@ -22,7 +22,7 @@ const S = {
   csvBtn: "由 CSV 匯入 Standard Roster",
   csvHelp: "格式：標題行 `,Name,Mon,Tue,Wed,Thu,Fri,Sat,Sun`，之後每行 行號、名稱、七日更份。有名稱嘅行就係組員；一行七格 TBC 嘅唔跟輪換，留喺原行。",
   csvEmpty: "讀唔到任何一行，請確認係 CSV",
-  csvDone: (rows, named, week) => `已匯入 ${rows} 行${named ? `，有名稱嘅 ${named} 位已設為組員，基準${week}，所有積木已放入待定區；設好假期同喜好後按「自動編排」` : ""}`,
+  csvDone: (rows, named, week) => `已匯入 ${rows} 行${named ? `，有名稱嘅 ${named} 位已設為組員，基準${week}，所有積木已放入待定區；設好假期同喜好後按「自動」` : ""}`,
   importWeek: "CSV 屬於邊個星期（基準星期）",
   templateBtn: "下載匯入範本",
   templateHelp: "範本有 141 行、7 格，RD 只係示範，請換成實際更份。Name 欄填咗名嘅行就係組員。",
@@ -45,10 +45,10 @@ const S = {
   backNext: "回到下週",
   thisWeek: "本週",
   nextWeek: "下週",
-  arrange: "自動編排",
-  arrangeHelp: "自動編排用待定區嘅更份填滿組員嘅空格，按偏好同 12 小時休息分配；一星期未有 RD 嘅組員唔會編；手動改過（📌）嘅格會保留。",
-  undo: "還原上一步",
-  undone: "已還原上一步",
+  arrange: "自動",
+  arrangeHelp: "自動用待定區嘅更份填滿組員嘅空格，按偏好同 12 小時休息分配；一星期未有 RD 嘅組員唔會編；手動改過（📌）嘅格會保留。",
+  undo: "還原",
+  undone: "已還原",
   noUndo: "冇可以還原嘅步驟",
   reset: "本週重新開始",
   resetAsk: "本週所有格會清空，全部積木放返待定區，確定？",
@@ -63,10 +63,14 @@ const S = {
   tooShort: (h) => `休息只有 ${h} 小時`,
   selected: (who, day, code) => `${who} · 週${day}：${code}`,
   selHelp: "再撳同一日另一格就對調；電腦直接拖放，手機長按後拖。",
-  editLabel: "改做",
+  editLabel: "更份編號",
   editSave: "改",
   cancel: "取消",
   badCode: "格式唔啱：請輸入 7 位更份編號，或者 RD、AL、SH、HC、HSP1 呢類代號",
+  quickLeave: "加假期/其他",
+  quickOther: "其他",
+  leaveNoBlock: (day, code) => `待定區已經冇「${code}（${day}）」積木，冇得放。`,
+  leaveAlertTitle: "冇積木",
   sameDay: "只可以同一日嘅格對調",
   swapped: "已對調",
   arranged: (skipped) => `已自動編排${skipped.length ? `；${skipped.length} 位未有 RD 冇編：${skipped.slice(0, 5).join("、")}${skipped.length > 5 ? " 等" : ""}` : ""}`,
@@ -86,12 +90,12 @@ const S = {
   offDay: "休息日",
   pickDuty: "揀當日更份",
   pickNone: "當日冇未用嘅更份",
-  autoOn: "自動套用：開",
-  autoOff: "自動套用：關",
-  autoTurned: (on) => (on ? "已開自動套用：改組員喜好或者假期，會即刻編嗰行" : "已關自動套用：改動唔會自動填格，要編就撳「自動編排」"),
-  arrangeScope: (rows, days) => `自動編排（${rows ? `${rows} 位` : "全組"}${days ? ` · ${days} 日` : ""}）`,
-  pickRow: "揀呢位組員做自動編排",
-  pickDay: "揀呢日做自動編排",
+  autoOn: "自動填入：開",
+  autoOff: "自動填入：關",
+  autoTurned: (on) => (on ? "已開自動填入：改組員喜好或者假期，會即刻編嗰行" : "已關自動填入：改動唔會自動填格，要編就撳「自動」"),
+  arrangeScope: (rows, days) => `自動（${rows ? `${rows} 位` : "全組"}${days ? ` · ${days} 日` : ""}）`,
+  pickRow: "揀呢位組員做自動",
+  pickDay: "揀呢日做自動",
   pickClear: "清除揀選",
   clearCell: "清空",
   notes: (n) => `注意事項（${n}）`,
@@ -151,12 +155,12 @@ const S = {
   removeBlock: "刪除呢個更份積木",
   blockRemoved: "已刪除積木，其餘空格已按偏好重新編排",
   needRd: "每位組員一星期要有一日 RD，未有 RD 就唔會自動填更份",
-  setupDone: "已儲存組員，積木已放入待定區；設好假期同喜好後按「自動編排」",
+  setupDone: "已儲存組員，積木已放入待定區；設好假期同喜好後按「自動」",
   emptyCount: (n) => `空 ${n}`,
 }
 
 const view = document.getElementById("view")
-const state = { monday: null, sel: null, message: "", tray: { tab: "blocks", filter: [], sort: "on" }, pick: { rows: [], days: [] }, notesOpen: true }
+const state = { monday: null, sel: null, message: "", tray: { tab: "blocks", filter: [], sort: "on" }, pick: { rows: [], days: [] }, notesOpen: false, leaveOpen: false }
 // How the tray is shown (tab, filter, sort) is this viewer's own; kept in the browser.
 const TRAY_KEY = "tml-plan-tray-view"
 // Earlier { plan, roster } pairs, for 還原上一步; kept for this visit only.
@@ -438,6 +442,28 @@ function notesHtml(lines, issues) {
     (items.length ? `<ul>${items.join("")}</ul>` : "") + `</details>`
 }
 
+// Whether the day's tray still holds that code. RD, AL and SH come out of the tray,
+// so a block that is no longer there cannot be placed.
+const trayHas = (day, code) => trayView(plan, state.monday)[day].includes(code)
+
+// One tap to put a leave block in the selected empty cell. RD, AL and SH must still
+// be in that day's tray; the 13 other codes are free of the tray, as before.
+function leaveQuickHtml(day) {
+  const btn = (code) => `<button type="button" class="btn p-leave" data-code="${code}"` +
+    `${LEAVE.includes(code) && !trayHas(day, code) ? ' data-spent="1"' : ""}>${code}</button>`
+  const others = EXTRA.filter((code) => !LEAVE.includes(code)).map(btn).join("")
+  return `<div class="plan-leave"><span class="meta">${S.quickLeave}</span>` + LEAVE.map(btn).join("") +
+    `<button type="button" class="btn p-leave-more" aria-expanded="${state.leaveOpen ? "true" : "false"}">${S.quickOther}</button>` +
+    `<span class="plan-leave-all"${state.leaveOpen ? "" : " hidden"}>${others}</span></div>`
+}
+
+// Say so and stop, rather than quietly taking the member's own Standard duty block.
+function leaveBlocked(day, code) {
+  if (!LEAVE.includes(code) || trayHas(day, code)) return false
+  alert(S.leaveNoBlock(S.weekdays[day], code))
+  return true
+}
+
 // The bar for the selected cell or block: change it, put it away, or tap another to place it.
 function selHtml(lines) {
   const sel = state.sel
@@ -469,8 +495,9 @@ function selHtml(lines) {
   const line = lines.find((item) => item.member.row === sel.row)
   if (!line) return ""
   const d = sel.day
+  const quick = line.codes[d] === EMPTY ? leaveQuickHtml(d) : ""
   return `<form class="plan-sel panel" autocomplete="off"><div><b>${escapeHtml(S.selected(who(line.member), S.weekdays[d], line.codes[d] === EMPTY ? S.empty : line.codes[d]))}</b>` +
-    `<span class="meta">Standard：${escapeHtml(line.std[d])} · ${S.selHelp}</span></div>` +
+    `<span class="meta">Standard：${escapeHtml(line.std[d])} · ${S.selHelp}</span></div>` + quick +
     `<div class="me-edit-row"><label class="meta">${S.editLabel} <input name="code" value="${line.codes[d] === EMPTY ? "" : escapeHtml(line.codes[d])}" maxlength="10" autocapitalize="characters" spellcheck="false"></label>` +
     `<button type="submit" class="btn primary">${S.editSave}</button>` +
     (timeOf(line.codes[d]) || LEAVE.includes(line.codes[d]) ? `<button type="button" class="btn p-to-tray">${S.toTray}</button>` : "") +
@@ -841,6 +868,21 @@ function onClick(event) {
     else state.sel = here
     return render()
   }
+  const leaveMore = t.closest(".p-leave-more")
+  if (leaveMore) {
+    state.leaveOpen = !state.leaveOpen
+    return render()
+  }
+  const leaveBtn = t.closest(".p-leave")
+  if (leaveBtn && state.sel?.type === "cell") {
+    const code = leaveBtn.dataset.code
+    const { row, day } = state.sel
+    if (leaveBlocked(day, code)) return render()
+    state.sel = null
+    state.leaveOpen = false
+    settle(setCell(roster, plan, state.monday, row, day, code), row, S.placed)
+    return render()
+  }
   const chip = t.closest(".pchip")
   if (chip) {
     const row = Number(chip.dataset.row)
@@ -947,6 +989,7 @@ function onSubmit(event) {
       state.message = S.hcCell
       return render()
     }
+    if (leaveBlocked(state.sel.day, code)) return render()
     settle(setCell(roster, plan, state.monday, state.sel.row, state.sel.day, code), state.sel.row)
     state.sel = null
     return render()

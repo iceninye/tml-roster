@@ -414,7 +414,8 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .plan-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 0 0 8px; }
 .p-weekbox { display: inline-flex; align-items: center; gap: 8px; }
 .p-weeks { width: 3.6em; padding: 6px; font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--edge); border-radius: 10px; text-align: center; }
-.plan-sel { position: sticky; top: 64px; z-index: 4; display: grid; gap: 8px; margin: 0 0 10px; padding: 12px 14px; border-color: var(--accent); }
+/* Above the sticky tray (z-index 6), so the bar's buttons stay reachable. */
+.plan-sel { position: sticky; top: 64px; z-index: 7; display: grid; gap: 8px; margin: 0 0 10px; padding: 12px 14px; border-color: var(--accent); }
 .plan-sel > div:first-child { display: grid; gap: 2px; }
 .plan-sel input { width: 7.5em; padding: 8px; font: inherit; font-variant-numeric: tabular-nums; color: var(--text); background: var(--panel-2); border: 1px solid var(--edge); border-radius: 10px; }
 .ptable { overflow: auto; max-width: 100%; max-height: 58vh; border: 1px solid var(--edge); border-radius: 12px; background: var(--panel); }
@@ -427,13 +428,21 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .ptable th.who .p-name { width: 100%; padding: 2px 4px; font-size: 13px; font-weight: 700; }
 .ptable th.who small { color: var(--muted); font-weight: 500; }
 .ptag { display: inline-block; padding: 0 5px; border-radius: 6px; font-size: 10.5px; font-weight: 700; line-height: 1.6; color: var(--sh, var(--muted)); box-shadow: inset 0 0 0 1px currentColor; }
-.pcell { position: relative; display: grid; justify-items: center; gap: 1px; width: 100%; min-width: 74px; min-height: 52px; padding: 4px 3px 4px 7px; border-radius: 8px; background: var(--panel-2); line-height: 1.25; touch-action: manipulation; }
+.pcell { position: relative; display: grid; grid-template-rows: auto auto auto; align-content: start; justify-items: center; gap: 1px; width: 100%; min-width: 74px; min-height: 58px; padding: 4px 3px 4px 7px; border-radius: 8px; background: var(--panel-2); line-height: 1.25; touch-action: manipulation; }
 .pcell::before { content: ""; position: absolute; inset: 3px auto 3px 2px; width: 3px; border-radius: 2px; background: var(--sh, transparent); }
 .pcell b { font-size: 12.5px; white-space: nowrap; }
 .pcell small { color: var(--muted); font-size: 11px; white-space: nowrap; }
 .pcell[data-kind="status"], .pcell[data-kind="other"], .pcell[data-kind="spare"] { background: transparent; color: var(--muted); }
 .pcell[data-kind="status"] b { font-weight: 500; }
-.pcell[data-short="1"] { box-shadow: inset 0 0 0 2px var(--bad); }
+/* 休息唔夠鐘: the red frame breathes, so a short rest is easier to spot. */
+@keyframes plan-short-rest {
+  0%, 100% { box-shadow: inset 0 0 0 2px var(--bad); }
+  50% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--bad) 25%, transparent); }
+}
+.pcell[data-short="1"] { box-shadow: inset 0 0 0 2px var(--bad); animation: plan-short-rest 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .pcell[data-short="1"] { animation: none; }
+}
 .pcell[data-sel="1"] { box-shadow: inset 0 0 0 2px var(--accent); background: color-mix(in srgb, var(--accent) 18%, var(--panel-2)); }
 .dragging .pcell[data-target="1"] { outline: 1px dashed var(--accent); outline-offset: -1px; }
 .pcell .pin { font-style: normal; font-size: 9px; margin-left: 2px; vertical-align: super; }
@@ -464,11 +473,19 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .tray-day { display: block; margin: 0 0 4px 2px; font-size: 11px; font-weight: 700; color: var(--muted); }
 .tray-blocks { display: grid; gap: 4px; }
 .tray-none { text-align: center; color: var(--edge); }
-.block { position: relative; display: grid; justify-items: center; gap: 1px; width: 100%; padding: 4px 3px 4px 7px; border-radius: 8px; background: var(--panel-2); line-height: 1.25; font-variant-numeric: tabular-nums; }
+.block { position: relative; display: grid; grid-template-rows: auto auto auto; align-content: start; justify-items: center; gap: 1px; width: 100%; min-height: 58px; padding: 4px 3px 4px 7px; border-radius: 8px; background: var(--panel-2); line-height: 1.25; font-variant-numeric: tabular-nums; }
 .block::before { content: ""; position: absolute; inset: 3px auto 3px 2px; width: 3px; border-radius: 2px; background: var(--sh, transparent); }
 .block b { font-size: 12.5px; }
 .block small { color: var(--muted); font-size: 11px; }
 .block[data-sel="1"] { box-shadow: inset 0 0 0 2px var(--accent); }
+
+/* 編更: the leave blocks offered next to the code input of an empty cell */
+.plan-leave { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.plan-leave .meta { flex: 0 0 auto; }
+.plan-leave .btn { padding: 5px 10px; font-size: 13px; }
+.plan-leave-all { display: flex; flex-wrap: wrap; gap: 6px; }
+.plan-leave-all[hidden] { display: none; }
+.p-leave[data-spent="1"] { opacity: 0.45; }
 
 .p-sheet { display: block; width: 100%; margin: 3px 0 0; padding: 1px 0; font: inherit; font-size: 11px; font-weight: 700; color: var(--muted); text-align: center; background: var(--panel); border: 1px solid var(--edge); border-radius: 7px; }
 .p-sheet[data-set="1"] { color: #fff; background: var(--tml); border-color: var(--tml); }
