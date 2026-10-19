@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.9.7 — unreleased
+- 我的更表: 同步面板加「產生 token」掣（`crypto.getRandomValues` 生 32 位 `a-z0-9`）同「複製」掣；已有 token 時會先確認先換。換 token 會將本機版本號重設為 0。同步訊息改喺面板底顯示。
+- 我的更表: 日卡縮短 —— 取消等高，工時併入路線行（「… · 7 小時」），休息日／假期卡縮成窄條；手機上一週大約一屏睇晒。
+- 我的更表: 設定頁 roster 預覽表縮細 —— 每格 34px 高、字級跟屏幕闊度（8.5–12px）、`table-layout: fixed`，390px／360px 手機七欄放得落；更窄嘅屏幕先橫向捲動。現時行改為 600 粗，七位代號唔再黐埋。
+- 頁尾版本號更新為 v0.9.7。
+
 ## v0.9.6 — unreleased
 - 我的更表: 刪走「記住 token」掣 —— 貼完 token 直接撳「上傳到雲端」或「由雲端下載」就會自動記住（`adoptToken()`），少一個步驟。
 - 我的更表: **雲端記錄補齊 `names` / `anchor` / `overrides`** —— 之前只存 `title + rows + numbers`，第二部裝置下載時冇「基準週」同「手動改動」，會用「今週」做基準，兩邊睇落唔同步。Worker `cleanRecord()` 相應驗證 `anchor.row` 要喺 `numbers` 之內、`anchor.monday` 要 `YYYY-MM-DD`、`overrides` 最多 400 條。

@@ -183,9 +183,8 @@ a.btn { display: inline-flex; align-items: center; text-decoration: none; }
 .day[data-tone="rest"], .day[data-tone="tbd"], .day[data-tone="spare"] { background: transparent; box-shadow: none; }
 /* 休息日代號同工作日一樣粗，只係灰一級（唔再變幼）。 */
 .day[data-tone="rest"] .day-title { color: var(--muted); font-weight: 700; }
-/* B1: 同一行嘅卡自動等高（grid row stretch），休息日唔會矮一截。 */
-.day-list > li { display: flex; }
-.day { min-height: 96px; height: 100%; }
+/* 單欄排列唔再等高：休息日／假期縮成一條窄卡，一週大約一屏睇晒。 */
+.day-list > li { display: block; }
 /* B2: 休息日只出代號（粗）＋細字「休息日」。 */
 .day-sub { font-size: 12px; font-weight: 600; color: var(--muted); }
 /* B3: 左邊顏色條 —— 更份跟班別色，休息綠、待定黃、後備灰。 */
@@ -194,8 +193,6 @@ a.btn { display: inline-flex; align-items: center; text-decoration: none; }
 .day[data-tone="leave"] .day-title { color: var(--muted); font-weight: 700; }
 .day[data-tone="tbd"]::before { background: var(--warn); }
 .day[data-tone="spare"]::before { background: var(--muted); }
-/* B5: 每張卡右下角工時細字。 */
-.day-hours { justify-self: end; font-size: 12px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
 .day[data-tone="tbd"] .day-title { color: var(--warn); }
 
 /* 今日時間軸：粗啲，加每 4 小時刻度，同一個「現時」光點。 */
@@ -339,21 +336,21 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .roster-box > summary, .roster-box > .fine { padding: 0 6px; }
 .rtable { max-height: 340px; overflow: auto; max-width: 100%; margin-top: 10px; border: 1px solid var(--edge); border-radius: 12px; }
 .rtable table { width: 100%; border-collapse: collapse; font-size: 11px; font-variant-numeric: tabular-nums; text-align: center; }
-/* A6: 同編更頁一致 —— 每格 58px 高。 */
-.rtable th, .rtable td { height: 58px; padding: 7px 2px; border-bottom: 1px solid var(--edge); white-space: nowrap; }
+/* 每格只得一個代號，用 34px 細格（編更頁嘅積木先要 58px）。 */
+.rtable th, .rtable td { height: 34px; padding: 4px 1px; border-bottom: 1px solid var(--edge); white-space: nowrap; }
 .rtable td { font-size: 12px; font-weight: 700; vertical-align: middle; }
 .rtable thead th { position: sticky; top: 0; z-index: 1; background: var(--panel-2); color: var(--muted); font-weight: 700; }
 .rtable tbody th { position: sticky; left: 0; padding: 6px 4px; background: var(--panel-2); color: var(--muted); font-weight: 700; }
 .rtable tr:last-child th, .rtable tr:last-child td { border-bottom: 0; }
 .rtable td[data-kind="status"], .rtable td[data-kind="spare"], .rtable td[data-kind="other"] { color: var(--muted); }
-.rtable tr.cur td { background: color-mix(in srgb, var(--accent) 18%, transparent); font-weight: 700; }
+.rtable tr.cur td { background: color-mix(in srgb, var(--accent) 18%, transparent); font-weight: 600; }
 .rtable tr.cur th { background: var(--tml); color: #fff; }
 .rtable td.todaycell { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 4px; }
 
 /* 窄螢幕：roster 表 11px 會爆格，收窄少少但保持可讀 */
 @media (max-width: 430px) {
-  .rtable table { font-size: 10.5px; letter-spacing: -0.01em; }
-  .rtable th, .rtable td { padding: 6px 1px; }
+  .rtable table { letter-spacing: -0.02em; }
+  .rtable th, .rtable td { padding: 4px 0; }
 }
 
 @media (max-width: 380px) {
@@ -558,3 +555,29 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .p-notes summary { cursor: pointer; font-weight: 700; color: var(--warn); }
 .p-notes ul { margin: 6px 0 2px; padding-left: 18px; max-height: 22vh; overflow: auto; display: grid; gap: 2px; font-size: 13px; }
 .p-notes .link { text-align: left; }
+
+/* ---- 日卡縮短（一週大約一屏）---- */
+.day-list { grid-auto-rows: auto; gap: 8px; }
+.day { height: auto; min-height: 0; grid-template-columns: 42px 1fr; gap: 12px; padding: 9px 12px 9px 14px; }
+.day-date b { font-size: 22px; }
+.day-date small { font-size: 12px; }
+.day-main { gap: 1px; }
+.day-title { font-size: 14px; gap: 5px; }
+.day-times { font-size: 19px; line-height: 1.25; }
+.day .bar { height: 6px; margin: 4px 0 3px; }
+.day .meta { font-size: 12.5px; line-height: 1.35; }
+/* 休息日／假期／待定：一條窄卡，日期同代號排一行 */
+.day[data-tone="rest"], .day[data-tone="leave"], .day[data-tone="tbd"] { padding-top: 6px; padding-bottom: 6px; align-items: center; }
+.day[data-tone="rest"] .day-date small, .day[data-tone="leave"] .day-date small, .day[data-tone="tbd"] .day-date small { font-size: 11px; }
+.day[data-tone="rest"] .day-date b, .day[data-tone="leave"] .day-date b, .day[data-tone="tbd"] .day-date b { font-size: 16px; }
+
+/* ---- roster 表：每格一個代號，用細格；7 欄一定放得落手機 ---- */
+.rtable table { table-layout: fixed; min-width: 284px; font-size: clamp(8.5px, 2.3vw, 12px); letter-spacing: -0.03em; }
+.rtable td[data-kind="duty"] { font-weight: 600; }
+/* 好窄嘅手機（< 340px）放唔落 7 欄就橫向捲，行號欄固定 */
+.rtable td { font-size: inherit; }
+.rtable thead th:first-child, .rtable tbody th { width: 2.2em; }
+.rtable { max-height: 300px; }
+
+/* ---- 同步 token：產生／複製 ---- */
+.field-line .me-kv-new, .field-line .me-kv-copy { padding: 6px 12px; min-height: 36px; font-size: 13px; }
