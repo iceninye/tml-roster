@@ -1,7 +1,7 @@
 // Checks lib/tml-plan.js on a made-up roster and made-up duty times
 // (real rosters and staff never go in the repo):
 //   node tools/validate_plan.mjs
-import { EMPTY, EXTRA, SHEETS, formatRanges, leaveToTray, namedRows, arrangeWeek, defaultSheet, mapCode, setSheet, sheetOf, assign, cleanPlan, fromTray, toTray, trayView, allToTray, canRemove, fillMember, fillTeam, importWeek, sheetsInRoster, missingMembers, combosView, useCombo, renameBlock, removeBlock, isoWeek, memberRow, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
+import { EMPTY, EXTRA, SHEETS, formatRanges, leaveToTray, namedRows, arrangeWeek, defaultSheet, mapCode, setSheet, sheetOf, assign, cleanPlan, fromTray, toTray, trayView, allToTray, canRemove, fillMember, fillTeam, importWeek, sheetsInRoster, missingMembers, combosView, useCombo, renameBlock, removeBlock, isoWeek, memberRow, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, isHhs, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
 import { newRoster, parseRoster } from "../lib/tml-roster.js"
 
 let failed = 0
@@ -31,6 +31,7 @@ check(parseRanges("5-3, x").issues.length === 2, "bad ranges are reported")
 check(isoWeek("2026-10-12").week === 42 && isoWeek("2025-12-29").week === 1 && isoWeek("2025-12-29").year === 2026, "ISO week numbers (week 1 of 2026 starts 29 Dec 2025)")
 check(mondayOfIsoWeek(2026, 43) === "2026-10-19", "week 43 of 2026 starts 19 Oct")
 check(prefDistance(["early"], "mid") === 1 && prefDistance([], "dawn") === 0 && prefDistance(["dawn", "night"], "mid") === 2, "preference distance")
+check(isHhs("1100512") && !isHhs("1100412") && !isHhs("RD") && prefDistance(["hhs"], "mid", "1100512") === 0 && prefDistance(["hhs"], "mid", "1100412") === 1 && prefDistance(["early", "hhs"], "mid", "1100412") === 2 && prefDistance(["early", "hhs"], "early", "1100512") === 0, "紅磡 preference")
 check(assign([[4, 1, 3], [2, 0, 5], [3, 2, 2]]).join() === "1,0,2", "assignment finds the minimum cost")
 
 // Five rows; the team is rows 2-4 in the anchor week.

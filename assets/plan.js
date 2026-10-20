@@ -6,12 +6,12 @@
 // the cloud copy is mailed as a backup before it is overwritten.
 // Book-on/off times come from data/duty-basic.json.
 
-import { EMPTY, EXTRA, EXTRA_HOURS, LEAVE, PENDING, SHIFTS, allToTray, canRemove, cleanPlan, clearWeek, combosView, fillMember, fillTeam, formatRanges, fromTray, importWeek, isoWeek, missingMembers, mondayOfIsoWeek, namedRows, newPlan, parseRanges, prefDistance, removeBlock, renameBlock, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, trayView, useCombo, weekView } from "../lib/tml-plan.js"
+import { EMPTY, EXTRA, EXTRA_HOURS, HHS, LEAVE, PENDING, PREFS, SHIFTS, allToTray, canRemove, cleanPlan, clearWeek, combosView, fillMember, fillTeam, formatRanges, fromTray, importWeek, isHhs, isoWeek, missingMembers, mondayOfIsoWeek, namedRows, newPlan, parseRanges, prefDistance, removeBlock, renameBlock, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, trayView, useCombo, weekView } from "../lib/tml-plan.js"
 import { addDays, classify, cleanRoster, mondayOf, newRoster, normaliseCode, parseRoster, weekDates } from "../lib/tml-roster.js"
 import { serviceDate } from "../lib/tml-time.js"
 import { TOKEN_RE, deviceName, fingerprint, hkStamp, logToken, mailWhy, newToken, postJson, saveDeviceName } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.16", commit: "dev" }
+const BUILD = { version: "0.9.17", commit: "dev" }
 // The plan page keeps its own Standard Roster, apart from the personal roster of the 我的更表 page ("tml-roster").
 const ROSTER_KEY = "tml-plan-roster"
 const PLAN_KEY = "tml-roster-plan"
@@ -23,6 +23,8 @@ const KV_SYNCED = "tml-plan-kv-synced"
 const S = {
   weekdays: ["一", "二", "三", "四", "五", "六", "日"],
   shift: { dawn: "死早", early: "早", mid: "中", late: "夜", night: "死夜" },
+  hhs: "紅磡",
+  hhsHelp: "紅磡上班或者落班（更份編號 xxxx5xx）",
   shiftHelp: { dawn: "06:30 前上班", early: "10:00 前上班", mid: "10:00–15:00 上班", late: "15:00 後上班", night: "00:30 後下班" },
   status: { RD: "休息", AL: "年假", SH: "法定假", HC: "HC" },
   noRoster: "未有 Standard Roster。請匯入下星期嘅 CSV（有 Name 欄嗰份）。",
@@ -93,12 +95,11 @@ const S = {
   swapped: "已對調",
   arranged: (skipped) => `已自動編排${skipped.length ? `；${skipped.length} 位未有 RD 冇編：${skipped.slice(0, 5).join("、")}${skipped.length > 5 ? " 等" : ""}` : ""}`,
   tray: "待定區",
-  trayHelp: "將積木拖去同一日嘅格仔，或者將格仔拖返入嚟。HC／TBC 要先撳入去填更份編號。",
   trayNone: "—",
   empty: "空",
   toTray: "放入待定區",
   blockSel: (day, code) => `待定 ${code} · 週${day}`,
-  tabBlocks: "單日積木",
+  tabBlocks: "積木",
   tabOther: "其他",
   otherHelp: "其他積木唔使由待定區扣：撳一粒，再撳任何一日嘅格仔放入去。自定：輸入代號或者更份編號。",
   otherSel: (code) => `其他：${code}`,
@@ -136,7 +137,7 @@ const S = {
   filter: "篩選",
   filterAll: "全部",
   filterLeave: "假期",
-  filterHc: "HC／TBC",
+  filterHhs: "紅磡",
   sort: "排序",
   sortBy: { on: "上班時間", off: "下班時間", code: "更份編號" },
   blockHelp: "撳同一日一格放入去（該格原有更份會返去待定區）。",
@@ -246,7 +247,7 @@ function saveTrayView() {
 
 function loadTrayView() {
   const saved = read(TRAY_KEY)
-  const kinds = [...SHIFTS, "leave", "hc"]
+  const kinds = [...SHIFTS, "leave", HHS]
   if (!saved || typeof saved !== "object") return
   if (["blocks", "combos", "other"].includes(saved.tab)) state.tray.tab = saved.tab
   if (Array.isArray(saved.filter)) state.tray.filter = saved.filter.filter((k) => kinds.includes(k))
@@ -431,7 +432,7 @@ function weekHtml() {
     const cells = line.codes.map((code, d) => {
       const t = timeOf(code)
       const shift = t ? shiftOf(t.on, t.off) : ""
-      const miss = t && prefDistance(line.member.prefs, shift) > 0
+      const miss = t && prefDistance(line.member.prefs, shift, code) > 0
       if (t) {
         work += 1
         hours += t.hours || 0
@@ -449,7 +450,7 @@ function weekHtml() {
         (t ? `<small>${hhmm(t.on)}–${hhmm(t.off)}</small><span class="ptag">${S.shift[shift]}</span>` : "") +
         `</button></td>`
     }).join("")
-    const chips = SHIFTS.map((sh) => `<button type="button" class="pchip" data-row="${line.member.row}" data-shift="${sh}" aria-pressed="${line.member.prefs.includes(sh)}">${S.shift[sh]}</button>`).join("")
+    const chips = PREFS.map((sh) => `<button type="button" class="pchip" data-row="${line.member.row}" data-shift="${sh}" aria-pressed="${line.member.prefs.includes(sh)}"${sh === HHS ? ` title="${S.hhsHelp}"` : ""}>${sh === HHS ? S.hhs : S.shift[sh]}</button>`).join("")
     return `<tr${state.pick.rows.includes(line.member.row) ? ' data-picked="1"' : ""}><th class="who">${pickBox("p-pick-row", line.member.row, state.pick.rows.includes(line.member.row), S.pickRow)}<input class="p-name" data-row="${line.member.row}" value="${escapeHtml(line.member.name)}" placeholder="#${line.member.row}" maxlength="40" aria-label="${S.member}">` +
       `<small>${S.rowNow(line.row)}</small><span class="pchips">${chips}</span></th>${cells}` +
       `<td class="sum">${work ? `${hits}/${work}` : "—"}</td><td class="sum">${hours ? hours.toFixed(1) : "—"}</td></tr>`
@@ -460,7 +461,7 @@ function weekHtml() {
       const t = timeOf(code)
       if (!t) continue
       acc.all += 1
-      if (!prefDistance(line.member.prefs, shiftOf(t.on, t.off))) acc.hit += 1
+      if (!prefDistance(line.member.prefs, shiftOf(t.on, t.off), code)) acc.hit += 1
     }
     return acc
   }, { hit: 0, all: 0 })
@@ -577,20 +578,24 @@ function selHtml(lines) {
     `<button type="button" class="btn p-cancel">${S.cancel}</button></div></form>`
 }
 
-// Which kind a tray code is for the filter: a shift, "leave" or "hc".
+// Which kind a tray code is for the filter: a shift, "leave" or "hc" (no chip of its own).
 function kindOf(code) {
   const t = timeOf(code)
   if (t) return shiftOf(t.on, t.off)
   return PENDING.includes(code) ? "hc" : "leave"
 }
 
-const passes = (code) => !state.tray.filter.length || state.tray.filter.includes(kindOf(code))
+// 紅磡 narrows the kinds picked (紅磡 + 早 = 紅磡嘅早更); the kinds are either-or.
+const passes = (code) => {
+  const kinds = state.tray.filter.filter((k) => k !== HHS)
+  return (!kinds.length || kinds.includes(kindOf(code))) && (!state.tray.filter.includes(HHS) || isHhs(code))
+}
 
 // A combination passes when every duty in it is of a kind picked (rest days and leave don't count).
 const comboPasses = (codes) => {
   if (!state.tray.filter.length) return true
   const duties = codes.filter((code) => timeOf(code))
-  return duties.length > 0 && duties.every((code) => state.tray.filter.includes(kindOf(code)))
+  return duties.length > 0 && duties.every(passes)
 }
 
 function sortKey(code) {
@@ -624,9 +629,9 @@ function trayHtml() {
   const tray = trayView(plan, state.monday)
   const combos = combosView(roster, plan, state.monday)
   const tv = state.tray
-  const kinds = [...SHIFTS.map((sh) => [sh, S.shift[sh]]), ["leave", S.filterLeave], ["hc", S.filterHc]]
+  const kinds = [...SHIFTS.map((sh) => [sh, S.shift[sh]]), ["leave", S.filterLeave], [HHS, S.filterHhs]]
   const chips = `<button type="button" class="pchip tf-chip" data-f="" data-shift="" aria-pressed="${!tv.filter.length}">${S.filterAll}</button>` +
-    kinds.map(([k, label]) => `<button type="button" class="pchip tf-chip" data-f="${k}" data-shift="${SHIFTS.includes(k) ? k : ""}" aria-pressed="${tv.filter.includes(k)}">${label}</button>`).join("")
+    kinds.map(([k, label]) => `<button type="button" class="pchip tf-chip" data-f="${k}" data-shift="${PREFS.includes(k) ? k : ""}" aria-pressed="${tv.filter.includes(k)}">${label}</button>`).join("")
   const sort = `<label class="meta">${S.sort} <select class="p-tray-sort">${Object.entries(S.sortBy).map(([k, label]) => `<option value="${k}"${k === tv.sort ? " selected" : ""}>${label}</option>`).join("")}</select></label>`
   const tabs = `<span class="tray-tabs" role="tablist"><button type="button" class="tray-tab" data-tab="blocks" aria-selected="${tv.tab === "blocks"}">${S.tabBlocks}</button>` +
     `<button type="button" class="tray-tab" data-tab="combos" aria-selected="${tv.tab === "combos"}">${S.tabCombos(combos.length)}</button>` +
@@ -663,7 +668,7 @@ function trayHtml() {
     }).join("")
     body = `<div class="tray-cols">${cols}</div>`
   }
-  return `<section class="tray panel" aria-label="${S.tray}"><div class="tray-head"><b>${S.tray}</b>${tabs}<span class="meta">${S.trayHelp}</span></div>` +
+  return `<section class="tray panel" aria-label="${S.tray}"><div class="tray-head"><b>${S.tray}</b>${tabs}</div>` +
     `<div class="tray-tools"><span class="pchips">${chips}</span>${sort}</div>${body}</section>`
 }
 
@@ -1165,7 +1170,7 @@ function onClick(event) {
     const members = plan.members.map((m) => {
       if (m.row !== row) return m
       const prefs = m.prefs.includes(chip.dataset.shift) ? m.prefs.filter((p) => p !== chip.dataset.shift) : [...m.prefs, chip.dataset.shift]
-      return { ...m, prefs: SHIFTS.filter((sh) => prefs.includes(sh)) }
+      return { ...m, prefs: PREFS.filter((sh) => prefs.includes(sh)) }
     })
     settle({ ...plan, members }, row)
     return render()
