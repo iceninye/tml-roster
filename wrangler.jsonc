@@ -13,7 +13,7 @@
   "kv_namespaces": [
     { "binding": "ROSTER_KV", "id": "e9aeed4e52d54d30a36c68b068789c1b" }
   ],
-  // 編更備份寄電郵（POST /api/backup）用兩個 secret，唔好寫喺呢度：
+  // 電郵（編更備份、token log、上傳覆蓋前嘅雲端備份）用兩個 secret，唔好寫喺呢度：
   //   wrangler secret put RESEND_API_KEY   (Resend 帳戶嘅 API key)
   //   wrangler secret put BACKUP_TO        (收件人電郵)
   "previews": {}
