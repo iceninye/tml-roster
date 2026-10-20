@@ -4,13 +4,13 @@
 // when the user pastes a token and presses 上傳. Duty cards come from data/duties/, copied
 // from https://github.com/iceninye/TML-traffic (see tools/sync-duties.mjs).
 
-import { dutyState, mealMates } from "../lib/tml-duties.js"
+import { dutyState, mealMates, reliefOf } from "../lib/tml-duties.js"
 import { addDays, classify, cleanRoster, dayEntry, mondayOf, newRoster, normaliseCode, parseRoster, rowLabelFor, setOverride, weekDates, weekdayIndex } from "../lib/tml-roster.js"
 import { SHIFTS, shiftOf } from "../lib/tml-shift.js"
 import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
 import { serviceDate, serviceSeconds } from "../lib/tml-time.js"
 
-const BUILD = { version: "0.9.14", commit: "dev" }
+const BUILD = { version: "0.9.15", commit: "dev" }
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
 const TITLE_KEY = "tml-roster-title"
@@ -51,6 +51,26 @@ const S = {
   bookOff: "下班",
   now: "現時",
   until: (clock) => `至 ${clock}`,
+  // 今日卡：倒數、下一程、交車、下一更
+  dur: (sec) => {
+    const m = Math.max(0, Math.ceil(sec / 60))
+    if (m < 60) return `${m} 分`
+    return `${Math.floor(m / 60)} 小時${m % 60 ? ` ${m % 60} 分` : ""}`
+  },
+  factOn: "返工",
+  factOff: "放工",
+  factNext: "下一程",
+  factHand: "落車",
+  factMeal: "用膳",
+  factNextDuty: "下一更",
+  inTime: (d) => `仲有 ${d}`,
+  offDone: "已放工",
+  pickUp: (run, place) => `${place} 接 Run ${run}`,
+  takeFrom: (id) => `由 ${id} 交`,
+  prepAt: (run, place) => `${place} 出車準備 Run ${run}`,
+  handTo: (id) => `交俾 ${id}`,
+  handNone: "收車／泊車",
+  restGap: (d) => `休息 ${d}`,
   kind: { drive: "載客", empty: "空車", park: "泊車", prep: "準備", ride: "乘搭", wait: "待命", other: "其他" },
   phase: {
     drive: (run, a, b) => `Run ${run} 行駛中 ${a} → ${b}`,
@@ -526,6 +546,65 @@ function barHtml(span, nowAt = null) {
   return `<span class="bar" aria-hidden="true"><i style="left:${left.toFixed(1)}%;width:${Math.max(2, pct(span[1]) - left).toFixed(1)}%"></i>${mark}</span>`
 }
 
+// 今日卡下面嘅幾行：返工／放工倒數、下一程（接邊個嘅車）、落車交俾邊個、用膳、下一更。
+function todayFactsHtml(date, cell, live) {
+  const tau = serviceSeconds(Date.now())
+  const rows = []
+  const on = cell.on
+  const off = offOf(cell)
+  const onAt = cell.duty?.on?.[1] ?? cell.basic?.onAt
+  const offAt = cell.duty?.off?.[1] ?? cell.basic?.offAt
+  if (on != null && tau < on) rows.push([S.factOn, `${S.inTime(S.dur(on - tau))} · ${hhmm(on)} ${placeName(onAt)}`])
+  else if (off != null && tau < off) rows.push([S.factOff, `${S.inTime(S.dur(off - tau))} · ${hhmm(off)} ${placeName(offAt)}`])
+  else if (off != null) rows.push([S.factOff, S.offDone])
+
+  const duty = cell.status === "ok" ? cell.duty : null
+  const sheet = duty ? dutyBook(cell.c.sheet) : null
+  const all = sheet?.status === "ok" ? sheet.data.duties : null
+  // 之後會發生嘅事按時間排：落車、用膳、下一程
+  const events = []
+  if (duty && all && (off == null || tau < off)) {
+    const legs = duty.legs ?? []
+    // 而家喺車上：呢條 run 去到邊、交俾邊個
+    if (live?.leg != null && ["drive", "empty", "park"].includes(live.phase)) {
+      let last = live.leg
+      while (legs[last + 1] && legs[last + 1][1] === legs[last][1]) last += 1
+      const end = legs[last][5] ?? legs[last + 1]?.[3] ?? duty.off[0]
+      const to = reliefOf(duty, all, last).to
+      events.push([end, S.factHand, `${hhmm(end)} ${placeName(legs[last][4])} · ${to ? S.handTo(to.id) : S.handNone}`])
+    }
+    // 下一程：之後第一段要「接車」嘅（唔計同一個 run 嘅延續）
+    const train = (leg) => ["drive", "empty", "park", "prep"].includes(leg?.[0])
+    const next = legs.findIndex((leg, i) => leg[3] > tau && train(leg) && !(train(legs[i - 1]) && legs[i - 1][1] === leg[1]))
+    if (next !== -1) {
+      const leg = legs[next]
+      const from = reliefOf(duty, all, next).from
+      const what = leg[0] === "prep" ? S.prepAt(leg[1], placeName(leg[2])) : S.pickUp(leg[1], placeName(leg[2]))
+      events.push([leg[3], S.factNext, `${hhmm(leg[3])} ${what}${from ? ` · ${S.takeFrom(from.id)}` : ""} · ${S.inTime(S.dur(leg[3] - tau))}`])
+    }
+    if (duty.meal && duty.meal[1] != null && tau < duty.meal[0]) {
+      events.push([duty.meal[0], S.factMeal, `${hhmm(duty.meal[0])}–${hhmm(duty.meal[1])} ${placeName(duty.meal[2])} · ${S.inTime(S.dur(duty.meal[0] - tau))}`])
+    }
+  }
+
+  for (const [, k, v] of events.sort((a, b) => a[0] - b[0])) rows.push([k, v])
+
+  // 下一更：今日放咗工，或者今日唔使返工
+  if (off == null || tau >= off) {
+    for (let k = 1; k <= 14; k += 1) {
+      const day = addDays(date, k)
+      const next = cellInfo(dayEntry(roster, day).code)
+      if (next.on == null) continue
+      const gap = off != null ? ` · ${S.restGap(S.dur(k * 86400 + next.on - off))}` : ""
+      rows.push([S.factNextDuty, `${S.weekdays[weekdayIndex(day)]} ${meDate(day)} · ${next.label} ${hhmm(next.on)}${gap}`])
+      break
+    }
+  }
+  if (!rows.length) return ""
+  // 卡本身係 <button>，入面只可以用 span
+  return `<span class="today-facts">${rows.map(([k, v]) => `<b>${k}</b><span>${escapeHtml(v)}</span>`).join("")}</span>`
+}
+
 // Today, big, with what the duty is doing right now.
 function todayHtml(date, entry, cell, short = false) {
   const lines = dayLines(cell)
@@ -540,6 +619,7 @@ function todayHtml(date, entry, cell, short = false) {
     (lines.times ? `<span class="today-times">${lines.times}</span>${barHtml(lines.span, serviceSeconds(Date.now()))}` : "") +
     (lines.note ? `<span class="today-note">${escapeHtml(lines.note)}</span>` : "") +
     (live ? `<span class="today-live"><i class="pulse"></i><span>${S.now}：${escapeHtml(dutyPhaseText(live))} <small>${S.until(hhmm(live.until))}</small></span></span>` : "") +
+    todayFactsHtml(date, cell, live) +
     `</button>`
 }
 

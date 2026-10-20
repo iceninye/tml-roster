@@ -2,6 +2,8 @@
 //   node tools/validate_roster.mjs
 import { classify, cleanRoster, dayEntry, mondayOf, newRoster, parseRoster, rowLabelFor, setOverride, weekDates, weekdayIndex } from "../lib/tml-roster.js"
 import { shiftOf } from "../lib/tml-shift.js"
+import { reliefOf } from "../lib/tml-duties.js"
+import { readFileSync } from "node:fs"
 import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
 
 let failed = 0
@@ -139,5 +141,14 @@ check(noIndex.minutes === 480, "官表冇呢個更份時才用 duty sheet 嘅工
 const fixed = summariseWeek(weekDates("2026-11-02"), oneDay("1101131"),
   () => ({ on: 24840, basic: { off: 55440, hours: 8 } }))
 check(fixed.minutes === 480, `1101131 用修正後 8 小時（實際 ${fixed.minutes} 分）`)
+
+// 接車／交車：用真 duty sheet（公開資料）DS1101
+const sheet = Object.values(JSON.parse(readFileSync(new URL("../data/duties/DS1101.json", import.meta.url))).duties)
+const d105 = sheet.find((d) => d.id === "1101105")
+check(reliefOf(d105, sheet, 1).from === null, "出車準備之後直接開同一個 run，唔當接車")
+check(reliefOf(d105, sheet, 2).from?.id === "1101112", `1101105 喺 WKS 接 Run 10 由 1101112 交（實際 ${reliefOf(d105, sheet, 2).from?.id}）`)
+check(reliefOf(d105, sheet, 3).from?.id === "1101126", "1101105 喺錦上路接 Run 22 由 1101126 交")
+const back = reliefOf(sheet.find((d) => d.id === "1101112"), sheet, sheet.find((d) => d.id === "1101112").legs.findIndex((l) => l[1] === 10 && l[5] === 26520))
+check(back.to?.id === "1101105", "反方向：1101112 喺 WKS 將 Run 10 交俾 1101105")
 
 process.exit(failed ? 1 : 0)

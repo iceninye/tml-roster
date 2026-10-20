@@ -685,3 +685,8 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .me-setup .p-week input[name=week] { width: 4em; }
 .p-week .p-span { margin: 0; }
 .plan-legend { line-height: 1.7; }
+
+/* ---- 今日卡：倒數、下一程、交車、下一更 ---- */
+.today-facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 10px 0 0; padding: 10px 12px; font-size: 14px; line-height: 1.45; background: rgba(0, 0, 0, 0.18); border-radius: 12px; }
+.today-facts > b { font-weight: 700; opacity: 0.75; white-space: nowrap; }
+.today-facts > span { margin: 0; min-width: 0; font-variant-numeric: tabular-nums; }
