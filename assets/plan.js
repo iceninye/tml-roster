@@ -9,9 +9,12 @@
 import { EMPTY, EXTRA, EXTRA_HOURS, HHS, LEAVE, PENDING, PREFS, SHIFTS, allToTray, canRemove, cleanPlan, clearWeek, combosView, fillMember, fillTeam, formatRanges, fromTray, importWeek, isHhs, isoWeek, missingMembers, mondayOfIsoWeek, namedRows, newPlan, parseRanges, prefDistance, removeBlock, renameBlock, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, trayView, useCombo, weekView } from "../lib/tml-plan.js"
 import { addDays, classify, cleanRoster, mondayOf, newRoster, normaliseCode, parseRoster, weekDates } from "../lib/tml-roster.js"
 import { serviceDate } from "../lib/tml-time.js"
-import { TOKEN_RE, deviceName, fingerprint, hkStamp, logToken, mailWhy, newToken, postJson, saveDeviceName } from "../lib/tml-cloud.js"
+import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.17", commit: "dev" }
+const BUILD = { version: "0.9.18", commit: "dev" }
+
+// 寄去電郵嘅 log 同備份用嘅裝置資料：由瀏覽器自動估（例如「iPhone · Safari」），唔使手動改名。
+const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 // The plan page keeps its own Standard Roster, apart from the personal roster of the 我的更表 page ("tml-roster").
 const ROSTER_KEY = "tml-plan-roster"
 const PLAN_KEY = "tml-roster-plan"
@@ -33,7 +36,7 @@ const S = {
   csvTitle: "匯入同備份",
   weekIs: { past: "本週或之前，唔可以匯入", next: "下星期", later: "下星期之後" },
   csvFor: (week) => `匯入後用於 ${week}`,
-  csvHelp: "格式：標題行 `,Name,Mon,Tue,Wed,Thu,Fri,Sat,Sun`，之後每行係 行號、名稱、七日更份。有名稱嘅行就係組員，組員嘅喜好按名稱記住；一行七格 TBC 嘅唔跟輪換。",
+  csvHelp: "格式：標題行 `,Name,Mon,Tue,Wed,Thu,Fri,Sat,Sun`，之後每行係 行號、名稱、七日更份。",
   csvEmpty: "讀唔到任何一行，請確認係 CSV",
   csvDone: (rows, named, week, kept) => `已匯入 ${rows} 行${named ? `：${named} 位組員，用於 ${week}${kept ? `，${kept} 位沿用之前嘅喜好` : ""}；所有積木已放入待定區，設好假期同喜好後按「自動」` : ""}`,
   importWeek: "週數",
@@ -46,7 +49,6 @@ const S = {
   csvBackup: (done) => `${done}。`,
   importedWeek: (week) => `而家嘅 Standard Roster：${week}`,
   templateBtn: "下載匯入範本",
-  templateHelp: "範本有 141 行、7 格，RD 只係示範，請換成實際更份。Name 欄填咗名嘅行就係組員。",
   csvFail: "讀取檔案失敗",
   useNamed: "用有名稱嘅行",
   namedHint: (n) => `Standard Roster 有 ${n} 行有名稱。`,
@@ -151,15 +153,14 @@ const S = {
   placed: "已放入",
   noMove: "呢樣唔可以咁調（休息日、假期唔郁；HC 可以放入更份）",
   backupTitle: "備份",
-  backupHelp: "編更資料存喺呢部機；有同步 token 就可以上傳到雲端。下載備份嗰陣會自動寄一份去你嘅電郵；匯入 CSV 之前都會自動備份。",
+  backupHelp: "編更資料存喺呢部機；有同步 token 就可以上傳到雲端。",
   syncTitle: "跨裝置同步",
-  syncHelp: "上傳會存：Standard Roster、組員、喜好同所有星期嘅編排。另一部機貼同一條 token 撳「由雲端下載」就攞返。產生或者換 token 會寄一封 log 電郵（裝置、時間、token）；上傳之前會先將雲端舊版本寄去電郵先覆蓋；下載之前亦會先寄呢部機嘅版本。⚠️ 攞到 token 嘅人都讀寫得到，唔好傳出去。呢條 token 同「我的更表」嗰條分開。",
+  syncHelp: "上傳：Standard Roster、組員、喜好同所有星期嘅編排。另一部機貼同一條 token 撳「由雲端下載」就可以攞返。⚠️ 攞到 token 嘅人都讀寫得到，唔好傳出去。",
   syncToken: "同步 token",
   syncNew: "產生 token",
   syncCopy: "複製",
   syncUpload: "上傳到雲端",
   syncDownload: "由雲端下載",
-  deviceLabel: "呢部機嘅名",
   syncNewAsk: "產生新 token 會換走呢部機現有嗰條（雲端舊記錄唔會刪除）。確定？",
   syncNewDone: "已產生新 token 並記住。請撳「複製」存好佢；另一部機貼同一條，就可以下載同一份編更。",
   syncCopied: "已複製 token。",
@@ -372,7 +373,7 @@ function csvImportHtml() {
   return `<details class="panel csv-import"${!plan || plan.anchor < next || state.importOpen ? " open" : ""}><summary>${S.csvTitle}<span class="meta">${plan?.anchor ? S.importedWeek(weekNo(plan.anchor)) : weekNo(next)}</span></summary><div class="me-setup">` +
     `<h4>${S.csvBtnTitle}</h4>` + weekFields(next, S.importWeek) +
     `<div class="me-edit-row"><label class="btn primary filebtn">${S.csvBtn}<input type="file" class="p-csv-file" accept=".csv,.tsv,.txt,text/csv,text/plain" hidden></label>` +
-    `<a class="btn" href="data/roster-template.csv" download="roster-template.csv">${S.templateBtn}</a></div><p class="fine">${S.csvHelp} ${S.templateHelp}</p></div>` +
+    `<a class="btn" href="data/roster-template.csv" download="roster-template.csv">${S.templateBtn}</a></div><p class="fine">${S.csvHelp}</p></div>` +
     (plan ? backupHtml() : "") + `</details>`
 }
 
@@ -695,7 +696,6 @@ function syncHtml() {
     `<div class="field-line"><label for="p-kv-token">${S.syncToken}</label>` +
     `<input id="p-kv-token" class="mini wide mono" type="password" autocomplete="off" spellcheck="false" maxlength="64" value="${escapeHtml(kvToken())}" placeholder="a1b2c3d4...">` +
     `<button type="button" class="btn p-kv-new">${S.syncNew}</button><button type="button" class="btn p-kv-copy">${S.syncCopy}</button></div>` +
-    `<div class="field-line"><label for="p-device">${S.deviceLabel}</label><input id="p-device" class="mini wide" maxlength="60" autocomplete="off" value="${escapeHtml(deviceName())}"></div>` +
     `<div class="me-edit-row">${plan ? `<button type="button" class="btn p-kv-up">${S.syncUpload}</button>` : ""}` +
     `<button type="button" class="btn${plan ? "" : " primary"} p-kv-down">${S.syncDownload}</button></div>` +
     `<p class="me-msg" role="status">${escapeHtml(state.syncMsg)}</p></div></details>`
@@ -744,7 +744,7 @@ function kvMessage(text) {
 
 // 產生／換 token 時寄 log 電郵（裝置、時間、token）
 async function sendLog(event, token) {
-  const out = await logToken("api/token-log", "plan", event, token, deviceName())
+  const out = await logToken("api/token-log", "plan", event, token, thisDevice())
   const note = out.ok ? S.logSent : S.logFail(mailWhy(out.reason))
   kvMessage(state.syncMsg ? `${state.syncMsg}${note}` : note)
 }
@@ -789,7 +789,7 @@ async function kvUpload(force = false, skipBackup = false) {
     response = await fetch(kvEndpoint(), {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ schema: 1, data: JSON.parse(backupText()), version: Number(pref(KV_VERSION) ?? 0), force, skipBackup, device: deviceName() }),
+      body: JSON.stringify({ schema: 1, data: JSON.parse(backupText()), version: Number(pref(KV_VERSION) ?? 0), force, skipBackup, device: thisDevice() }),
     })
   } catch {
     return kvMessage(S.syncFail)
@@ -842,7 +842,7 @@ async function kvDownload() {
 async function backupLocal() {
   const name = backupName()
   const text = backupText()
-  const out = await postJson("api/backup", { name, text, device: deviceName() })
+  const out = await postJson("api/backup", { name, text, device: thisDevice() })
   if (out.ok) return S.localMailed
   download(name, text, "application/json")
   return S.localSaved(name, mailWhy(out.reason))
@@ -992,7 +992,7 @@ function saveBackup() {
 async function mailBackup(name, text) {
   let why = "offline"
   try {
-    const response = await fetch("api/backup", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, text, device: deviceName() }) })
+    const response = await fetch("api/backup", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, text, device: thisDevice() }) })
     const out = await response.json().catch(() => ({}))
     if (out.ok) why = ""
     else why = out.reason ?? why
@@ -1437,9 +1437,7 @@ async function boot() {
     if (span && monday) span.textContent = spanText(monday)
   })
   view.addEventListener("change", (event) => {
-    if (event.target.matches("#p-device")) {
-      event.target.value = saveDeviceName(null, event.target.value) || deviceName()
-    } else if (event.target.matches(".p-name")) {
+    if (event.target.matches(".p-name")) {
       const row = Number(event.target.dataset.row)
       store({ ...plan, members: plan.members.map((m) => (m.row === row ? { ...m, name: event.target.value.trim().slice(0, 40) } : m)) })
       render()
