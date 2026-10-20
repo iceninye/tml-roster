@@ -8,7 +8,7 @@ import { EMPTY, EXTRA, EXTRA_HOURS, LEAVE, PENDING, SHIFTS, allToTray, canRemove
 import { addDays, classify, cleanRoster, mondayOf, newRoster, normaliseCode, parseRoster, weekDates } from "../lib/tml-roster.js"
 import { serviceDate } from "../lib/tml-time.js"
 
-const BUILD = { version: "0.9.13", commit: "dev" }
+const BUILD = { version: "0.9.14", commit: "dev" }
 // The plan page keeps its own Standard Roster, apart from the personal roster of the 我的更表 page ("tml-roster").
 const ROSTER_KEY = "tml-plan-roster"
 const PLAN_KEY = "tml-roster-plan"
@@ -159,11 +159,7 @@ const S = {
   clearAsk: "清除之後組員、偏好同所有編排都會冇咗，確定？",
   saved: "已儲存",
   notStored: "呢部機儲存唔到，關閉頁面後會冇咗",
-  legendRest: "紅框：休息唔夠鐘",
-  legendPin: "📌 手動改",
-  legendMiss: "• 唔係喜好",
   noDuty: "Duty Sheet 入面冇呢個更份",
-  legendHc: "HC／TBC：自己改編號，或者將待定區嘅放入去",
   removeBlock: "刪除呢個更份積木",
   blockRemoved: "已刪除積木，其餘空格已按偏好重新編排",
   needRd: "每位組員一星期要有一日 RD，未有 RD 就唔會自動填更份",
@@ -307,7 +303,7 @@ function render() {
   // Repainting must not throw the reader back to the top of a long table.
   const table = view.querySelector(".ptable")
   const keep = table ? [table.scrollLeft, table.scrollTop, window.scrollY] : null
-  view.innerHTML = plan ? csvImportHtml() + weekHtml() : setupHtml()
+  view.innerHTML = plan ? weekHtml() + csvImportHtml() : setupHtml()
   const fresh = view.querySelector(".ptable")
   if (keep && fresh) {
     fresh.scrollLeft = keep[0]
@@ -333,7 +329,7 @@ function spanText(monday) {
   return `${S.weekSpanLabel(isoWeek(monday).week, weekSpan(monday))} · ${S.weekIs[kind]}`
 }
 
-// 匯入下星期 Standard Roster: the week defaults to next week; the import itself checks the week.
+// 匯入同備份 (below the tray): the week defaults to next week; the import itself checks the week.
 function csvImportHtml() {
   const next = nextMonday()
   return `<details class="panel csv-import"${!plan || plan.anchor < next || state.importOpen ? " open" : ""}><summary>${S.csvTitle}<span class="meta">${plan?.anchor ? S.importedWeek(weekNo(plan.anchor)) : weekNo(next)}</span></summary><div class="me-setup">` +
@@ -450,7 +446,7 @@ function weekHtml() {
     selHtml(lines) +
     `<div class="ptable"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>` +
     trayHtml() +
-    `<p class="legend plan-legend">${legend}<span>${S.legendRest}</span><span>${S.legendPin}</span><span>${S.legendMiss}</span><span>${S.legendHc}</span></p>`
+    `<p class="legend plan-legend">${legend}</p>`
 }
 
 // 注意事項: what still needs a look this week; each line jumps to its cell.
