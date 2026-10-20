@@ -454,6 +454,7 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 [data-shift="mid"] { --sh: var(--mid); }
 [data-shift="late"] { --sh: var(--late); }
 [data-shift="night"] { --sh: var(--night); }
+[data-shift="hhs"] { --sh: var(--accent); }
 .plan-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .plan-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 0 0 8px; }
 .p-weekbox { display: inline-flex; align-items: center; gap: 8px; }

@@ -11,7 +11,7 @@ import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
 import { serviceDate, serviceSeconds } from "../lib/tml-time.js"
 import { TOKEN_RE, deviceName, fingerprint, hkStamp, logToken, mailWhy, newToken, postJson, saveDeviceName } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.16", commit: "dev" }
+const BUILD = { version: "0.9.17", commit: "dev" }
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
 const TITLE_KEY = "tml-roster-title"
