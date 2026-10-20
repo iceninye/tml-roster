@@ -1,17 +1,24 @@
 // 編更: arrange a team's duties over the Standard Roster by preference.
 // Hand-written, no build step. This page is separate from the personal
 // roster page: it imports its own Standard Roster (CSV) and keeps it, and the
-// plan (names, preferences, results), only in this browser's localStorage,
-// never uploaded. Book-on/off times come from data/duty-basic.json.
+// plan (names, preferences, results) in this browser's localStorage. With a
+// sync token it is also uploaded to Workers KV (only when 上傳 is pressed);
+// the cloud copy is mailed as a backup before it is overwritten.
+// Book-on/off times come from data/duty-basic.json.
 
 import { EMPTY, EXTRA, EXTRA_HOURS, LEAVE, PENDING, SHIFTS, allToTray, canRemove, cleanPlan, clearWeek, combosView, fillMember, fillTeam, formatRanges, fromTray, importWeek, isoWeek, missingMembers, mondayOfIsoWeek, namedRows, newPlan, parseRanges, prefDistance, removeBlock, renameBlock, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, trayView, useCombo, weekView } from "../lib/tml-plan.js"
 import { addDays, classify, cleanRoster, mondayOf, newRoster, normaliseCode, parseRoster, weekDates } from "../lib/tml-roster.js"
 import { serviceDate } from "../lib/tml-time.js"
+import { TOKEN_RE, deviceName, fingerprint, hkStamp, logToken, mailWhy, newToken, postJson, saveDeviceName } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.14", commit: "dev" }
+const BUILD = { version: "0.9.16", commit: "dev" }
 // The plan page keeps its own Standard Roster, apart from the personal roster of the 我的更表 page ("tml-roster").
 const ROSTER_KEY = "tml-plan-roster"
 const PLAN_KEY = "tml-roster-plan"
+// 跨裝置同步：編更自己一條 token（同我的更表嗰條分開），同雲端版本號、上次同步嘅指紋
+const KV_KEY = "tml-plan-kv-token"
+const KV_VERSION = "tml-plan-kv-version"
+const KV_SYNCED = "tml-plan-kv-synced"
 
 const S = {
   weekdays: ["一", "二", "三", "四", "五", "六", "日"],
@@ -143,12 +150,41 @@ const S = {
   placed: "已放入",
   noMove: "呢樣唔可以咁調（休息日、假期唔郁；HC 可以放入更份）",
   backupTitle: "備份",
-  backupHelp: "編更資料只存喺呢部機。下載備份嗰陣會自動寄一份去你嘅電郵；匯入 CSV 之前都會自動備份。",
+  backupHelp: "編更資料存喺呢部機；有同步 token 就可以上傳到雲端。下載備份嗰陣會自動寄一份去你嘅電郵；匯入 CSV 之前都會自動備份。",
+  syncTitle: "跨裝置同步",
+  syncHelp: "上傳會存：Standard Roster、組員、喜好同所有星期嘅編排。另一部機貼同一條 token 撳「由雲端下載」就攞返。產生或者換 token 會寄一封 log 電郵（裝置、時間、token）；上傳之前會先將雲端舊版本寄去電郵先覆蓋；下載之前亦會先寄呢部機嘅版本。⚠️ 攞到 token 嘅人都讀寫得到，唔好傳出去。呢條 token 同「我的更表」嗰條分開。",
+  syncToken: "同步 token",
+  syncNew: "產生 token",
+  syncCopy: "複製",
+  syncUpload: "上傳到雲端",
+  syncDownload: "由雲端下載",
+  deviceLabel: "呢部機嘅名",
+  syncNewAsk: "產生新 token 會換走呢部機現有嗰條（雲端舊記錄唔會刪除）。確定？",
+  syncNewDone: "已產生新 token 並記住。請撳「複製」存好佢；另一部機貼同一條，就可以下載同一份編更。",
+  syncCopied: "已複製 token。",
+  syncCopyFail: "複製唔到，請手動選取輸入框內容。",
+  syncNoToken: "先貼上同步 token 或者撳「產生 token」。",
+  syncNoPlan: "未有編更，冇嘢上傳。",
+  syncDirty: "呢部機有改動未上傳到雲端。",
+  syncConflict: (at, device) => `雲端有另一個版本（${at}${device ? ` · 由「${device}」上傳` : ""}）。撳「確定」用呢部機覆蓋雲端（舊版本會先寄去電郵）；撳「取消」就唔覆蓋。`,
+  syncBackupFail: (why) => `雲端現有版本寄唔到電郵備份（${why}），覆蓋咗就冇得用電郵還原。撳「確定」照樣上傳；撳「取消」就唔上傳。`,
+  syncOverwriteLocal: (at, device) => `雲端版本（${at}${device ? ` · 由「${device}」上傳` : ""}）會取代呢部機嘅編更同 Standard Roster。撳「確定」照下載；撳「取消」就唔變。`,
+  syncKeptLocal: "冇覆蓋：雲端版本保持不變。",
+  syncKeptDown: "冇下載：呢部機嘅編更保持不變。",
+  syncEmpty: "雲端未有資料，請先喺有編更嘅機上傳一次。",
+  syncFail: "同步失敗（網絡或者 token 有問題）。",
+  syncUnsupported: "呢個網址唔支援雲端同步（GitHub Pages 版冇 Workers API）。要同步請開 https://tml-roster.iceninye.workers.dev/",
+  syncUp: (v, at) => `已上傳到雲端（第 ${v} 版 · ${at}）。`,
+  syncBackedUp: "雲端舊版本已先寄去電郵備份。",
+  syncDown: (at) => `已由雲端下載（${at}）。`,
+  localMailed: "呢部機原本嘅版本已寄去電郵備份。",
+  localSaved: (name, why) => `呢部機原本嘅版本寄唔到電郵（${why}），已下載咗 ${name}。`,
+  logSent: "token log 已寄去電郵。",
+  logFail: (why) => `token log 電郵寄唔到（${why}）。`,
   exportJson: "下載備份（JSON）",
   mailing: "，同時寄緊去你嘅電郵…",
   mailed: "，亦已寄去你嘅電郵",
   mailFail: (why) => `；電郵寄唔到（${why}），請自己保留下載咗嘅檔案`,
-  mailWhy: { not_configured: "未設定電郵", too_many: "今日寄得太多", offline: "連唔到伺服器", send_failed: "郵件服務出錯", too_large: "檔案太大", bad_shape: "檔案格式唔啱" },
   exported: (name) => `已下載備份：${name}`,
   importJson: "匯入備份",
   importPh: "貼上備份內容",
@@ -168,7 +204,7 @@ const S = {
 }
 
 const view = document.getElementById("view")
-const state = { monday: null, sel: null, message: "", tray: { tab: "blocks", filter: [], sort: "on", order: "row" }, pick: { rows: [] }, notesOpen: false, importOpen: false, leaveOpen: false }
+const state = { monday: null, sel: null, message: "", syncMsg: "", syncOpen: false, tray: { tab: "blocks", filter: [], sort: "on", order: "row" }, pick: { rows: [] }, notesOpen: false, importOpen: false, leaveOpen: false }
 // How the tray and the members are shown (tab, filter, sort, member order) is this viewer's own; kept in the browser.
 const TRAY_KEY = "tml-plan-tray-view"
 // Earlier { plan, roster } pairs, for 還原上一步; kept for this visit only.
@@ -296,14 +332,14 @@ function opened(p, monday) {
 function render() {
   if (!roster) {
     view.innerHTML = `<p class="empty">${S.noRoster}</p>${csvImportHtml()}<p class="me-msg" role="status">${escapeHtml(state.message)}</p>` +
-      `<details class="panel"><summary>${S.importJson}</summary>${backupImportHtml()}</details>`
+      `<details class="panel"><summary>${S.importJson}</summary>${backupImportHtml()}</details>` + syncHtml()
     return
   }
   if (plan && !plan.weeks?.[state.monday]) savePlan(opened(plan, state.monday))
   // Repainting must not throw the reader back to the top of a long table.
   const table = view.querySelector(".ptable")
   const keep = table ? [table.scrollLeft, table.scrollTop, window.scrollY] : null
-  view.innerHTML = plan ? weekHtml() + csvImportHtml() : setupHtml()
+  view.innerHTML = plan ? weekHtml() + csvImportHtml() + syncHtml() : setupHtml() + syncHtml()
   const fresh = view.querySelector(".ptable")
   if (keep && fresh) {
     fresh.scrollLeft = keep[0]
@@ -645,6 +681,168 @@ function backupHtml() {
     `<details class="p-advanced"><summary>${S.setupAdvanced}</summary><p class="fine">${S.setupIntro}</p>${setupHtml(true)}</details>`
 }
 
+// 跨裝置同步: its own panel under 匯入同備份; also shown before any roster, so a new phone can download.
+function syncHtml() {
+  if (syncSupported === false) return `<details class="panel"><summary>${S.syncTitle}</summary><p class="fine">${S.syncUnsupported}</p></details>`
+  const open = state.syncOpen || !roster || state.syncMsg
+  return `<details class="panel p-sync"${open ? " open" : ""}><summary>${S.syncTitle}${kvDirty() ? `<span class="meta">${S.syncDirty}</span>` : ""}</summary><div class="me-setup">` +
+    `<p class="fine">${S.syncHelp}</p>` +
+    `<div class="field-line"><label for="p-kv-token">${S.syncToken}</label>` +
+    `<input id="p-kv-token" class="mini wide mono" type="password" autocomplete="off" spellcheck="false" maxlength="64" value="${escapeHtml(kvToken())}" placeholder="a1b2c3d4...">` +
+    `<button type="button" class="btn p-kv-new">${S.syncNew}</button><button type="button" class="btn p-kv-copy">${S.syncCopy}</button></div>` +
+    `<div class="field-line"><label for="p-device">${S.deviceLabel}</label><input id="p-device" class="mini wide" maxlength="60" autocomplete="off" value="${escapeHtml(deviceName())}"></div>` +
+    `<div class="me-edit-row">${plan ? `<button type="button" class="btn p-kv-up">${S.syncUpload}</button>` : ""}` +
+    `<button type="button" class="btn${plan ? "" : " primary"} p-kv-down">${S.syncDownload}</button></div>` +
+    `<p class="me-msg" role="status">${escapeHtml(state.syncMsg)}</p></div></details>`
+}
+
+/* ---------------------------------------------------------------- sync */
+
+function pref(key) {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function setPref(key, value) {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    // Blocked storage: sync still works for this visit.
+  }
+}
+
+const kvToken = () => String(pref(KV_KEY) ?? "").trim()
+const kvPrint = () => (plan ? fingerprint(JSON.stringify([plan, roster])) : "")
+const kvDirty = () => !!plan && !!kvToken() && syncSupported !== false && pref(KV_SYNCED) !== kvPrint()
+const kvEndpoint = () => `api/plan/${encodeURIComponent(kvToken())}`
+
+// 呢個網址有冇 Workers API（GitHub Pages 版冇）：開頁時問一次。null = 未知
+let syncSupported = null
+async function probeSync() {
+  try {
+    const response = await fetch("api/ping", { headers: { accept: "application/json" }, cache: "no-store" })
+    const body = await response.json().catch(() => null)
+    syncSupported = !!(response.ok && body?.ok)
+  } catch {
+    return // Offline: keep showing the panel.
+  }
+  render()
+}
+
+function kvMessage(text) {
+  state.syncMsg = text
+  render()
+}
+
+// 產生／換 token 時寄 log 電郵（裝置、時間、token）
+async function sendLog(event, token) {
+  const out = await logToken("api/token-log", "plan", event, token, deviceName())
+  const note = out.ok ? S.logSent : S.logFail(mailWhy(out.reason))
+  kvMessage(state.syncMsg ? `${state.syncMsg}${note}` : note)
+}
+
+// 用輸入框入面嘅 token；換咗就記住，版本號由 0 開始，並寄 log。
+function adoptToken() {
+  const value = String(document.getElementById("p-kv-token")?.value ?? "").trim().toLowerCase()
+  if (TOKEN_RE.test(value) && value !== kvToken()) {
+    setPref(KV_KEY, value)
+    setPref(KV_VERSION, "0")
+    sendLog("join", value)
+  }
+  return kvToken()
+}
+
+function kvNewToken() {
+  if (kvToken() && !window.confirm(S.syncNewAsk)) return
+  const token = newToken()
+  setPref(KV_KEY, token)
+  setPref(KV_VERSION, "0")
+  kvMessage(S.syncNewDone)
+  sendLog("new", token)
+}
+
+async function kvCopyToken() {
+  const token = adoptToken()
+  if (!token) return kvMessage(S.syncNoToken)
+  try {
+    await navigator.clipboard.writeText(token)
+    kvMessage(S.syncCopied)
+  } catch {
+    kvMessage(S.syncCopyFail)
+  }
+}
+
+// force：雲端有另一個版本都照蓋；skipBackup：雲端舊版本寄唔到電郵都照蓋。兩樣都要用戶撳「確定」。
+async function kvUpload(force = false, skipBackup = false) {
+  if (!adoptToken()) return kvMessage(S.syncNoToken)
+  if (!plan) return kvMessage(S.syncNoPlan)
+  let response
+  try {
+    response = await fetch(kvEndpoint(), {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ schema: 1, data: JSON.parse(backupText()), version: Number(pref(KV_VERSION) ?? 0), force, skipBackup, device: deviceName() }),
+    })
+  } catch {
+    return kvMessage(S.syncFail)
+  }
+  const body = await response.json().catch(() => null)
+  if (response.status === 409 && body?.reason === "conflict" && !force) {
+    if (window.confirm(S.syncConflict(hkStamp(body.cloud?.updatedAt), body.cloud?.device ?? ""))) return kvUpload(true, skipBackup)
+    return kvMessage(S.syncKeptLocal)
+  }
+  if (response.status === 502 && body?.reason === "backup_failed" && !skipBackup) {
+    if (window.confirm(S.syncBackupFail(mailWhy(body.why)))) return kvUpload(true, true)
+    return kvMessage(S.syncKeptLocal)
+  }
+  if (!response.ok || !body?.ok) return kvMessage(S.syncFail)
+  setPref(KV_VERSION, String(body.version))
+  setPref(KV_SYNCED, kvPrint())
+  kvMessage(S.syncUp(body.version, hkStamp(body.updatedAt)) + (body.backedUp ? S.syncBackedUp : ""))
+}
+
+async function kvDownload() {
+  if (!adoptToken()) return kvMessage(S.syncNoToken)
+  let response
+  try {
+    response = await fetch(kvEndpoint(), { headers: { accept: "application/json" }, cache: "no-store" })
+  } catch {
+    return kvMessage(S.syncFail)
+  }
+  const body = await response.json().catch(() => null)
+  if (response.status === 404 && body?.reason === "empty") return kvMessage(S.syncEmpty)
+  if (!response.ok || !body?.ok) return kvMessage(S.syncFail)
+  const rec = body.record ?? {}
+  const next = cleanPlan(rec.data?.plan)
+  const nextRoster = rec.data?.roster ? cleanRoster(rec.data.roster) : null
+  if (!next) return kvMessage(S.syncFail)
+  const when = hkStamp(rec.updatedAt)
+  const fresh = !plan && !roster
+  if (!fresh && !window.confirm(S.syncOverwriteLocal(when, rec.device ?? ""))) return kvMessage(S.syncKeptDown)
+  // 蓋掉呢部機之前，先將呢部機嘅版本寄去電郵（寄唔到就下載個檔）；同上次同步一樣就唔使。
+  const backup = !plan || kvPrint() === pref(KV_SYNCED) ? "" : await backupLocal()
+  remember()
+  if (nextRoster) saveRoster(nextRoster)
+  if (!savePlan(next)) return kvMessage(S.notStored)
+  setPref(KV_VERSION, String(rec.version ?? 0))
+  setPref(KV_SYNCED, kvPrint())
+  state.monday = nextMonday()
+  state.sel = null
+  kvMessage(S.syncDown(when) + (backup ? backup : ""))
+}
+
+async function backupLocal() {
+  const name = backupName()
+  const text = backupText()
+  const out = await postJson("api/backup", { name, text, device: deviceName() })
+  if (out.ok) return S.localMailed
+  download(name, text, "application/json")
+  return S.localSaved(name, mailWhy(out.reason))
+}
+
 /* ------------------------------------------------------------- actions */
 
 function remember() {
@@ -789,7 +987,7 @@ function saveBackup() {
 async function mailBackup(name, text) {
   let why = "offline"
   try {
-    const response = await fetch("api/backup", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, text }) })
+    const response = await fetch("api/backup", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, text, device: deviceName() }) })
     const out = await response.json().catch(() => ({}))
     if (out.ok) why = ""
     else why = out.reason ?? why
@@ -797,7 +995,7 @@ async function mailBackup(name, text) {
     // No Worker (e.g. GitHub Pages) or no network.
   }
   if (!state.message.includes(S.mailing)) return
-  state.message = state.message.replace(S.mailing, why ? S.mailFail(S.mailWhy[why] ?? why) : S.mailed)
+  state.message = state.message.replace(S.mailing, why ? S.mailFail(mailWhy(why)) : S.mailed)
   render()
 }
 
@@ -1012,6 +1210,10 @@ function onClick(event) {
     return
   }
   else if (t.closest(".p-export")) state.message = saveBackup()
+  else if (t.closest(".p-kv-new")) return kvNewToken()
+  else if (t.closest(".p-kv-copy")) return kvCopyToken()
+  else if (t.closest(".p-kv-up")) return kvUpload()
+  else if (t.closest(".p-kv-down")) return kvDownload()
   else if (t.closest(".p-clear")) {
     if (!window.confirm(S.clearAsk)) return
     remember()
@@ -1230,7 +1432,9 @@ async function boot() {
     if (span && monday) span.textContent = spanText(monday)
   })
   view.addEventListener("change", (event) => {
-    if (event.target.matches(".p-name")) {
+    if (event.target.matches("#p-device")) {
+      event.target.value = saveDeviceName(null, event.target.value) || deviceName()
+    } else if (event.target.matches(".p-name")) {
       const row = Number(event.target.dataset.row)
       store({ ...plan, members: plan.members.map((m) => (m.row === row ? { ...m, name: event.target.value.trim().slice(0, 40) } : m)) })
       render()
@@ -1262,6 +1466,7 @@ async function boot() {
   view.addEventListener("toggle", (event) => {
     if (event.target.matches?.(".p-notes")) state.notesOpen = event.target.open
     if (event.target.matches?.(".csv-import")) state.importOpen = event.target.open
+    if (event.target.matches?.(".p-sync")) state.syncOpen = event.target.open
   }, true)
   // Ctrl+Z / ⌘Z undoes the last change, except while typing.
   document.addEventListener("keydown", (event) => {
@@ -1278,8 +1483,9 @@ async function boot() {
     if (event.target.closest(".pcell, .block")) event.preventDefault()
   })
   document.getElementById("foot").innerHTML =
-    `v${BUILD.version} · ${BUILD.commit === "dev" ? "dev" : `commit ${escapeHtml(BUILD.commit)}`} · 編更資料只存喺呢部機`
+    `v${BUILD.version} · ${BUILD.commit === "dev" ? "dev" : `commit ${escapeHtml(BUILD.commit)}`} · 編更資料存喺呢部機，有 token 先會上傳`
   render()
+  probeSync()
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {})
 }
 

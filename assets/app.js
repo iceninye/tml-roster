@@ -9,8 +9,9 @@ import { addDays, classify, cleanRoster, dayEntry, mondayOf, newRoster, normalis
 import { SHIFTS, shiftOf } from "../lib/tml-shift.js"
 import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
 import { serviceDate, serviceSeconds } from "../lib/tml-time.js"
+import { TOKEN_RE, deviceName, fingerprint, hkStamp, logToken, mailWhy, newToken, postJson, saveDeviceName } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.15", commit: "dev" }
+const BUILD = { version: "0.9.16", commit: "dev" }
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
 const TITLE_KEY = "tml-roster-title"
@@ -116,14 +117,23 @@ const S = {
   syncUnsupported: "呢個網址唔支援雲端同步（GitHub Pages 版冇 Workers API）。要同步請開 https://tml-roster.iceninye.workers.dev/ice/",
   syncNew: "產生 token",
   syncCopy: "複製",
+  deviceLabel: "呢部機嘅名",
+  deviceHelp: "寄去電郵嘅 log 同備份會寫呢個名，方便分邊部機做嘅。",
+  logSent: "token log 已寄去電郵。",
+  logFail: (why) => `token log 電郵寄唔到（${why}）。`,
+  syncBackupFail: (why) => `雲端現有版本寄唔到電郵備份（${why}），覆蓋咗就冇得用電郵還原。撳「確定」照樣上傳；撳「取消」就唔上傳。`,
+  syncBackedUp: "雲端舊版本已先寄去電郵備份。",
+  localMailed: "呢部機原本嘅版本已寄去電郵備份。",
+  localSaved: (why) => `呢部機原本嘅版本寄唔到電郵（${why}），已下載咗做備份。`,
   syncNewAsk: "產生新 token 會換走呢部機現有嗰條（雲端舊記錄唔會刪除）。確定？",
   syncNewDone: "已產生新 token 並記住。請撳「複製」存好佢；另一部機貼同一條，就可以下載同一份更表。",
+  syncNewNote: "產生或者換 token 會寄一封 log 電郵（裝置、時間、token）；上傳會先將雲端舊版本寄去電郵先覆蓋。",
   syncCopied: "已複製 token。",
   syncCopyFail: "複製唔到，請手動選取輸入框內容。",
   syncUpload: "上傳到雲端",
   syncDownload: "由雲端下載",
   syncNoToken: "先貼上同步 token 再撳。",
-  syncConflict: (at, name) => `雲端有另一個版本（${at}${name ? ` · ${name}` : ""}）。撳「確定」用呢部機覆蓋雲端；撳「取消」就唔覆蓋。`,
+  syncConflict: (at, name, device) => `雲端有另一個版本（${at}${name ? ` · ${name}` : ""}${device ? ` · 由「${device}」上傳` : ""}）。撳「確定」用呢部機覆蓋雲端；撳「取消」就唔覆蓋。`,
   syncOverwriteLocal: (at, name) => `雲端版本（${at}${name ? ` · ${name}` : ""}）會取代呢部機嘅更表同手動改動。撳「確定」照下載；撳「取消」就唔變。`,
   syncKeptLocal: "冇覆蓋：雲端版本保持不變。",
   syncKeptDown: "冇下載：呢部機嘅更表保持不變。",
@@ -901,6 +911,9 @@ function setupHtml() {
         `<input id="me-kv-token" class="mini wide mono" type="password" autocomplete="off" spellcheck="false" maxlength="64" value="${escapeHtml(kvToken())}" placeholder="a1b2c3d4...">` +
         `<button type="button" class="btn me-kv-new">${S.syncNew}</button>` +
         `<button type="button" class="btn me-kv-copy">${S.syncCopy}</button></div>` +
+        `<div class="field-line"><label for="me-device">${S.deviceLabel}</label>` +
+        `<input id="me-device" class="mini wide" maxlength="60" autocomplete="off" value="${escapeHtml(deviceName())}"></div>` +
+        `<p class="fine">${S.deviceHelp}${S.syncNewNote}</p>` +
         `<div class="row me-foot">` +
         (roster ? `<button type="button" class="btn me-kv-up">${S.syncUpload}</button>` : "") +
         `<button type="button" class="btn ${roster ? "" : "primary "}me-kv-down">${S.syncDownload}</button></div>` +
@@ -933,9 +946,10 @@ function download(name, text, type) {
 // 上傳／下載之前，採用輸入框裡面嘅 token（唔使另外撳「記住」，用一次就會記住）。
 function adoptToken() {
   const value = String(document.getElementById("me-kv-token")?.value ?? "").trim().toLowerCase()
-  if (/^[a-z0-9]{20,64}$/.test(value) && value !== kvToken()) {
+  if (TOKEN_RE.test(value) && value !== kvToken()) {
     writePref(KV_KEY, value)
     writePref(KV_VERSION, "0") // 換咗 token：手上版本號唔再適用
+    sendLog("join", value)
   }
   return kvToken()
 }
@@ -946,20 +960,6 @@ function isDateStr(value) {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
 }
 
-// 雲端時間一律用香港時間顯示（Worker 存嘅係 UTC ISO，直接 slice 會慢 8 個鐘）。
-function hkStamp(value) {
-  const ms = Date.parse(String(value ?? ""))
-  if (!Number.isFinite(ms)) return ""
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Hong_Kong",
-    year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", hour12: false,
-  }).formatToParts(new Date(ms))
-  const g = Object.fromEntries(parts.map((part) => [part.type, part.value]))
-  const hour = g.hour === "24" ? "00" : g.hour
-  return `${g.year}-${g.month}-${g.day} ${hour}:${g.minute}`
-}
-
 function kvToken() {
   return String(readPref(KV_KEY) ?? "").trim()
 }
@@ -967,10 +967,7 @@ function kvToken() {
 // 會上傳嘅內容嘅指紋（FNV-1a），用嚟知道上次同步之後有冇改過。
 function kvPrint() {
   if (!roster) return ""
-  const text = JSON.stringify([title, roster.rows, roster.numbers, roster.names, roster.anchor, roster.overrides])
-  let h = 0x811c9dc5
-  for (let i = 0; i < text.length; i += 1) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193)
-  return (h >>> 0).toString(36)
+  return fingerprint(JSON.stringify([title, roster.rows, roster.numbers, roster.names, roster.anchor, roster.overrides]))
 }
 
 // 有 token、網址支援同步，而且更表同上次同步唔同
@@ -1009,23 +1006,21 @@ function kvMessage(text) {
   render()
 }
 
-// 32 個 [a-z0-9] 字元，用 crypto.getRandomValues；捨棄 >= 252 嘅值，令每個字元機會均等。
-function newToken() {
-  const abc = "abcdefghijklmnopqrstuvwxyz0123456789"
-  let out = ""
-  while (out.length < 32) {
-    for (const byte of crypto.getRandomValues(new Uint8Array(48))) {
-      if (byte < 252 && out.length < 32) out += abc[byte % 36]
-    }
-  }
-  return out
+// 產生／換 token 時寄 log 電郵；結果加喺訊息後面（寄緊嗰陣唔阻用戶）。
+async function sendLog(event, token) {
+  const out = await logToken("/api/token-log", "roster", event, token, deviceName())
+  const note = out.ok ? S.logSent : S.logFail(mailWhy(out.reason))
+  state.syncMsg = state.syncMsg ? `${state.syncMsg}${note}` : note
+  render()
 }
 
 function kvNewToken() {
   if (kvToken() && !confirm(S.syncNewAsk)) return
-  writePref(KV_KEY, newToken())
+  const token = newToken()
+  writePref(KV_KEY, token)
   writePref(KV_VERSION, "0") // 新記錄由第 0 版開始
   kvMessage(S.syncNewDone)
+  sendLog("new", token)
 }
 
 async function kvCopyToken() {
@@ -1039,7 +1034,8 @@ async function kvCopyToken() {
   }
 }
 
-async function kvUpload(force = false) {
+// skipBackup：雲端舊版本寄唔到電郵，用戶都揀照樣覆蓋
+async function kvUpload(force = false, skipBackup = false) {
   if (!kvToken()) return kvMessage(S.syncNoToken)
   let res
   try {
@@ -1056,6 +1052,8 @@ async function kvUpload(force = false) {
         overrides: roster.overrides,
         version: Number(readPref(KV_VERSION) ?? 0),
         force,
+        skipBackup,
+        device: deviceName(),
       }),
     })
   } catch {
@@ -1064,13 +1062,17 @@ async function kvUpload(force = false) {
   const body = await res.json().catch(() => null)
   if (res.status === 409 && body?.reason === "conflict" && !force) {
     const when = hkStamp(body.cloud?.updatedAt)
-    if (confirm(S.syncConflict(when, body.cloud?.title ?? ""))) return kvUpload(true)
+    if (confirm(S.syncConflict(when, body.cloud?.title ?? "", body.cloud?.device ?? ""))) return kvUpload(true, skipBackup)
+    return kvMessage(S.syncKeptLocal)
+  }
+  if (res.status === 502 && body?.reason === "backup_failed" && !skipBackup) {
+    if (confirm(S.syncBackupFail(mailWhy(body.why)))) return kvUpload(true, true)
     return kvMessage(S.syncKeptLocal)
   }
   if (!res.ok || !body?.ok) return kvMessage(S.syncFail)
   writePref(KV_VERSION, String(body.version))
   writePref(KV_SYNCED, kvPrint())
-  kvMessage(S.syncUp(body.version, hkStamp(body.updatedAt)))
+  kvMessage(S.syncUp(body.version, hkStamp(body.updatedAt)) + (body.backedUp ? S.syncBackedUp : ""))
 }
 
 async function kvDownload() {
@@ -1111,6 +1113,8 @@ async function kvDownload() {
   const when = hkStamp(rec.updatedAt)
   const fresh = !roster // 第一次用：冇本地更表，冇嘢會被蓋，唔使問
   if (!fresh && !confirm(S.syncOverwriteLocal(when, rec.title ?? ""))) return kvMessage(S.syncKeptDown)
+  // 蓋掉呢部機之前，先將呢部機嘅版本寄去電郵（寄唔到就下載個檔）；同雲端一樣就唔使。
+  const backup = fresh || kvPrint() === readPref(KV_SYNCED) ? "" : await backupLocal()
   if (!saveRoster(next)) return kvMessage(S.notStored)
   if (rec.title) {
     title = String(rec.title).slice(0, 24)
@@ -1122,7 +1126,18 @@ async function kvDownload() {
     state.page = "week"
     state.monday = mondayOf(serviceDate(Date.now()))
   }
-  kvMessage(S.syncDown(when))
+  kvMessage(S.syncDown(when) + (backup ? backup : ""))
+}
+
+// 呢部機嘅更表，用設定頁「貼返入去」嘅格式（cleanRoster 讀得返）。
+async function backupLocal() {
+  const stamp = hkStamp(new Date().toISOString())
+  const name = `my-roster-${stamp.slice(0, 10)}-${stamp.slice(11).replace(":", "")}.json`
+  const text = JSON.stringify({ ...roster, title }, null, 1)
+  const out = await postJson("/api/backup", { name, text, device: deviceName() })
+  if (out.ok) return S.localMailed
+  download(name, text, "application/json")
+  return S.localSaved(mailWhy(out.reason))
 }
 
 // 更表名稱：存喺呢部機，即時反映喺頁首
@@ -1354,6 +1369,10 @@ async function boot() {
     if (form) refreshPreview(form)
   })
   view.addEventListener("change", (event) => {
+    if (event.target.matches("#me-device")) {
+      event.target.value = saveDeviceName(null, event.target.value) || deviceName()
+      return
+    }
     if (!event.target.matches(".me-file")) return
     const file = event.target.files?.[0]
     const form = event.target.closest(".me-setup")
