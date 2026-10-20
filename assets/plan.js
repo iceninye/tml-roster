@@ -8,7 +8,7 @@ import { EMPTY, EXTRA, EXTRA_HOURS, LEAVE, PENDING, SHIFTS, allToTray, canRemove
 import { addDays, classify, cleanRoster, mondayOf, newRoster, normaliseCode, parseRoster, weekDates } from "../lib/tml-roster.js"
 import { serviceDate } from "../lib/tml-time.js"
 
-const BUILD = { version: "0.9.12", commit: "dev" }
+const BUILD = { version: "0.9.13", commit: "dev" }
 // The plan page keeps its own Standard Roster, apart from the personal roster of the 我的更表 page ("tml-roster").
 const ROSTER_KEY = "tml-plan-roster"
 const PLAN_KEY = "tml-roster-plan"
@@ -20,7 +20,9 @@ const S = {
   status: { RD: "休息", AL: "年假", SH: "法定假", HC: "HC" },
   noRoster: "未有 Standard Roster。請匯入下星期嘅 CSV（有 Name 欄嗰份）。",
   csvBtn: "揀 CSV 檔匯入",
-  csvTitle: "匯入下星期 Standard Roster",
+  csvBtnTitle: "匯入 Standard Roster",
+  csvTitle: "匯入同備份",
+  weekIs: { past: "本週或之前，唔可以匯入", next: "下星期", later: "下星期之後" },
   csvFor: (week) => `匯入後用於 ${week}`,
   csvHelp: "格式：標題行 `,Name,Mon,Tue,Wed,Thu,Fri,Sat,Sun`，之後每行係 行號、名稱、七日更份。有名稱嘅行就係組員，組員嘅喜好按名稱記住；一行七格 TBC 嘅唔跟輪換。",
   csvEmpty: "讀唔到任何一行，請確認係 CSV",
@@ -32,7 +34,7 @@ const S = {
   importMissing: (names, n) => `新 CSV 冇咗 ${n} 位組員：${names}。\n佢哋之前幾星期嘅編排唔會再顯示（資料仍然保留喺備份）。確定匯入？`,
   importStopped: "已取消匯入，冇改動",
   csvSheets: (days) => `；週${days}用特別 Duty Sheet`,
-  csvBackup: (name) => `匯入前已自動下載備份 ${name}。`,
+  csvBackup: (done) => `${done}。`,
   importedWeek: (week) => `而家嘅 Standard Roster：${week}`,
   templateBtn: "下載匯入範本",
   templateHelp: "範本有 141 行、7 格，RD 只係示範，請換成實際更份。Name 欄填咗名嘅行就係組員。",
@@ -42,7 +44,6 @@ const S = {
   setupTitle: "設定組員",
   setupAdvanced: "進階：手動設定組員行號",
   setupIntro: "一般唔使用：匯入 CSV 時有名稱嘅行已經係組員。只有想改組員行號先用呢度。每過一個星期，組員自動跳去下一行。",
-  weekLabel: "基準星期（ISO 週數）",
   weekSpanLabel: (week, span) => `第 ${week} 週：${span}`,
   yearLabel: "年份",
   rangesLabel: "組員行號（基準星期）",
@@ -57,15 +58,6 @@ const S = {
   thisWeek: "本週",
   nextWeek: "下週",
   arrange: "自動",
-  arrangeHelp: "「自動」用待定區嘅更份填組員嘅空格，按喜好同最少 12 小時休息分配；未有 RD 嘅組員唔會編；手動改過（📌）嘅格保留。剔選組員就只編嗰幾位。",
-  stepsTitle: "使用步驟",
-  steps: [
-    "每個星期匯入下星期嘅 Standard Roster CSV：組員自動下移一行，喜好跟名稱保留，本週唔會被改。",
-    "喺每位組員嘅格仔放 RD、AL、SH（撳空格揀，或者由待定區拖入去）。週一至三放 AL 就成星期年假。",
-    "撳組員名下面嘅 死早／早／中／夜／死夜 設喜好。",
-    "撳「自動」：按喜好同 12 小時休息填其餘空格。",
-    "睇「注意事項」逐項跟進，最後「匯出本週 CSV」。",
-  ],
   undo: "還原",
   undone: "已還原",
   noUndo: "冇可以還原嘅步驟",
@@ -150,14 +142,13 @@ const S = {
   trayed: "已放入待定區",
   placed: "已放入",
   noMove: "呢樣唔可以咁調（休息日、假期唔郁；HC 可以放入更份）",
-  settingsTitle: "設定／備份",
-  backupHelp: "編更資料只存喺呢部機。換機或者交俾其他人之前，先匯出。",
+  backupTitle: "備份",
+  backupHelp: "編更資料只存喺呢部機。下載備份嗰陣會自動寄一份去你嘅電郵；匯入 CSV 之前都會自動備份。",
   exportJson: "下載備份（JSON）",
-  emailJson: "電郵備份",
-  emailSubject: (name) => `編更備份 ${name}`,
-  emailBody: (name) => `編更備份檔 ${name} 已經下載咗，請將佢附加喺呢封電郵。`,
-  emailHelp: "電郵備份：手機會打開分享，揀電郵 App 就會連檔案一齊寄；電腦會下載檔案再開電郵，要自己附加。資料唔會經任何伺服器。",
-  shared: "已分享備份",
+  mailing: "，同時寄緊去你嘅電郵…",
+  mailed: "，亦已寄去你嘅電郵",
+  mailFail: (why) => `；電郵寄唔到（${why}），請自己保留下載咗嘅檔案`,
+  mailWhy: { not_configured: "未設定電郵", too_many: "今日寄得太多", offline: "連唔到伺服器", send_failed: "郵件服務出錯", too_large: "檔案太大", bad_shape: "檔案格式唔啱" },
   exported: (name) => `已下載備份：${name}`,
   importJson: "匯入備份",
   importPh: "貼上備份內容",
@@ -316,7 +307,7 @@ function render() {
   // Repainting must not throw the reader back to the top of a long table.
   const table = view.querySelector(".ptable")
   const keep = table ? [table.scrollLeft, table.scrollTop, window.scrollY] : null
-  view.innerHTML = plan ? csvImportHtml() + weekHtml() + stepsHtml() + settingsHtml() : setupHtml()
+  view.innerHTML = plan ? csvImportHtml() + weekHtml() : setupHtml()
   const fresh = view.querySelector(".ptable")
   if (keep && fresh) {
     fresh.scrollLeft = keep[0]
@@ -331,19 +322,25 @@ const weekSpan = (monday) => `${monday.replaceAll("-", "/")} 至 ${addDays(monda
 // Year and ISO week inputs, with the dates of that week under them.
 function weekFields(monday, label) {
   const { year, week } = isoWeek(monday)
-  return `<div class="plan-grid"><label>${S.yearLabel}<input name="year" type="number" inputmode="numeric" value="${year}" required></label>` +
-    `<label>${label}<input name="week" type="number" inputmode="numeric" min="1" max="53" value="${week}" required></label></div>` +
-    `<p class="fine p-span">${S.weekSpanLabel(week, weekSpan(monday))}</p>`
+  return `<div class="p-week"><label>${S.yearLabel}<input name="year" type="number" inputmode="numeric" value="${year}" required></label>` +
+    `<label>${label}<input name="week" type="number" inputmode="numeric" min="1" max="53" value="${week}" required></label>` +
+    `<span class="fine p-span">${spanText(monday)}</span></div>`
+}
+
+// e.g. 第 44 週：2026/10/26 至 2026/11/01 · 下星期
+function spanText(monday) {
+  const kind = monday <= mondayOf(serviceDate(Date.now())) ? "past" : monday === nextMonday() ? "next" : "later"
+  return `${S.weekSpanLabel(isoWeek(monday).week, weekSpan(monday))} · ${S.weekIs[kind]}`
 }
 
 // 匯入下星期 Standard Roster: the week defaults to next week; the import itself checks the week.
 function csvImportHtml() {
   const next = nextMonday()
-  const now = plan?.anchor ? `<p class="fine p-current">${S.importedWeek(weekNo(plan.anchor))}</p>` : ""
-  return `<details class="panel csv-import"${!plan || plan.anchor < next || state.importOpen ? " open" : ""}><summary>${S.csvTitle}<span class="meta">${weekNo(next)}</span></summary><div class="me-setup">` +
-    now + weekFields(next, S.importWeek) +
+  return `<details class="panel csv-import"${!plan || plan.anchor < next || state.importOpen ? " open" : ""}><summary>${S.csvTitle}<span class="meta">${plan?.anchor ? S.importedWeek(weekNo(plan.anchor)) : weekNo(next)}</span></summary><div class="me-setup">` +
+    `<h4>${S.csvBtnTitle}</h4>` + weekFields(next, S.importWeek) +
     `<div class="me-edit-row"><label class="btn primary filebtn">${S.csvBtn}<input type="file" class="p-csv-file" accept=".csv,.tsv,.txt,text/csv,text/plain" hidden></label>` +
-    `<a class="btn" href="data/roster-template.csv" download="roster-template.csv">${S.templateBtn}</a></div><p class="fine">${S.csvHelp} ${S.templateHelp}</p></div></details>`
+    `<a class="btn" href="data/roster-template.csv" download="roster-template.csv">${S.templateBtn}</a></div><p class="fine">${S.csvHelp} ${S.templateHelp}</p></div>` +
+    (plan ? backupHtml() : "") + `</details>`
 }
 
 // Whether a CSV may be imported for that Monday: never this week or before; ask when it is
@@ -370,10 +367,9 @@ function typedMonday(box) {
 }
 
 function setupHtml(inPanel = false) {
-  const anchor = plan?.anchor ?? state.monday
   const named = roster ? namedRows(roster) : []
   const body =
-    `<form class="me-setup plan-setup" autocomplete="off">` + weekFields(anchor, S.weekLabel) +
+    `<form class="me-setup plan-setup" autocomplete="off">` +
     `<label>${S.rangesLabel}<input name="ranges" value="${escapeHtml(plan?.ranges ?? (named.length ? formatRanges(named) : "31-40, 55-70"))}" spellcheck="false" required></label>` +
     `<p class="fine">${S.rangesHelp}${named.length ? ` ${S.namedHint(named.length)}<button type="button" class="link p-named">${S.useNamed}</button>` : ""}</p>` +
     `<div class="me-edit-row"><button type="submit" class="btn primary">${S.save}</button></div>` +
@@ -454,12 +450,7 @@ function weekHtml() {
     selHtml(lines) +
     `<div class="ptable"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>` +
     trayHtml() +
-    `<p class="legend plan-legend">${legend}<span>${S.legendRest}</span><span>${S.legendPin}</span><span>${S.legendMiss}</span><span>${S.legendHc}</span></p>` +
-    `<p class="fine">${S.arrangeHelp}</p>`
-}
-
-function stepsHtml() {
-  return `<details class="panel p-steps"><summary>${S.stepsTitle}</summary><ol>${S.steps.map((step) => `<li>${step}</li>`).join("")}</ol></details>`
+    `<p class="legend plan-legend">${legend}<span>${S.legendRest}</span><span>${S.legendPin}</span><span>${S.legendMiss}</span><span>${S.legendHc}</span></p>`
 }
 
 // 注意事項: what still needs a look this week; each line jumps to its cell.
@@ -650,11 +641,12 @@ function backupImportHtml() {
     `<div class="me-edit-row"><button type="submit" class="btn">${S.importJson}</button></div></form>`
 }
 
-function settingsHtml() {
-  return `<details class="panel"><summary>${S.settingsTitle}</summary><h4>${S.setupAdvanced}</h4><p class="fine">${S.setupIntro}</p>${setupHtml(true)}` +
-    `<p class="fine">${S.backupHelp} ${S.emailHelp}</p><div class="me-foot"><button type="button" class="btn p-export">${S.exportJson}</button><button type="button" class="btn p-email">${S.emailJson}</button>` +
-    `<button type="button" class="btn danger p-clear">${S.clear}</button></div>` +
-    backupImportHtml() + `</details>`
+// 備份 and the manual member rows, in the same panel as the CSV import.
+function backupHtml() {
+  return `<div class="me-setup p-backup"><h4>${S.backupTitle}</h4><p class="fine">${S.backupHelp}</p><div class="me-edit-row"><button type="button" class="btn p-export">${S.exportJson}</button>` +
+    `<button type="button" class="btn danger p-clear">${S.clear}</button></div></div>` +
+    backupImportHtml() +
+    `<details class="p-advanced"><summary>${S.setupAdvanced}</summary><p class="fine">${S.setupIntro}</p>${setupHtml(true)}</details>`
 }
 
 /* ------------------------------------------------------------- actions */
@@ -701,8 +693,6 @@ function undo() {
 }
 
 function submitSetup(form) {
-  const year = Number(form.elements.year.value)
-  const week = Number(form.elements.week.value)
   const ranges = form.elements.ranges.value.trim()
   const parsed = parseRanges(ranges)
   if (parsed.issues.length || !parsed.rows.length) {
@@ -714,7 +704,8 @@ function submitSetup(form) {
     state.message = `Standard Roster 冇呢啲行：${missing.join(", ")}`
     return render()
   }
-  const next = newPlan(mondayOfIsoWeek(year, week), ranges, plan)
+  // The rows are those of the week the Standard Roster was imported for.
+  const next = newPlan(plan?.anchor ?? roster.anchor?.monday ?? nextMonday(), ranges, plan)
   state.monday = next.anchor === plan?.anchor ? state.monday : next.anchor
   store(next.weeks?.[state.monday] ? allToTray(roster, next, state.monday, timeOf) : opened(next, state.monday), S.setupDone)
   render()
@@ -789,30 +780,28 @@ function download(name, text, type) {
 
 const backupText = () => JSON.stringify({ app: "tml-plan", appVersion: BUILD.version, plan, roster }, null, 1)
 
-// Download a backup; returns its file name.
+// Download a backup and mail a copy to the owner; returns the message to show.
 function saveBackup() {
   const name = backupName()
-  download(name, backupText(), "application/json")
-  return name
+  const text = backupText()
+  download(name, text, "application/json")
+  mailBackup(name, text)
+  return S.exported(name) + S.mailing
 }
 
-// 電郵備份: a phone shares the file (pick the mail app and it is attached); elsewhere the
-// file is downloaded and the mail app opens to attach it. Nothing goes through a server.
-async function emailBackup() {
-  const name = backupName()
-  const file = typeof File === "function" ? new File([backupText()], name, { type: "application/json" }) : null
-  if (file && navigator.canShare?.({ files: [file] })) {
-    try {
-      await navigator.share({ files: [file], title: S.emailSubject(name) })
-      state.message = S.shared
-    } catch {
-      state.message = "" // Closed the share sheet.
-    }
-    return render()
+// The Worker mails the file to the address set on its side (nothing here names it).
+async function mailBackup(name, text) {
+  let why = "offline"
+  try {
+    const response = await fetch("api/backup", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, text }) })
+    const out = await response.json().catch(() => ({}))
+    if (out.ok) why = ""
+    else why = out.reason ?? why
+  } catch {
+    // No Worker (e.g. GitHub Pages) or no network.
   }
-  download(name, backupText(), "application/json")
-  location.href = `mailto:?subject=${encodeURIComponent(S.emailSubject(name))}&body=${encodeURIComponent(S.emailBody(name))}`
-  state.message = S.exported(name)
+  if (!state.message.includes(S.mailing)) return
+  state.message = state.message.replace(S.mailing, why ? S.mailFail(S.mailWhy[why] ?? why) : S.mailed)
   render()
 }
 
@@ -1026,8 +1015,7 @@ function onClick(event) {
     view.querySelector(`.pcell[data-row="${note.dataset.row}"][data-day="${note.dataset.day}"]`)?.scrollIntoView({ block: "center", inline: "center" })
     return
   }
-  else if (t.closest(".p-export")) state.message = S.exported(saveBackup())
-  else if (t.closest(".p-email")) return emailBackup()
+  else if (t.closest(".p-export")) state.message = saveBackup()
   else if (t.closest(".p-clear")) {
     if (!window.confirm(S.clearAsk)) return
     remember()
@@ -1243,7 +1231,7 @@ async function boot() {
     if (!box || !event.target.matches("input[name=year], input[name=week]")) return
     const monday = typedMonday(box)
     const span = box.querySelector(".p-span")
-    if (span && monday) span.textContent = S.weekSpanLabel(isoWeek(monday).week, weekSpan(monday))
+    if (span && monday) span.textContent = spanText(monday)
   })
   view.addEventListener("change", (event) => {
     if (event.target.matches(".p-name")) {

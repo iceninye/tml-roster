@@ -66,6 +66,54 @@ function cleanRecord(input) {
   return { schema: 1, title, rows, numbers, names, anchor, overrides }
 }
 
+// 編更備份寄電郵：POST /api/backup { name, text }。收件人喺 Worker 嗰邊設定
+// （secret BACKUP_TO），repo 同網頁都唔會寫出電郵地址；用 Resend 寄（secret RESEND_API_KEY，
+// 可選 BACKUP_FROM，預設 Resend 嘅測試寄件人，只寄得去 Resend 帳戶本身嘅電郵）。
+// 收件人固定，所以人哋最多只能寄嘢俾 owner；再加每日上限，唔好被人塞爆。
+const BACKUP_MAX = 1024 * 1024
+const BACKUP_PER_DAY = 30
+const BACKUP_NAME_RE = /^roster-\d{4}-\d{2}-\d{2}-v\d{1,3}\.json$/
+
+function base64(text) {
+  const bytes = new TextEncoder().encode(text)
+  let bin = ""
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  return btoa(bin)
+}
+
+async function mailBackup(request, env) {
+  if (request.method !== "POST") return new Response(null, { status: 405, headers: { allow: "POST", "cache-control": "no-store" } })
+  if (!env.RESEND_API_KEY || !env.BACKUP_TO) return reply({ ok: false, reason: "not_configured" }, 503)
+  const raw = await request.text()
+  if (raw.length > BACKUP_MAX) return reply({ ok: false, reason: "too_large" }, 413)
+  let body = null
+  try {
+    body = JSON.parse(raw)
+    if (JSON.parse(body.text).app !== "tml-plan") body = null
+  } catch {
+    body = null
+  }
+  if (!body || !BACKUP_NAME_RE.test(String(body.name ?? ""))) return reply({ ok: false, reason: "bad_shape" }, 400)
+  const day = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10) // 香港日期
+  const countKey = `backup-mail:${day}`
+  const sent = Number((await env.ROSTER_KV.get(countKey)) ?? 0)
+  if (sent >= BACKUP_PER_DAY) return reply({ ok: false, reason: "too_many" }, 429)
+  await env.ROSTER_KV.put(countKey, String(sent + 1), { expirationTtl: 2 * 86400 })
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      from: env.BACKUP_FROM || "編更備份 <onboarding@resend.dev>",
+      to: [env.BACKUP_TO],
+      subject: `編更備份 ${body.name}`,
+      text: `附件係編更備份 ${body.name}。要還原：編更頁 → 匯入同備份 → 匯入備份，貼上檔案內容。`,
+      attachments: [{ filename: body.name, content: base64(body.text) }],
+    }),
+  })
+  if (!response.ok) return reply({ ok: false, reason: "send_failed", status: response.status }, 502)
+  return reply({ ok: true })
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
@@ -77,6 +125,7 @@ export default {
     const parts = url.pathname.split("/").filter(Boolean) // ["api","roster","<token>"]
     // 前端用嚟問「呢個網址支唔支援同步」（GitHub Pages 版會 404）
     if (parts[0] === "api" && parts[1] === "ping") return reply({ ok: true, sync: true })
+    if (parts[0] === "api" && parts[1] === "backup" && parts.length === 2) return mailBackup(request, env)
     if (parts.length < 2 || parts[0] !== "api" || parts[1] !== "roster") {
       return reply({ ok: false, reason: "not_found" }, 404)
     }
