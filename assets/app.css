@@ -671,7 +671,7 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .field-line > label:has(> .sr:only-child) { position: absolute; }
 
 /* 匯入同備份 panel */
-.csv-import { margin: 0 0 10px; padding: 8px 14px; }
+.csv-import { margin: 12px 0 10px; padding: 8px 14px; }
 .csv-import .me-setup { margin: 10px 0 2px; gap: 8px; }
 .csv-import summary, .p-advanced summary { cursor: pointer; font-weight: 700; }
 .csv-import summary .meta { margin-left: 8px; font-weight: 500; }
