@@ -1,7 +1,7 @@
 // Checks lib/tml-plan.js on a made-up roster and made-up duty times
 // (real rosters and staff never go in the repo):
 //   node tools/validate_plan.mjs
-import { EMPTY, EXTRA, SHEETS, formatRanges, leaveToTray, namedRows, arrangeWeek, defaultSheet, mapCode, setSheet, sheetOf, assign, cleanPlan, fromTray, toTray, trayView, allToTray, canRemove, fillMember, fillTeam, combosView, useCombo, renameBlock, removeBlock, isoWeek, memberRow, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
+import { EMPTY, EXTRA, SHEETS, formatRanges, leaveToTray, namedRows, arrangeWeek, defaultSheet, mapCode, setSheet, sheetOf, assign, cleanPlan, fromTray, toTray, trayView, allToTray, canRemove, fillMember, fillTeam, importWeek, sheetsInRoster, missingMembers, combosView, useCombo, renameBlock, removeBlock, isoWeek, memberRow, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
 import { newRoster, parseRoster } from "../lib/tml-roster.js"
 
 let failed = 0
@@ -278,6 +278,28 @@ check(cleanPlan(JSON.parse(JSON.stringify(sat))).sheets["2026-10-17"] === "8022"
   check(trayView(trg, week)[0].length === trayView(start, week)[0].length - 1, "a TRG day uses up the member's own block")
   const back = setCell(roster, trg, week, 2, 0, null)
   check(!trayView(back, week)[0].includes("TRG") && weekView(roster, back, week)[0].codes[0] === "-", "clearing a TRG day puts no TRG block in the tray")
+}
+
+// Weekly import: next week's roster, members found by name one row down, preferences kept, earlier weeks kept.
+{
+  const w1 = "2026-10-12"
+  const w2 = "2026-10-19"
+  const r1 = newRoster(parseRoster(",Name,Mon,Tue,Wed,Thu,Fri,Sat,Sun\n1,Ann,1101001,RD,1101002,1101003,1101004,RD,RD\n2,Bo,1101002,1101002,RD,1101004,1101005,RD,RD\n3,,1101003,1101003,1101003,RD,RD,RD,RD"), { row: 1, monday: w1 })
+  let p1 = importWeek(r1, null, w1)
+  check(p1.members.map((m) => `${m.row}:${m.name}`).join() === "1:Ann,2:Bo", "the named rows are the team")
+  p1 = { ...p1, members: p1.members.map((m) => (m.name === "Ann" ? { ...m, prefs: ["dawn"] } : m)) }
+  p1 = setCell(r1, allToTray(r1, p1, w1, timeOf), w1, 1, 1, "RD")
+  const r2 = newRoster(parseRoster(",Name,Mon,Tue,Wed,Thu,Fri,Sat,Sun\n1,,1101001,RD,1101002,1101003,1101004,RD,RD\n2,Ann,1101002,1101002,RD,1101004,1101005,RD,RD\n3,Bo,1101003,1101003,1101003,RD,RD,RD,RD"), { row: 1, monday: w2 })
+  const p2 = importWeek(r2, { ...p1, weeks: { ...p1.weeks, [w2]: { 1: { codes: Array(7).fill("RD"), pins: Array(7).fill(1) } } } }, w2)
+  check(p2.members.map((m) => `${m.row}:${m.name}`).join() === "2:Ann,3:Bo" && p2.members[0].prefs.join() === "dawn", "a week later Ann is a row down and keeps the preference")
+  check(p2.weeks[w1]?.["2"]?.codes[1] === "RD" && !p2.weeks[w2], "the week before keeps its plan, moved to the new rows; the imported week starts over")
+  check(weekView(r2, p2, w1)[0].codes[1] === "RD", "the earlier week still shows what was planned")
+  check(Object.keys(p2.sheets).length === 0 && cleanPlan(JSON.parse(JSON.stringify(p2))).known.ann.join() === "dawn", "no special Duty Sheet in a plain roster; known preferences survive a save")
+  const r3 = newRoster(parseRoster(",Name,Mon,Tue,Wed,Thu,Fri,Sat,Sun\n1,Ann,8022101,RD,1101002,1101003,1101004,6091101,RD\n2,Cy,8022102,1101002,RD,1101004,1101005,RD,RD\n3,,1101003,1101003,1101003,RD,RD,RD,RD"), { row: 1, monday: w2 })
+  check(missingMembers(r3, p2).join() === "Bo", "a member gone from the new roster is listed")
+  const found = sheetsInRoster(r3, w2)
+  check(Object.entries(found).map(([d, s]) => `${d}:${s}`).join() === "2026-10-19:8022", "a day mostly on 8022 is found; usual sheets are not")
+  check(importWeek(r3, p2, w2).sheets["2026-10-19"] === "8022", "an import sets the special sheet for that day")
 }
 
 if (failed) {
