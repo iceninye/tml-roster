@@ -545,7 +545,6 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .ptable thead th small.p-empties { margin-top: 2px; color: var(--warn); font-weight: 700; }
 .tray-day em { float: right; margin-right: 2px; font-style: normal; font-weight: 500; }
 .block[data-pending="1"] { color: var(--warn); cursor: pointer; outline: 1px dashed var(--warn); outline-offset: -2px; }
-.csv-import .plan-grid { margin-bottom: 4px; }
 
 /* 編更: tray tabs, filter and sort, combinations (組合) */
 .tray-tabs { display: inline-flex; gap: 4px; }
@@ -671,12 +670,18 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 /* 淨係俾讀屏用嘅 label 唔好佔位，輸入框先會同其他欄位對齊 */
 .field-line > label:has(> .sr:only-child) { position: absolute; }
 
-/* 匯入下星期 Standard Roster, 使用步驟 */
+/* 匯入同備份 panel */
 .csv-import { margin: 0 0 10px; padding: 8px 14px; }
 .csv-import .me-setup { margin: 10px 0 2px; gap: 8px; }
-.csv-import summary, .p-steps summary { cursor: pointer; font-weight: 700; }
+.csv-import summary, .p-advanced summary { cursor: pointer; font-weight: 700; }
 .csv-import summary .meta { margin-left: 8px; font-weight: 500; }
-.csv-import .p-current { margin: 0; color: var(--text); }
-.p-steps { margin: 10px 0; padding: 8px 14px; }
-.p-steps ol { margin: 6px 0 2px; padding-left: 20px; display: grid; gap: 4px; font-size: 14px; line-height: 1.5; }
+.csv-import h4 { margin: 0; font-size: 14px; }
+.csv-import .p-backup, .csv-import .p-import { padding-top: 10px; border-top: 1px solid var(--edge); }
+.csv-import .p-advanced { margin: 4px 0 6px; padding-top: 10px; border-top: 1px solid var(--edge); }
+.csv-import .p-advanced .me-setup { margin-top: 8px; }
+.p-week { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.me-setup .p-week label { display: inline-flex; align-items: center; gap: 6px; }
+.me-setup .p-week input { width: 5.5em; padding: 6px 8px; }
+.me-setup .p-week input[name=week] { width: 4em; }
+.p-week .p-span { margin: 0; }
 .plan-legend { line-height: 1.7; }
