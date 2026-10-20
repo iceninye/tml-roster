@@ -4,7 +4,7 @@
 // plan (names, preferences, results), only in this browser's localStorage,
 // never uploaded. Book-on/off times come from data/duty-basic.json.
 
-import { EMPTY, EXTRA, EXTRA_HOURS, LEAVE, PENDING, SHIFTS, allToTray, canRemove, cleanPlan, clearWeek, combosView, fillMember, fillTeam, formatRanges, fromTray, importWeek, isoWeek, mondayOfIsoWeek, namedRows, newPlan, parseRanges, prefDistance, removeBlock, renameBlock, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, trayView, useCombo, weekView } from "../lib/tml-plan.js"
+import { EMPTY, EXTRA, EXTRA_HOURS, LEAVE, PENDING, SHIFTS, allToTray, canRemove, cleanPlan, clearWeek, combosView, fillMember, fillTeam, formatRanges, fromTray, importWeek, isoWeek, missingMembers, mondayOfIsoWeek, namedRows, newPlan, parseRanges, prefDistance, removeBlock, renameBlock, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, trayView, useCombo, weekView } from "../lib/tml-plan.js"
 import { addDays, classify, cleanRoster, mondayOf, newRoster, normaliseCode, parseRoster, weekDates } from "../lib/tml-roster.js"
 import { serviceDate } from "../lib/tml-time.js"
 
@@ -29,6 +29,10 @@ const S = {
   importPast: (week) => `唔可以匯入 ${week}：呢個係本週或者之前嘅星期，會覆蓋本週嘅編更。請揀下星期。`,
   importNotNext: (week, next) => `你揀咗 ${week}，唔係下星期 ${next}。確定用呢個星期？`,
   importOver: (weeks) => `${weeks} 已經有手動編排，匯入後會重新開始。確定？`,
+  importMissing: (names, n) => `新 CSV 冇咗 ${n} 位組員：${names}。\n佢哋之前幾星期嘅編排唔會再顯示（資料仍然保留喺備份）。確定匯入？`,
+  importStopped: "已取消匯入，冇改動",
+  csvSheets: (days) => `；週${days}用特別 Duty Sheet`,
+  csvBackup: (name) => `匯入前已自動下載備份 ${name}。`,
   importedWeek: (week) => `而家嘅 Standard Roster：${week}`,
   templateBtn: "下載匯入範本",
   templateHelp: "範本有 141 行、7 格，RD 只係示範，請換成實際更份。Name 欄填咗名嘅行就係組員。",
@@ -149,6 +153,11 @@ const S = {
   settingsTitle: "設定／備份",
   backupHelp: "編更資料只存喺呢部機。換機或者交俾其他人之前，先匯出。",
   exportJson: "下載備份（JSON）",
+  emailJson: "電郵備份",
+  emailSubject: (name) => `編更備份 ${name}`,
+  emailBody: (name) => `編更備份檔 ${name} 已經下載咗，請將佢附加喺呢封電郵。`,
+  emailHelp: "電郵備份：手機會打開分享，揀電郵 App 就會連檔案一齊寄；電腦會下載檔案再開電郵，要自己附加。資料唔會經任何伺服器。",
+  shared: "已分享備份",
   exported: (name) => `已下載備份：${name}`,
   importJson: "匯入備份",
   importPh: "貼上備份內容",
@@ -643,7 +652,7 @@ function backupImportHtml() {
 
 function settingsHtml() {
   return `<details class="panel"><summary>${S.settingsTitle}</summary><h4>${S.setupAdvanced}</h4><p class="fine">${S.setupIntro}</p>${setupHtml(true)}` +
-    `<p class="fine">${S.backupHelp}</p><div class="me-foot"><button type="button" class="btn p-export">${S.exportJson}</button>` +
+    `<p class="fine">${S.backupHelp} ${S.emailHelp}</p><div class="me-foot"><button type="button" class="btn p-export">${S.exportJson}</button><button type="button" class="btn p-email">${S.emailJson}</button>` +
     `<button type="button" class="btn danger p-clear">${S.clear}</button></div>` +
     backupImportHtml() + `</details>`
 }
@@ -719,9 +728,16 @@ function importRoster(text, anchor) {
     state.message = parsed.issues.slice(0, 4).join("；") || S.csvEmpty
     return render()
   }
-  remember()
   // The CSV is the Standard Roster of the week it is imported for.
   const next = newRoster(parsed, { row: parsed.numbers[0], monday: anchor })
+  const gone = missingMembers(next, plan)
+  if (gone.length && !window.confirm(S.importMissing(gone.slice(0, 10).join("、") + (gone.length > 10 ? " 等" : ""), gone.length))) {
+    state.message = S.importStopped
+    return render()
+  }
+  // A backup first, in case the wrong week or file was picked.
+  const backup = plan ? S.csvBackup(saveBackup()) : ""
+  remember()
   saveRoster(next)
   const named = namedRows(next)
   if (named.length) {
@@ -733,7 +749,8 @@ function importRoster(text, anchor) {
     state.sel = null
     state.pick = { rows: [] }
     state.importOpen = false
-    state.message = savePlan(opened(made, anchor)) ? S.csvDone(parsed.rows.length, named.length, weekNo(anchor), kept) : S.notStored
+    const special = Object.keys(made.sheets).filter((date) => date >= anchor).map((date) => S.weekdays[weekDates(anchor).indexOf(date)]).join("、")
+    state.message = savePlan(opened(made, anchor)) ? backup + S.csvDone(parsed.rows.length, named.length, weekNo(anchor), kept) + (special ? S.csvSheets(special) : "") : S.notStored
   } else state.message = S.csvDone(parsed.rows.length, 0)
   render()
 }
@@ -768,6 +785,35 @@ function download(name, text, type) {
   link.click()
   link.remove()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+const backupText = () => JSON.stringify({ app: "tml-plan", appVersion: BUILD.version, plan, roster }, null, 1)
+
+// Download a backup; returns its file name.
+function saveBackup() {
+  const name = backupName()
+  download(name, backupText(), "application/json")
+  return name
+}
+
+// 電郵備份: a phone shares the file (pick the mail app and it is attached); elsewhere the
+// file is downloaded and the mail app opens to attach it. Nothing goes through a server.
+async function emailBackup() {
+  const name = backupName()
+  const file = typeof File === "function" ? new File([backupText()], name, { type: "application/json" }) : null
+  if (file && navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: S.emailSubject(name) })
+      state.message = S.shared
+    } catch {
+      state.message = "" // Closed the share sheet.
+    }
+    return render()
+  }
+  download(name, backupText(), "application/json")
+  location.href = `mailto:?subject=${encodeURIComponent(S.emailSubject(name))}&body=${encodeURIComponent(S.emailBody(name))}`
+  state.message = S.exported(name)
+  render()
 }
 
 // 自動編排: fill every member's empty cells from the tray.
@@ -980,12 +1026,9 @@ function onClick(event) {
     view.querySelector(`.pcell[data-row="${note.dataset.row}"][data-day="${note.dataset.day}"]`)?.scrollIntoView({ block: "center", inline: "center" })
     return
   }
-  else if (t.closest(".p-export")) {
-    const backup = { app: "tml-plan", appVersion: BUILD.version, plan, roster }
-    const name = backupName()
-    download(name, JSON.stringify(backup, null, 1), "application/json")
-    state.message = S.exported(name)
-  } else if (t.closest(".p-clear")) {
+  else if (t.closest(".p-export")) state.message = S.exported(saveBackup())
+  else if (t.closest(".p-email")) return emailBackup()
+  else if (t.closest(".p-clear")) {
     if (!window.confirm(S.clearAsk)) return
     remember()
     try {
