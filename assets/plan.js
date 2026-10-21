@@ -166,7 +166,9 @@ const S = {
   syncNewDone: "已產生新 token 並記住。請撳「複製」存好佢；另一部機貼同一條，就可以下載同一份編更。",
   syncCopied: "已複製 token。",
   syncCopyFail: "複製唔到，請手動選取輸入框內容。",
+  loadingData: "讀緊更份資料…",
   syncNoToken: "先貼上同步 token 或者撳「產生 token」。",
+  syncBadToken: "token 格式唔啱（20 至 64 個細楷英文字母或數字），冇上傳亦冇下載。",
   syncNoPlan: "未有編更，冇嘢上傳。",
   syncDirty: "呢部機有改動未上傳到雲端。",
   syncConflict: (at, device) => `雲端有另一個版本（${at}${device ? ` · 由「${device}」上傳` : ""}）。撳「確定」用呢部機覆蓋雲端（舊版本會先寄去電郵）；撳「取消」就唔覆蓋。`,
@@ -769,9 +771,11 @@ async function sendLog(event, token) {
 }
 
 // 用輸入框入面嘅 token；換咗就記住，版本號由 0 開始，並寄 log。
+// 框入面打咗嘢但唔係 token 格式就回 null，唔好靜靜用返舊 token。
 function adoptToken() {
   const value = String(document.getElementById("p-kv-token")?.value ?? "").trim().toLowerCase()
-  if (TOKEN_RE.test(value) && value !== kvToken()) {
+  if (value && !TOKEN_RE.test(value)) return null
+  if (value && value !== kvToken()) {
     setPref(KV_KEY, value)
     setPref(KV_VERSION, "0")
     sendLog("join", value)
@@ -790,6 +794,7 @@ function kvNewToken() {
 
 async function kvCopyToken() {
   const token = adoptToken()
+  if (token === null) return kvMessage(S.syncBadToken)
   if (!token) return kvMessage(S.syncNoToken)
   try {
     await navigator.clipboard.writeText(token)
@@ -801,7 +806,9 @@ async function kvCopyToken() {
 
 // force：雲端有另一個版本都照蓋；skipBackup：雲端舊版本寄唔到電郵都照蓋。兩樣都要用戶撳「確定」。
 async function kvUpload(force = false, skipBackup = false) {
-  if (!adoptToken()) return kvMessage(S.syncNoToken)
+  const token = adoptToken()
+  if (token === null) return kvMessage(S.syncBadToken)
+  if (!token) return kvMessage(S.syncNoToken)
   if (!plan) return kvMessage(S.syncNoPlan)
   let response
   try {
@@ -829,7 +836,9 @@ async function kvUpload(force = false, skipBackup = false) {
 }
 
 async function kvDownload() {
-  if (!adoptToken()) return kvMessage(S.syncNoToken)
+  const token = adoptToken()
+  if (token === null) return kvMessage(S.syncBadToken)
+  if (!token) return kvMessage(S.syncNoToken)
   let response
   try {
     response = await fetch(kvEndpoint(), { headers: { accept: "application/json" }, cache: "no-store" })
@@ -1425,16 +1434,15 @@ function onPointerDown(event) {
   document.addEventListener("pointercancel", onPointerCancel)
 }
 
-async function boot() {
-  roster = cleanRoster(read(ROSTER_KEY))
-  plan = cleanPlan(read(PLAN_KEY))
-  state.monday = nextMonday()
-  loadTrayView()
+async function loadBasic() {
   try {
     basic = (await fetchData("data/duty-basic.json")).duties ?? {}
   } catch {
     basic = {}
   }
+}
+
+async function loadCards() {
   try {
     const index = await fetchData("data/duties/index.json")
     dutySheets = index.sheets
@@ -1453,6 +1461,16 @@ async function boot() {
   } catch {
     // The page works without the special sheets' cards; their duties just show no times.
   }
+}
+
+async function boot() {
+  roster = cleanRoster(read(ROSTER_KEY))
+  plan = cleanPlan(read(PLAN_KEY))
+  state.monday = nextMonday()
+  loadTrayView()
+  // 開新一週要用更份時間排待定區，所以資料到咗先畫表；兩樣資料同時讀，唔好一樣等完先讀另一樣。
+  view.innerHTML = `<p class="empty">${S.loadingData}</p>`
+  await Promise.all([loadBasic(), loadCards()])
   view.addEventListener("click", onClick)
   view.addEventListener("submit", onSubmit)
   view.addEventListener("input", (event) => {

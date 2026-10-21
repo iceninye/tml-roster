@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.9.23 — unreleased
+- 我的更表: 本週概況唔再將 HC 計入「假期」，改計「待定」（TBC 本身已經係待定）。
+- 我的更表: 更份資料（index、duty-basic、站名、更份卡）讀唔到唔再記住成個 session：顯示「讀取更份資料失敗，請稍後再試」，唔再誤講「搵唔到 Duty Sheet」；網絡返嚟或者返到呢頁就自動再讀。index 真係冇嗰份 sheet 先講搵唔到。
+- 我的更表: 開頁唔再等站名檔讀完先顯示；地點名到咗再補上。
+- 編更: duty-basic 同 Duty Sheet 卡同時讀（以前讀完一樣先讀另一樣），讀緊嗰陣顯示「讀緊更份資料…」，唔再係白頁。開新一週要用更份時間排待定區，所以表格仍然等資料到先畫。
+- 兩頁: 同步 token 框打錯（唔係 20 至 64 個細楷英文字母或數字）會講「token 格式唔啱」，唔做上傳或下載；以前會靜靜用返舊 token。
+- 部署: GitHub Pages workflow 複製埋 `site.webmanifest` 同圖示，Pages 版嘅 service worker 先裝得到（`cache.addAll` 遇到 404 會成個失敗）。
+- 測試: `validate_roster` 加 HC 計待定。
+- Shell cache 改名 `v53`。
+
 ## v0.9.22 — unreleased
 - 編更: 特別 Duty Sheet 嗰日（8022、8027、7091M …）唔再將成份 sheet 嘅更份放入待定區（以前 8027 有 166 個、7091M 有 106 個）。每星期匯入嘅 Standard Roster CSV 已經寫咗組員嗰日嘅特別更份，所以待定區只放組員自己嗰日嘅更份，同平日一樣。其他更份照舊可以喺 HC／TBC 揀編號度揀。
 - 已經開咗嘅星期唔會自己改：重新匯入嗰星期嘅 CSV，或者按「本週重新開始」，待定區就會用新做法。
