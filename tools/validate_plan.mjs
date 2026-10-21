@@ -151,16 +151,22 @@ check(satBack.sheets["2026-10-17"] === undefined && weekView(roster, satBack, "2
 check(setSheet(roster, plan, "2026-10-12", 5, "9999") === plan && SHEETS.length === 5, "an unknown sheet is refused")
 check(cleanPlan(JSON.parse(JSON.stringify(sat))).sheets["2026-10-17"] === "8022" && cleanPlan({ ...JSON.parse(JSON.stringify(plan)), sheets: { "2026-10-17": "6091", "2026-10-18": "x" } }).sheets["2026-10-17"] === undefined, "sheets survive a save; defaults and junk are dropped")
 
-// A special sheet puts all its duties in the tray; blocks can go while there are more than members.
+// A special sheet's day holds the team's own duties of that date (from the
+// Standard Roster), not the whole sheet; blocks can go while there are more than members.
 {
   const day = 5
   const week = "2026-10-12"
   const members = weekView(roster, sat, week).length
   const v = weekView(roster, sat, week)
-  check(trayView(sat, week)[day].join() === SAT.join(), "a special sheet puts every one of its duties in the day's tray")
+  const own = v.map((l) => l.std[day]).filter((c) => /^\d{7}$/.test(c))
+  check(own.length && trayView(sat, week)[day].filter((c) => /^\d{7}$/.test(c)).sort().join() === own.sort().join(), "a special sheet puts only the team's Standard duties of that date in the tray")
+  check(!trayView(sat, week)[day].some((c) => SAT.includes(c)), "the sheet's other duties stay out of the tray")
   check(v.every((l) => !/^\d{7}$/.test(l.codes[day])), "the cells of that day are emptied for arranging")
+  check(!canRemove(roster, sat, week, day), "no block may go while blocks do not outnumber the members")
   const extra = Array.from({ length: members + 1 }, (_, i) => `8022${String(200 + i).padStart(3, "0")}`)
-  const many = setSheet(roster, plan, week, day, "8022", extra)
+  const trays = trayView(sat, week)
+  trays[day] = [...trays[day], ...extra]
+  const many = { ...sat, trays: { ...sat.trays, [week]: trays } }
   check(canRemove(roster, many, week, day), "blocks may go on a special day while they outnumber the members")
   const surplus = trayView(many, week)[day].length - members
   let cut = many
@@ -316,7 +322,9 @@ check(cleanPlan(JSON.parse(JSON.stringify(sat))).sheets["2026-10-17"] === "8022"
   check(mapCode("7091123", "7091M") === "7091123" && mapCode("6091124", "8022") === "8022124", "a lettered sheet keeps the base sheet's numbers")
   const p4 = importWeek(r4, null, w4, index)
   check(p4.sheets["2026-11-01"] === "7091M" && cleanPlan(JSON.parse(JSON.stringify(p4))).sheets["2026-11-01"] === "7091M", "7091M survives a save")
-  check(setSheet(r4, p4, w4, 6, "7091M", ["7091401", "7091123"]).trays[w4][6].join() === "7091401,7091123", "a dated sheet handed in with its duties puts them in the tray")
+  const m4 = setSheet(r4, p4, w4, 6, "7091M", ["7091401", "7091123", "7091124"])
+  check(m4.sheets["2026-11-01"] === "7091M" && m4.trays[w4][6].slice().sort().join() === "7091123,7091124", "a dated sheet handed in with its duties is taken; the tray gets the team's own duties, not 7091401")
+  check(setSheet(r4, p4, w4, 6, "7091M") === p4, "a dated sheet without its duties is refused")
   check(setSheet(r4, p4, w4, 6, "7091M") === p4, "a sheet that is neither known nor handed duties is refused")
   // timeOf gets each cell's own date (and the Sunday before for Monday's rest).
   const asked = new Set()

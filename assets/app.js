@@ -12,7 +12,7 @@ import { serviceDate, serviceSeconds } from "../lib/tml-time.js"
 import { fetchData, placeNames, sheetForDate, stationNames } from "../lib/tml-data.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.21", commit: "dev" }
+const BUILD = { version: "0.9.22", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）

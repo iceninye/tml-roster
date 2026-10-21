@@ -336,7 +336,7 @@ const weekNo = (monday) => `${isoWeek(monday).year} 年第 ${isoWeek(monday).wee
 const nextMonday = () => addDays(mondayOf(serviceDate(Date.now())), 7)
 
 // A week seen for the first time starts with every block in the tray and the
-// cells empty; a date on a special Duty Sheet gets that sheet's blocks.
+// cells empty; a date on a special Duty Sheet takes that sheet's numbers.
 function opened(p, monday) {
   if (p.weeks?.[monday]) return p
   let out = allToTray(roster, p, monday, timeOf)
