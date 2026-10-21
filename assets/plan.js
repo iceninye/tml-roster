@@ -9,10 +9,10 @@
 import { EMPTY, EXTRA, EXTRA_HOURS, HHS, LEAVE, PENDING, PREFS, SHIFTS, allToTray, canRemove, cleanPlan, clearWeek, combosView, fillMember, fillTeam, formatRanges, fromTray, importWeek, isHhs, isoWeek, missingMembers, mondayOfIsoWeek, namedRows, newPlan, parseRanges, prefDistance, removeBlock, renameBlock, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, trayView, useCombo, weekView } from "../lib/tml-plan.js"
 import { addDays, classify, cleanRoster, mondayOf, newRoster, normaliseCode, parseRoster, weekDates } from "../lib/tml-roster.js"
 import { serviceDate } from "../lib/tml-time.js"
-import { fetchData } from "../lib/tml-data.js"
+import { fetchData, sheetForDate } from "../lib/tml-data.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.20", commit: "dev" }
+const BUILD = { version: "0.9.21", commit: "dev" }
 
 // 寄去電郵嘅 log 同備份用嘅裝置資料：由瀏覽器自動估（例如「iPhone · Safari」），唔使手動改名。
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
@@ -217,6 +217,10 @@ let roster = null
 let plan = null
 let basic = {}
 let cards = {} // book-on/off of the duties on the special sheets (8022, 8023 ...), from data/duties
+// The same per special sheet, for a dated sheet that shares its numbers with another
+// (7091M on 1 Nov 2026 is 7091xxx too): { "7091M": { "7091123": { on, off, hours } } }
+const cardsBy = {}
+let dutySheets = null // data/duties/index.json sheets; null until read
 
 /* ------------------------------------------------------------- storage */
 
@@ -271,16 +275,28 @@ const hhmm = (sec) => {
 const meDate = (date) => `${Number(date.slice(5, 7))}/${Number(date.slice(8))}`
 
 // Book-on/off of a code from data/duty-basic.json, or null (RD, AL, unknown duty).
-function timeOf(code) {
+// With a date, a dated sheet sharing the code's numbers (7091M on 1 Nov) gives its own
+// card's times, and a number not on it has none that day.
+function timeOf(code, date) {
   const key = code ? String(code).toUpperCase() : ""
   // Days off (CL, SL ...) have no book-on/off, whatever the duty list holds for them.
   if (key in EXTRA_HOURS) return null
+  const sheet = typeof date === "string" && /^\d{7}$/.test(key) ? datedSheet(date, key) : null
+  if (sheet) return cardsBy[sheet]?.[key] ?? null
   const row = basic[key]
   return row ? { on: row[0], off: row[2], hours: row[4] } : cards[key] ?? null
 }
 
+// The dated sheet with a letter (7091M) a duty number belongs to on a date, or null.
+function datedSheet(date, code) {
+  const set = plan?.sheets?.[date]
+  const sheet = set && set.startsWith(code.slice(0, 4)) ? set : sheetForDate(dutySheets, date, code)
+  return sheet.length > 4 && cardsBy[sheet] ? sheet : null
+}
+
 // Every duty of a Duty Sheet (e.g. 8022 -> 8022101, ...), from the basic list and the duty cards.
 function sheetCodes(sheet) {
+  if (sheet.length > 4) return Object.keys(cardsBy[sheet] ?? {}).sort()
   const all = new Set([...Object.keys(basic), ...Object.keys(cards)])
   return [...all].filter((code) => /^\d{7}$/.test(code) && code.startsWith(sheet)).sort()
 }
@@ -308,8 +324,9 @@ const pickBox = (cls, value, on, label) => `<input type="checkbox" class="pick $
 // The duties of a day's Duty Sheet nobody has yet: not in a cell, not in the tray.
 function freeDuties(day) {
   const used = new Set([...trayView(plan, state.monday)[day], ...weekView(roster, plan, state.monday).map((line) => line.codes[day])])
-  return sheetCodes(sheetOf(plan, addDays(state.monday, day))).filter((code) => !used.has(code) && timeOf(code))
-    .sort((a, b) => timeOf(a).on - timeOf(b).on || a.localeCompare(b))
+  const date = addDays(state.monday, day)
+  return sheetCodes(sheetOf(plan, date)).filter((code) => !used.has(code) && timeOf(code, date))
+    .sort((a, b) => timeOf(a, date).on - timeOf(b, date).on || a.localeCompare(b))
 }
 
 // The ISO week of a Monday, with its dates, e.g. 2026 年第 43 週（2026/10/19 至 2026/10/25）.
@@ -432,7 +449,7 @@ function weekHtml() {
     let work = 0
     let hours = 0
     const cells = line.codes.map((code, d) => {
-      const t = timeOf(code)
+      const t = timeOf(code, dates[d])
       const shift = t ? shiftOf(t.on, t.off) : ""
       const miss = t && prefDistance(line.member.prefs, shift, code) > 0
       if (t) {
@@ -459,8 +476,8 @@ function weekHtml() {
   }).join("")
   // How many duty days match a preference, now and in the Standard Roster.
   const fitOf = (pick) => lines.reduce((acc, line) => {
-    for (const code of pick(line)) {
-      const t = timeOf(code)
+    for (const [d, code] of pick(line).entries()) {
+      const t = timeOf(code, dates[d])
       if (!t) continue
       acc.all += 1
       if (!prefDistance(line.member.prefs, shiftOf(t.on, t.off), code)) acc.hit += 1
@@ -498,7 +515,7 @@ function notesHtml(lines, issues) {
     line.codes.forEach((code, d) => {
       const short = issues.get(`${line.member.row}:${d}`)
       if (short != null) note(S.noteShort(name, S.weekdays[d], (short / 3600).toFixed(1)), line.member.row, d)
-      if (/^\d{7}$/.test(code) && !timeOf(code)) note(S.noteMissing(name, S.weekdays[d], code), line.member.row, d)
+      if (/^\d{7}$/.test(code) && !timeOf(code, addDays(state.monday, d))) note(S.noteMissing(name, S.weekdays[d], code), line.member.row, d)
     })
     const empty = line.codes.map((code, d) => (code === EMPTY ? d : -1)).filter((d) => d !== -1)
     if (empty.length && line.codes.includes("RD")) note(S.noteEmpty(name, empty.map((d) => S.weekdays[d]).join("、")), line.member.row, empty[0])
@@ -509,7 +526,7 @@ function notesHtml(lines, issues) {
   }
   trayView(plan, state.monday).forEach((codes, d) => {
     const pending = codes.filter((code) => PENDING.includes(code)).length
-    const left = codes.filter((code) => timeOf(code)).length
+    const left = codes.filter((code) => timeOf(code, addDays(state.monday, d))).length
     if (pending) note(S.notePending(S.weekdays[d], pending))
     if (left) note(S.noteLeft(S.weekdays[d], left))
   })
@@ -559,7 +576,7 @@ function selHtml(lines) {
     const pending = PENDING.includes(code)
     const free = pending ? freeDuties(sel.day) : []
     const options = free.map((c) => {
-      const t = timeOf(c)
+      const t = timeOf(c, addDays(state.monday, sel.day))
       return `<option value="${c}">${c} · ${hhmm(t.on)}–${hhmm(t.off)} · ${S.shift[shiftOf(t.on, t.off)]}</option>`
     }).join("")
     const picker = pending ? `<label class="meta">${S.pickDuty} <select name="pick"><option value="">${free.length ? "—" : S.pickNone}</option>${options}</select></label>` : ""
@@ -575,40 +592,40 @@ function selHtml(lines) {
     `<span class="meta">Standard：${escapeHtml(line.std[d])} · ${S.selHelp}</span></div>` + quick +
     `<div class="me-edit-row"><label class="meta">${S.editLabel} <input name="code" value="${line.codes[d] === EMPTY ? "" : escapeHtml(line.codes[d])}" maxlength="10" autocapitalize="characters" spellcheck="false"></label>` +
     `<button type="submit" class="btn primary">${S.editSave}</button>` +
-    (timeOf(line.codes[d]) || LEAVE.includes(line.codes[d]) ? `<button type="button" class="btn p-to-tray">${S.toTray}</button>` : "") +
-    (line.codes[d] !== EMPTY && !timeOf(line.codes[d]) && !LEAVE.includes(line.codes[d]) ? `<button type="button" class="btn p-clear-cell">${S.clearCell}</button>` : "") +
+    (timeOf(line.codes[d], addDays(state.monday, d)) || LEAVE.includes(line.codes[d]) ? `<button type="button" class="btn p-to-tray">${S.toTray}</button>` : "") +
+    (line.codes[d] !== EMPTY && !timeOf(line.codes[d], addDays(state.monday, d)) && !LEAVE.includes(line.codes[d]) ? `<button type="button" class="btn p-clear-cell">${S.clearCell}</button>` : "") +
     `<button type="button" class="btn p-cancel">${S.cancel}</button></div></form>`
 }
 
 // Which kind a tray code is for the filter: a shift, "leave" or "hc" (no chip of its own).
-function kindOf(code) {
-  const t = timeOf(code)
+function kindOf(code, date) {
+  const t = timeOf(code, date)
   if (t) return shiftOf(t.on, t.off)
   return PENDING.includes(code) ? "hc" : "leave"
 }
 
 // 紅磡 narrows the kinds picked (紅磡 + 早 = 紅磡嘅早更); the kinds are either-or.
-const passes = (code) => {
+const passes = (code, date) => {
   const kinds = state.tray.filter.filter((k) => k !== HHS)
-  return (!kinds.length || kinds.includes(kindOf(code))) && (!state.tray.filter.includes(HHS) || isHhs(code))
+  return (!kinds.length || kinds.includes(kindOf(code, date))) && (!state.tray.filter.includes(HHS) || isHhs(code))
 }
 
 // A combination passes when every duty in it is of a kind picked (rest days and leave don't count).
 const comboPasses = (codes) => {
   if (!state.tray.filter.length) return true
-  const duties = codes.filter((code) => timeOf(code))
-  return duties.length > 0 && duties.every(passes)
+  const duties = codes.map((code, d) => [code, addDays(state.monday, d)]).filter(([code, date]) => timeOf(code, date))
+  return duties.length > 0 && duties.every(([code, date]) => passes(code, date))
 }
 
-function sortKey(code) {
-  const t = timeOf(code)
+function sortKey(code, date) {
+  const t = timeOf(code, date)
   if (state.tray.sort === "code") return [t ? 0 : 1, 0, code]
   return [t ? 0 : 1, t ? (state.tray.sort === "off" ? t.off : t.on) : 0, code]
 }
 const byKey = (a, b) => a[0] - b[0] || a[1] - b[1] || String(a[2]).localeCompare(String(b[2]))
 
 function blockHtml(code, d, i, removable) {
-  const t = timeOf(code)
+  const t = timeOf(code, addDays(state.monday, d))
   const shift = t ? shiftOf(t.on, t.off) : ""
   const sel = state.sel?.type === "block" && state.sel.day === d && state.sel.index === i
   const x = t && removable ? `<span class="blk-x" role="button" tabindex="0" data-day="${d}" data-index="${i}" aria-label="${S.removeBlock}" title="${S.removeBlock}">✕</span>` : ""
@@ -619,7 +636,7 @@ function blockHtml(code, d, i, removable) {
 function comboHtml(combo, ci) {
   const sel = state.sel?.type === "combo" && state.sel.ci === ci
   const cells = combo.codes.map((code, d) => {
-    const t = timeOf(code)
+    const t = timeOf(code, addDays(state.monday, d))
     const shift = t ? shiftOf(t.on, t.off) : ""
     return `<span class="cb-day" data-shift="${shift}"><i>${S.weekdays[d]}</i><b>${escapeHtml(t && /^\d{7}$/.test(code) ? code.slice(4) : code)}</b>${t ? `<small>${hhmm(t.on)}</small>` : ""}</span>`
   }).join("")
@@ -640,7 +657,7 @@ function trayHtml() {
     `<button type="button" class="tray-tab" data-tab="other" aria-selected="${tv.tab === "other"}">${S.tabOther}</button></span>`
   let body
   if (tv.tab === "other") {
-    const shown = EXTRA.filter(passes).sort((a, b) => byKey(sortKey(a), sortKey(b)))
+    const shown = EXTRA.filter((code) => passes(code)).sort((a, b) => byKey(sortKey(a), sortKey(b)))
     const blocks = shown.map((code) => {
       const t = timeOf(code)
       const shift = t ? shiftOf(t.on, t.off) : ""
@@ -652,7 +669,7 @@ function trayHtml() {
       `<form class="p-custom me-edit-row" autocomplete="off"><label class="meta">${S.customLabel} <input name="code" maxlength="10" autocapitalize="characters" spellcheck="false"></label><button type="submit" class="btn">${S.customUse}</button></form>`
   } else if (tv.tab === "combos") {
     const mean = (codes) => {
-      const ts = codes.map(timeOf).filter(Boolean)
+      const ts = codes.map((code, d) => timeOf(code, addDays(state.monday, d))).filter(Boolean)
       if (!ts.length) return Infinity
       return ts.reduce((sum, t) => sum + (tv.sort === "off" ? t.off : t.on), 0) / ts.length
     }
@@ -663,7 +680,8 @@ function trayHtml() {
   } else {
     const cols = tray.map((codes, d) => {
       const removable = canRemove(roster, plan, state.monday, d)
-      const shown = codes.map((code, i) => ({ code, i })).filter(({ code }) => passes(code)).sort((a, b) => byKey(sortKey(a.code), sortKey(b.code)))
+      const date = addDays(state.monday, d)
+      const shown = codes.map((code, i) => ({ code, i })).filter(({ code }) => passes(code, date)).sort((a, b) => byKey(sortKey(a.code, date), sortKey(b.code, date)))
       const blocks = shown.map(({ code, i }) => blockHtml(code, d, i, removable)).join("")
       const count = shown.length === codes.length ? `${codes.length}` : `${shown.length}/${codes.length}`
       return `<div class="tray-col" data-day="${d}"><span class="tray-day">${S.weekdays[d]}<em>${count}</em></span><div class="tray-blocks">${blocks || `<span class="tray-none">${S.trayNone}</span>`}</div></div>`
@@ -934,7 +952,7 @@ function importRoster(text, anchor) {
   if (named.length) {
     // Members are matched by name, so their preferences carry over; weeks before this
     // one stay as they were, this week and later start over with all blocks in the tray.
-    const made = importWeek(next, plan, anchor)
+    const made = importWeek(next, plan, anchor, dutySheets)
     const kept = made.members.filter((m) => m.prefs.length).length
     state.monday = anchor
     state.sel = null
@@ -1052,7 +1070,7 @@ function downloadCsv() {
   const quote = (v) => `"${String(v).replace(/"/g, '""')}"`
   const out = [["行", "組員", ...dates.map((d, i) => `${S.weekdays[i]} ${d}`), S.hours].map(quote).join(",")]
   for (const line of lines) {
-    const hours = line.codes.reduce((sum, code) => sum + (timeOf(code)?.hours || EXTRA_HOURS[code] || 0), 0)
+    const hours = line.codes.reduce((sum, code, d) => sum + (timeOf(code, dates[d])?.hours || EXTRA_HOURS[code] || 0), 0)
     out.push([line.row, who(line.member), ...line.codes.map((code) => (code === EMPTY ? "" : code)), hours ? hours.toFixed(1) : ""].map(quote).join(","))
   }
   const name = `tml-plan-${year}-W${String(week).padStart(2, "0")}.csv`
@@ -1419,10 +1437,18 @@ async function boot() {
   }
   try {
     const index = await fetchData("data/duties/index.json")
+    dutySheets = index.sheets
     await Promise.all(index.sheets.map(async (sheet) => {
       if (sheet.class !== "special") return
       const book = await fetchData(`data/duties/${sheet.file}`)
-      for (const duty of book.duties) if (duty.on && duty.off) cards[duty.id] = { on: duty.on[0], off: duty.off[0], hours: (duty.work ?? 0) / 60 }
+      const own = (cardsBy[sheet.code] = {})
+      for (const duty of book.duties) {
+        if (!duty.on || !duty.off) continue
+        own[duty.id] = { on: duty.on[0], off: duty.off[0], hours: (duty.work ?? 0) / 60 }
+        // First sheet wins, so a dated sheet sharing another's numbers (7091M) does not
+        // lend them its times on other days; timeOf with a date reads cardsBy instead.
+        cards[duty.id] ??= own[duty.id]
+      }
     }))
   } catch {
     // The page works without the special sheets' cards; their duties just show no times.

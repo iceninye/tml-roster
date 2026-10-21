@@ -301,6 +301,29 @@ check(cleanPlan(JSON.parse(JSON.stringify(sat))).sheets["2026-10-17"] === "8022"
   const found = sheetsInRoster(r3, w2)
   check(Object.entries(found).map(([d, s]) => `${d}:${s}`).join() === "2026-10-19:8022", "a day mostly on 8022 is found; usual sheets are not")
   check(importWeek(r3, p2, w2).sheets["2026-10-19"] === "8022", "an import sets the special sheet for that day")
+
+  // Dated sheets from the Duty index: 8027 is not in SHEETS; 7091M shares the numbers of 7091.
+  const index = [
+    { code: "1101", dates: null }, { code: "6091", dates: null }, { code: "7091", dates: null, alsoOn: ["2026-10-19"] },
+    { code: "7091M", class: "special", dates: ["2026-11-01"] }, { code: "8022", class: "special", dates: ["2026-10-24"], alsoOn: ["2026-10-31"] },
+    { code: "8027", class: "special", dates: ["2026-10-30"] },
+  ]
+  const w4 = "2026-10-26"
+  const r4 = newRoster(parseRoster(",Name,Mon,Tue,Wed,Thu,Fri,Sat,Sun\n1,Ann,1101101,RD,1101113,1101104,8027101,8022101,7091123\n2,Cy,RD,1101102,RD,1101114,8027115,8022111,7091124"), { row: 1, monday: w4 })
+  const dated = sheetsInRoster(r4, w4, index)
+  check(Object.entries(dated).map(([d, s]) => `${d}:${s}`).join() === "2026-10-30:8027,2026-10-31:8022,2026-11-01:7091M", "with the Duty index, 8027 and the Marathon's 7091M are found")
+  check(Object.keys(sheetsInRoster(r4, w4)).join() === "2026-10-31", "without the index only the known sheets are found")
+  check(mapCode("7091123", "7091M") === "7091123" && mapCode("6091124", "8022") === "8022124", "a lettered sheet keeps the base sheet's numbers")
+  const p4 = importWeek(r4, null, w4, index)
+  check(p4.sheets["2026-11-01"] === "7091M" && cleanPlan(JSON.parse(JSON.stringify(p4))).sheets["2026-11-01"] === "7091M", "7091M survives a save")
+  check(setSheet(r4, p4, w4, 6, "7091M", ["7091401", "7091123"]).trays[w4][6].join() === "7091401,7091123", "a dated sheet handed in with its duties puts them in the tray")
+  check(setSheet(r4, p4, w4, 6, "7091M") === p4, "a sheet that is neither known nor handed duties is refused")
+  // timeOf gets each cell's own date (and the Sunday before for Monday's rest).
+  const asked = new Set()
+  const spy = (code, date) => { asked.add(date); return null }
+  restIssues(r4, p4, w4, spy)
+  fillTeam(r4, p4, w4, spy)
+  check([...asked].sort().join() === "2026-10-25,2026-10-26,2026-10-27,2026-10-28,2026-10-29,2026-10-30,2026-10-31,2026-11-01", "timeOf is asked with each day's date")
 }
 
 if (failed) {

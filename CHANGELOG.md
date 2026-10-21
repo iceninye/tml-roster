@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.9.21 — unreleased
+- 特別日子按日期揀 Duty Sheet：TML-traffic 嘅 duty index 寫明每份特別 sheet 用喺邊日（`dates`／`alsoOn`），兩頁照住揀（`lib/tml-data.js` `sheetForDate`）。11/1 馬拉松嘅 7091M 同平日 7091 共用 7091xxx 編號，以前兩頁都當平日 7091。
+- 我的更表: 11/1 嘅 7091xxx 用 7091M 嘅卡（例如 7091123 17:08 落班，平日係 16:08），卡上加「7091M」標籤；改做 7091401 呢類馬拉松更份都睇到全日行程。嗰日 7091M 冇嘅編號會講「呢日用 Duty Sheet 7091M，入面冇 …」，唔再講搵唔到 Duty Sheet。週概況、休息唔夠鐘、下一更都用當日嘅時間。
+- 編更: 特別 sheet 唔再寫死（以前只認 8022／8023）：匯入 CSV 時用 Duty index 認出 8027（10/30）同 7091M（11/1），同 8022 一樣全份更份放入待定區。11/1 嘅格、積木、休息檢查、自動編排同匯出工時都用 7091M 嘅時間。`mapCode` 遇到 7091M 保留 7091xxx 編號。
+- 兩頁: 車廠、側線、調頭位置顯示中文名（OS 外放車、PHD 八鄉車廠（東）、CIOT 第一城側線、TB1 大圍調頭位置 …），名由 TML-traffic `tml-network.json` 嘅 `places` 讀。
+- 我的更表: 頁尾「更份資料 … 發佈」唔計特別日子嘅 sheet（7091M 寫嘅係運行日 11/1）。
+- 測試: `validate_plan` 加 8027／7091M 偵測、7091M 存檔、timeOf 帶日期；`validate_roster` 加 `sheetForDate`、`placeNames`。
+- Shell cache 改名 `v51`。
+
 ## v0.9.20 — unreleased
 - 我的更表: 「跨裝置同步」刪走「呢部機嘅名」輸入格同下面嗰段說明（log／備份電郵寫名、token log、上傳前備份）。同編更（v0.9.18）一樣，token log、上傳同備份電郵直接用瀏覽器估嘅裝置資料（例如「iPhone · Safari」）；電郵 log 同上傳前備份照舊運作。以前喺呢格打過嘅名唔再用。
 - 編更: 頁底更類說明（死早／早／中／夜／死夜）縮細行距。

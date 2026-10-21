@@ -9,10 +9,10 @@ import { addDays, classify, cleanRoster, dayEntry, mondayOf, newRoster, normalis
 import { SHIFTS, shiftOf } from "../lib/tml-shift.js"
 import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
 import { serviceDate, serviceSeconds } from "../lib/tml-time.js"
-import { fetchData, stationNames } from "../lib/tml-data.js"
+import { fetchData, placeNames, sheetForDate, stationNames } from "../lib/tml-data.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.20", commit: "dev" }
+const BUILD = { version: "0.9.21", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -37,6 +37,7 @@ const S = {
   nextDay: "翌日",
   hours: (h) => `${h} 小時`,
   noSheet: (id) => `搵唔到更份 ${id} 所屬嘅 Duty Sheet 資料`,
+  notOnSheet: (id, sheet) => `呢日用 Duty Sheet ${sheet}，入面冇 ${id}；請改做當日嘅更份編號`,
   noDuty: (id) => `Duty Sheet 入面冇更份 ${id} 嘅資料`,
   loading: "讀取更份資料中…",
   failed: "讀取更份資料失敗，請稍後再試",
@@ -215,6 +216,7 @@ const state = {
 let roster = null
 let title = ""
 let stations = {}
+let places = {} // OS 外放車、CIOT 第一城側線 ...（TML-traffic data/tml-network.json places）
 let basic = null // TML-traffic data/duty-basic.json: book-on/off of every duty, incl. spare duties
 let dutyIndex = null
 let dutySheets = null
@@ -357,9 +359,9 @@ function restTooShort(prevCell, cell) {
 function shortRestDates(dates) {
   const out = new Set()
   // 由前一日（上週日）開始比較，唔會漏咗「上週日夜更 → 週一早更」。
-  let prev = cellInfo(dayEntry(roster, addDays(dates[0], -1)).code)
+  let prev = cellInfo(dayEntry(roster, addDays(dates[0], -1)).code, addDays(dates[0], -1))
   for (const date of dates) {
-    const cur = cellInfo(dayEntry(roster, date).code)
+    const cur = cellInfo(dayEntry(roster, date).code, date)
     if (restTooShort(prev, cur)) out.add(date)
     prev = cur
   }
@@ -376,6 +378,7 @@ function basicOf(code) {
 function placeName(code) {
   if (!code) return "—"
   if (DEPOT_NAMES[code]) return `${DEPOT_NAMES[code]} ${code}`
+  if (places[code]) return places[code]
   const base = code.replace(/\d$/, "")
   const name = stations[base]?.tc
   return !name ? code : `${name}${base === code ? "" : ` ${code.slice(base.length)}`}`
@@ -407,22 +410,33 @@ function dutyPhaseText(st) {
 
 // A cell as the week list and the day page show it:
 // { label, status: none | ok | loading | nosheet | noduty | nocard, duty, c, note }.
-function cellInfo(code) {
+// date picks the Duty Sheet: on a dated sheet's days (7091M on 1 Nov 2026) its own
+// cards, not the regular sheet that shares the numbers.
+function cellInfo(code, date) {
   const c = classify(code)
   if (c.kind === "status") return { label: `${S.status[c.code]} ${c.code}`, status: "none", tone: c.code === "HC" ? "tbd" : (c.code === "AL" || c.code === "SH" ? "leave" : "rest") }
   const known = c.kind === "duty" ? null : basicOf(c.code)
   if (known) return { label: c.code, tag: c.kind === "spare" ? S.spareTag : "", status: "basic", basic: known, on: known.on, tone: "duty" }
   if (c.kind === "spare") return { label: S.spare(c.code), status: "none", note: S.spareNote, tone: "spare" }
   if (c.kind === "other") return { label: c.code, status: "none", tone: "spare" }
+  // 要 index 先知呢日有冇特別 sheet
+  if (dutySheets == null) {
+    dutyIndexPromise().then(paintData)
+    return { label: c.id, status: "loading", c }
+  }
+  const sheet = sheetForDate(dutySheets, date, c.id)
+  const dated = sheet !== c.sheet
+  if (dated) c.sheet = sheet
   const book = dutyBook(c.sheet)
-  if (book.status === "loading") return { label: c.id, status: "loading", c }
+  if (book.status === "loading") return { label: c.id, status: "loading", c, dated }
   const duty = book.status === "ok" ? book.data.duties.find((item) => item.id === c.id) : null
   if (!duty) {
-    const fallback = basicOf(c.id)
+    // 官表 basic 只係平日嗰份 sheet 嘅時間，特別日子唔用
+    const fallback = dated ? null : basicOf(c.id)
     if (fallback) return { label: c.id, tag: "", status: "basic", basic: fallback, on: fallback.on, tone: "duty", c }
-    return { label: c.id, status: book.status === "ok" ? "noduty" : "nosheet", c }
+    return { label: c.id, status: book.status === "ok" ? "noduty" : "nosheet", c, dated, sheet: dated ? sheet : "" }
   }
-  return { label: c.id, group: duty.group, status: duty.on ? "ok" : "nocard", duty, c, tone: "duty", on: duty.on?.[0] }
+  return { label: c.id, group: duty.group, status: duty.on ? "ok" : "nocard", duty, c, tone: "duty", on: duty.on?.[0], dated, sheet: dated ? sheet : "" }
 }
 
 // 卡上工時：官表有 basic 時數就用佢，否則用更份卡嘅 work（分鐘）。
@@ -466,6 +480,7 @@ function dayLines(cell) {
 
 function summary(cell) {
   if (cell.status === "loading") return S.loading
+  if (cell.status === "noduty" && cell.dated) return S.notOnSheet(cell.c.id, cell.sheet)
   if (cell.status === "nosheet" || cell.status === "noduty") return S.noSheet(cell.c.id)
   if (cell.status === "nocard") return S.noCard
   if (cell.status !== "ok") return cell.note ?? ""
@@ -596,7 +611,7 @@ function todayFactsHtml(date, cell, live) {
   if (off == null || tau >= off) {
     for (let k = 1; k <= 14; k += 1) {
       const day = addDays(date, k)
-      const next = cellInfo(dayEntry(roster, day).code)
+      const next = cellInfo(dayEntry(roster, day).code, day)
       if (next.on == null) continue
       const gap = off != null ? ` · ${S.restGap(S.dur(k * 86400 + next.on - off))}` : ""
       rows.push([S.factNextDuty, `${S.weekdays[weekdayIndex(day)]} ${meDate(day)} · ${next.label} ${hhmm(next.on)}${gap}`])
@@ -614,6 +629,7 @@ function todayHtml(date, entry, cell, short = false) {
   const shift = shiftOf(cell.on, offOf(cell))
   const live = cell.status === "ok" ? dutyState(cell.duty, serviceSeconds(Date.now())) : null
   const tags = (cell.group ? `<span class="badge plain">${cell.group}</span>` : "") + (cell.tag ? `<span class="badge plain">${cell.tag}</span>` : "") +
+    (cell.sheet ? `<span class="badge plain">${cell.sheet}</span>` : "") +
     (shift ? `<span class="badge shift">${S.shift[shift]}</span>` : "") +
     (entry.source === "override" ? `<span class="badge plain">${S.changed}</span>` : "")
   return `<button type="button" class="today me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}"${short ? ' data-short="1"' : ""}>` +
@@ -628,9 +644,10 @@ function todayHtml(date, entry, cell, short = false) {
 
 // 一週概況：計法喺 lib/tml-week.js，呢度只係餵現時嘅 roster 同已載入嘅更份資料。
 function weekSummary(dates) {
-  return summariseWeek(dates, (date) => dayEntry(roster, date), (code) => {
-    const cell = cellInfo(code)
-    const known = cell.basic ?? basicOf(code)
+  return summariseWeek(dates, (date) => dayEntry(roster, date), (code, date) => {
+    const cell = cellInfo(code, date)
+    // 特別日子嘅 sheet（7091M）同平日共用編號：官表 basic 係平日嗰份，唔好用
+    const known = cell.basic ?? (cell.dated ? null : basicOf(code))
     return known ? { ...cell, basic: known } : cell
   })
 }
@@ -639,7 +656,7 @@ function weekSummary(dates) {
 function usualGroup(dates) {
   const count = new Map()
   for (const date of dates) {
-    const group = cellInfo(dayEntry(roster, date).code).group
+    const group = cellInfo(dayEntry(roster, date).code, date).group
     if (group) count.set(group, (count.get(group) ?? 0) + 1)
   }
   let best = null
@@ -652,7 +669,7 @@ function weekCardHtml(dates, short) {
   const s = weekSummary(dates)
   const shifts = new Map()
   for (const date of dates) {
-    const cell = cellInfo(dayEntry(roster, date).code)
+    const cell = cellInfo(dayEntry(roster, date).code, date)
     const shift = shiftOf(cell.on, offOf(cell))
     if (shift) shifts.set(shift, (shifts.get(shift) ?? 0) + 1)
   }
@@ -823,7 +840,7 @@ function paintData() {
     html = dutyDetailHtml(state.duty, false)
   } else if (state.page === "detail") {
     const entry = dayEntry(roster, state.date)
-    const cell = cellInfo(entry.code)
+    const cell = cellInfo(entry.code, state.date)
     if (cell.status === "none") html = `<p class="empty">${escapeHtml(cell.label)}${cell.note ? ` · ${cell.note}` : ""}</p>`
     else if (cell.status === "basic") html = basicDetailHtml(cell)
     else if (cell.status === "loading") html = `<p class="empty">${S.loading}</p>`
@@ -833,19 +850,20 @@ function paintData() {
     const today = serviceDate(Date.now())
     const week = weekDates(state.monday)
     const short = shortRestDates(week)
-    const heroHtml = week.includes(today) ? todayHtml(today, dayEntry(roster, today), cellInfo(dayEntry(roster, today).code), short.has(today)) : ""
+    const heroHtml = week.includes(today) ? todayHtml(today, dayEntry(roster, today), cellInfo(dayEntry(roster, today).code, today), short.has(today)) : ""
     // 今日已經有 hero，列表唔再重複
     const listDays = week.includes(today) ? week.filter((date) => date !== today) : week
     // 本週最常見嘅組別（例如 KSR）唔使每張卡都寫，唔同先顯示
     const usual = usualGroup(week)
     const listHtml = `<ul class="day-list">${listDays.map((date) => {
       const entry = dayEntry(roster, date)
-      const cell = cellInfo(entry.code)
+      const cell = cellInfo(entry.code, date)
       const lines = dayLines(cell)
       const badges = (date === today ? `<span class="badge now">${S.today}</span>` : "") +
         (entry.source === "override" ? `<span class="badge plain">${S.changed}</span>` : "")
       const shift = shiftOf(cell.on, offOf(cell))
       const tags = (cell.group && cell.group !== usual ? `<span class="badge plain">${cell.group}</span>` : "") + (cell.tag ? `<span class="badge plain">${cell.tag}</span>` : "") +
+        (cell.sheet ? `<span class="badge plain">${cell.sheet}</span>` : "") +
         (shift ? `<span class="badge shift">${S.shift[shift]}</span>` : "")
       return `<li><button type="button" class="day me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}" data-today="${date === today ? 1 : 0}"${short.has(date) ? ' data-short="1"' : ""}>` +
         `<span class="day-date"><small>${S.weekdays[weekdayIndex(date)]}</small><b>${Number(date.slice(8))}</b></span>` +
@@ -1344,7 +1362,9 @@ function wireSettings() {
 
 async function boot() {
   try {
-    stations = stationNames(await fetchData("data/tml-network.json"))
+    const network = await fetchData("data/tml-network.json")
+    stations = stationNames(network)
+    places = placeNames(network)
   } catch {
     stations = {}
   }
@@ -1384,7 +1404,7 @@ async function boot() {
   probeSync()
   open()
   dutyIndexPromise().then((index) => {
-    if (index) document.getElementById("foot").insertAdjacentHTML("beforeend", ` · ${S.dutyData(index.sheets.map((s) => s.issued).sort().pop())}`)
+    if (index) document.getElementById("foot").insertAdjacentHTML("beforeend", ` · ${S.dutyData(index.sheets.filter((s) => s.class !== "special").map((s) => s.issued).sort().pop())}`)
   })
   // 每 15 秒重畫一次就夠（時間軸以分鐘為單位）；唔好每秒做全套計算。
   setInterval(paintData, 15000)
