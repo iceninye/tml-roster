@@ -4,6 +4,7 @@ import { classify, cleanRoster, dayEntry, mondayOf, newRoster, parseRoster, rowL
 import { shiftOf } from "../lib/tml-shift.js"
 import { reliefOf } from "../lib/tml-duties.js"
 import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
+import { placeNames, sheetForDate } from "../lib/tml-data.js"
 
 let failed = 0
 const check = (ok, what) => {
@@ -140,6 +141,18 @@ check(noIndex.minutes === 480, "官表冇呢個更份時才用 duty sheet 嘅工
 const fixed = summariseWeek(weekDates("2026-11-02"), oneDay("1101131"),
   () => ({ on: 24840, basic: { off: 55440, hours: 8 } }))
 check(fixed.minutes === 480, `1101131 用修正後 8 小時（實際 ${fixed.minutes} 分）`)
+
+// 特別日子嘅 Duty Sheet：按日期揀，7091M 同 7091 共用編號
+{
+  const sheets = [{ code: "7091", dates: null, alsoOn: ["2026-10-19"] }, { code: "7091M", dates: ["2026-11-01"] }, { code: "8022", dates: ["2026-10-24"], alsoOn: ["2026-10-31"] }]
+  check(sheetForDate(sheets, "2026-11-01", "7091123") === "7091M", "11/1 嘅 7091xxx 用 7091M")
+  check(sheetForDate(sheets, "2026-11-08", "7091123") === "7091", "其他星期日用返 7091")
+  check(sheetForDate(sheets, "2026-10-31", "8022101") === "8022" && sheetForDate(null, "2026-11-01", "7091123") === "7091", "冇 index 就用頭 4 位")
+  check(placeNames({ places: { note: "x", OS: { tc: "外放車" }, CIOT: { tc: "第一城側線" } } }).OS === "外放車" && !("note" in placeNames({ places: { note: "x" } })), "地點名由 places 讀")
+  const days = []
+  summariseWeek(["2026-11-01"], (date) => ({ code: "7091123" }), (code, date) => { days.push(date); return { on: 31080, duty: { work: 480 } } })
+  check(days.join() === "2026-11-01", "週概況問更份時間時帶埋日期")
+}
 
 // 接車／交車：用真 duty sheet（公開資料）DS1101，由 TML-traffic 讀。釘死一個 commit，
 // 咁 TML-traffic 出新 sheet 都唔會令呢度嘅答案變、阻住部署。
