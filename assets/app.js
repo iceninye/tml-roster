@@ -10,9 +10,10 @@ import { SHIFTS, shiftOf } from "../lib/tml-shift.js"
 import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
 import { serviceDate, serviceSeconds } from "../lib/tml-time.js"
 import { fetchData, stationNames } from "../lib/tml-data.js"
-import { TOKEN_RE, deviceName, fingerprint, hkStamp, logToken, mailWhy, newToken, postJson, saveDeviceName } from "../lib/tml-cloud.js"
+import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.19", commit: "dev" }
+const BUILD = { version: "0.9.20", commit: "dev" }
+const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
 const TITLE_KEY = "tml-roster-title"
@@ -118,8 +119,6 @@ const S = {
   syncUnsupported: "呢個網址唔支援雲端同步（GitHub Pages 版冇 Workers API）。要同步請開 https://tml-roster.iceninye.workers.dev/ice/",
   syncNew: "產生 token",
   syncCopy: "複製",
-  deviceLabel: "呢部機嘅名",
-  deviceHelp: "寄去電郵嘅 log 同備份會寫呢個名，方便分邊部機做嘅。",
   logSent: "token log 已寄去電郵。",
   logFail: (why) => `token log 電郵寄唔到（${why}）。`,
   syncBackupFail: (why) => `雲端現有版本寄唔到電郵備份（${why}），覆蓋咗就冇得用電郵還原。撳「確定」照樣上傳；撳「取消」就唔上傳。`,
@@ -128,7 +127,6 @@ const S = {
   localSaved: (why) => `呢部機原本嘅版本寄唔到電郵（${why}），已下載咗做備份。`,
   syncNewAsk: "產生新 token 會換走呢部機現有嗰條（雲端舊記錄唔會刪除）。確定？",
   syncNewDone: "已產生新 token 並記住。請撳「複製」存好佢；另一部機貼同一條，就可以下載同一份更表。",
-  syncNewNote: "產生或者換 token 會寄一封 log 電郵（裝置、時間、token）；上傳會先將雲端舊版本寄去電郵先覆蓋。",
   syncCopied: "已複製 token。",
   syncCopyFail: "複製唔到，請手動選取輸入框內容。",
   syncUpload: "上傳到雲端",
@@ -906,9 +904,6 @@ function setupHtml() {
         `<input id="me-kv-token" class="mini wide mono" type="password" autocomplete="off" spellcheck="false" maxlength="64" value="${escapeHtml(kvToken())}" placeholder="a1b2c3d4...">` +
         `<button type="button" class="btn me-kv-new">${S.syncNew}</button>` +
         `<button type="button" class="btn me-kv-copy">${S.syncCopy}</button></div>` +
-        `<div class="field-line"><label for="me-device">${S.deviceLabel}</label>` +
-        `<input id="me-device" class="mini wide" maxlength="60" autocomplete="off" value="${escapeHtml(deviceName())}"></div>` +
-        `<p class="fine">${S.deviceHelp}${S.syncNewNote}</p>` +
         `<div class="row me-foot">` +
         (roster ? `<button type="button" class="btn me-kv-up">${S.syncUpload}</button>` : "") +
         `<button type="button" class="btn ${roster ? "" : "primary "}me-kv-down">${S.syncDownload}</button></div>` +
@@ -1003,7 +998,7 @@ function kvMessage(text) {
 
 // 產生／換 token 時寄 log 電郵；結果加喺訊息後面（寄緊嗰陣唔阻用戶）。
 async function sendLog(event, token) {
-  const out = await logToken("/api/token-log", "roster", event, token, deviceName())
+  const out = await logToken("/api/token-log", "roster", event, token, thisDevice())
   const note = out.ok ? S.logSent : S.logFail(mailWhy(out.reason))
   state.syncMsg = state.syncMsg ? `${state.syncMsg}${note}` : note
   render()
@@ -1048,7 +1043,7 @@ async function kvUpload(force = false, skipBackup = false) {
         version: Number(readPref(KV_VERSION) ?? 0),
         force,
         skipBackup,
-        device: deviceName(),
+        device: thisDevice(),
       }),
     })
   } catch {
@@ -1129,7 +1124,7 @@ async function backupLocal() {
   const stamp = hkStamp(new Date().toISOString())
   const name = `my-roster-${stamp.slice(0, 10)}-${stamp.slice(11).replace(":", "")}.json`
   const text = JSON.stringify({ ...roster, title }, null, 1)
-  const out = await postJson("/api/backup", { name, text, device: deviceName() })
+  const out = await postJson("/api/backup", { name, text, device: thisDevice() })
   if (out.ok) return S.localMailed
   download(name, text, "application/json")
   return S.localSaved(mailWhy(out.reason))
@@ -1364,10 +1359,6 @@ async function boot() {
     if (form) refreshPreview(form)
   })
   view.addEventListener("change", (event) => {
-    if (event.target.matches("#me-device")) {
-      event.target.value = saveDeviceName(null, event.target.value) || deviceName()
-      return
-    }
     if (!event.target.matches(".me-file")) return
     const file = event.target.files?.[0]
     const form = event.target.closest(".me-setup")

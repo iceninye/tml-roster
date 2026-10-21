@@ -12,7 +12,7 @@ import { serviceDate } from "../lib/tml-time.js"
 import { fetchData } from "../lib/tml-data.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.19", commit: "dev" }
+const BUILD = { version: "0.9.20", commit: "dev" }
 
 // 寄去電郵嘅 log 同備份用嘅裝置資料：由瀏覽器自動估（例如「iPhone · Safari」），唔使手動改名。
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
