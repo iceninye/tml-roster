@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.9.20 — unreleased
+- 我的更表: 「跨裝置同步」刪走「呢部機嘅名」輸入格同下面嗰段說明（log／備份電郵寫名、token log、上傳前備份）。同編更（v0.9.18）一樣，token log、上傳同備份電郵直接用瀏覽器估嘅裝置資料（例如「iPhone · Safari」）；電郵 log 同上傳前備份照舊運作。以前喺呢格打過嘅名唔再用。
+- 編更: 頁底更類說明（死早／早／中／夜／死夜）縮細行距。
+- lib: `lib/tml-cloud.js` 刪走冇用嘅 `deviceName`／`saveDeviceName`／`DEVICE_KEY`。
+- Shell cache 改名 `v49`。
+
 ## v0.9.19 — unreleased
 - Duty 資料統一喺 TML-traffic：更份卡片（`data/duties/`）、官表上落班時間同工時（`duty-basic.json`）同站名，兩頁開嘅時候直接由 TML-traffic 讀（`lib/tml-data.js`：先讀 TML-traffic 網站，讀唔到就讀 GitHub main 嘅 raw 檔）。TML-traffic 匯入新 Duty Sheet 或總表、部署完，呢度下次開頁就用新資料，唔使同步、唔使出新版。
 - 刪走副本同工具：`data/duties/`、`data/duty-basic.json`、`data/duty-hours-fixes.json`、`data/stations.json`、`tools/sync-duties.mjs`；`tools/index-to-basic.py` 同 `tools/validate-hours.mjs` 搬咗去 TML-traffic。

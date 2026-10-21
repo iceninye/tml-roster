@@ -1,7 +1,7 @@
 // Checks src/index.js (sync, token log, mail-before-overwrite) with a fake KV and a fake Resend:
 //   node tools/validate_worker.mjs
 import worker from "../src/index.js"
-import { TOKEN_RE, deviceName, guessDevice, hkStamp, newToken, saveDeviceName } from "../lib/tml-cloud.js"
+import { TOKEN_RE, guessDevice, hkStamp, newToken } from "../lib/tml-cloud.js"
 
 let failed = 0
 const check = (ok, what) => {
@@ -122,12 +122,7 @@ check(r.status === 404, "no listing of plans")
 check(TOKEN_RE.test(newToken()) && newToken() !== newToken(), "newToken makes a fresh 32-char token")
 check(guessDevice("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit Version/18.0 Mobile Safari/604.1") === "iPhone · Safari", "an iPhone Safari is named")
 check(guessDevice("Mozilla/5.0 (Windows NT 10.0) Chrome/130.0 Safari/537.36 Edg/130.0") === "Windows · Edge", "Edge on Windows is named")
-const box = new Map()
-const store = { getItem: (k) => box.get(k) ?? null, setItem: (k, v) => box.set(k, v), removeItem: (k) => box.delete(k) }
-saveDeviceName(store, "  Ice\n iPhone ")
-check(deviceName(store, "") === "Ice  iPhone", "the device name is saved without control characters")
-saveDeviceName(store, "")
-check(deviceName(store, "Android Chrome/1") === "Android · Chrome", "an empty name falls back to the guess")
+check(guessDevice("Android Chrome/1") === "Android · Chrome", "an Android Chrome is named")
 check(hkStamp("2026-10-20T06:03:00Z") === "2026-10-20 14:03", "hkStamp shows Hong Kong time")
 
 if (failed) {
