@@ -102,6 +102,8 @@ check(week.days === 3, `週概況計 3 日開工（實際 ${week.days}）`)
 check(week.minutes === 300 + 480 + 510, `週概況工時 21 小時 30 分（實際 ${week.minutes} 分）`)
 check(week.rest === 1 && week.leave === 2 && week.pending === 1, "休息／假期／待定分開計，未載入嘅日子當待定")
 check(summariseWeek([], () => null, () => ({})).days === 0, "冇日期就係零")
+const hc = summariseWeek(["2026-11-02", "2026-11-03"], (date) => ({ code: date === "2026-11-02" ? "HC" : "AL" }), () => ({ on: null }))
+check(hc.pending === 1 && hc.leave === 1, "HC 計待定，唔計假期")
 
 // 後備更（KSP／HSP）冇 duty sheet，但都係返工：要計日數，時數用 Index 表
 const spare = summariseWeek(weekDates("2026-11-02"),

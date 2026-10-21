@@ -12,7 +12,7 @@ import { serviceDate, serviceSeconds } from "../lib/tml-time.js"
 import { fetchData, placeNames, sheetForDate, stationNames } from "../lib/tml-data.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.22", commit: "dev" }
+const BUILD = { version: "0.9.23", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -133,6 +133,7 @@ const S = {
   syncUpload: "上傳到雲端",
   syncDownload: "由雲端下載",
   syncNoToken: "先貼上同步 token 再撳。",
+  syncBadToken: "token 格式唔啱（20 至 64 個細楷英文字母或數字），冇上傳亦冇下載。",
   syncConflict: (at, name, device) => `雲端有另一個版本（${at}${name ? ` · ${name}` : ""}${device ? ` · 由「${device}」上傳` : ""}）。撳「確定」用呢部機覆蓋雲端；撳「取消」就唔覆蓋。`,
   syncOverwriteLocal: (at, name) => `雲端版本（${at}${name ? ` · ${name}` : ""}）會取代呢部機嘅更表同手動改動。撳「確定」照下載；撳「取消」就唔變。`,
   syncKeptLocal: "冇覆蓋：雲端版本保持不變。",
@@ -220,6 +221,10 @@ let places = {} // OS 外放車、CIOT 第一城側線 ...（TML-traffic data/tm
 let basic = null // TML-traffic data/duty-basic.json: book-on/off of every duty, incl. spare duties
 let dutyIndex = null
 let dutySheets = null
+// 讀唔到嘅資料唔記住：網絡返嚟或者返到呢頁就再讀（retryData）。
+let basicFailed = false
+let indexFailed = false
+let networkFailed = false
 const dutyBooks = new Map()
 let shown = ""
 
@@ -276,13 +281,28 @@ function clearRoster() {
 /* ---------------------------------------------------------------- data */
 
 function loadBasic() {
+  basicFailed = false
   fetchData("data/duty-basic.json")
     .then((data) => {
       basic = data.duties
       paintData()
     })
     .catch(() => {
-      basic = {}
+      basicFailed = true
+    })
+}
+
+// 站名同車廠名：未讀到之前地點顯示代號，讀到再畫一次，唔使等佢先開頁。
+function loadNetwork() {
+  networkFailed = false
+  fetchData("data/tml-network.json")
+    .then((network) => {
+      stations = stationNames(network)
+      places = placeNames(network)
+      paintData()
+    })
+    .catch(() => {
+      networkFailed = true
     })
 }
 
@@ -293,10 +313,23 @@ function dutyIndexPromise() {
       return index
     })
     .catch(() => {
-      dutySheets = []
+      indexFailed = true
       return null
     })
   return dutyIndex
+}
+
+// 再讀之前讀失敗嘅資料（index、duty-basic、站名、更份卡）。
+function retryData() {
+  if (basicFailed) loadBasic()
+  if (networkFailed) loadNetwork()
+  if (indexFailed) {
+    indexFailed = false
+    dutyIndex = null
+    dutyIndexPromise().then(paintData)
+  }
+  for (const [code, entry] of dutyBooks) if (entry.status === "error") dutyBooks.delete(code)
+  paintData()
 }
 
 function dutyBook(code) {
@@ -306,13 +339,15 @@ function dutyBook(code) {
     dutyBooks.set(code, entry)
     dutyIndexPromise()
       .then((index) => {
-        entry.entry = index?.sheets.find((item) => item.code === code) ?? null
-        if (!entry.entry) throw new Error("no such sheet")
+        if (!index) throw new Error("no index")
+        entry.entry = index.sheets.find((item) => item.code === code) ?? null
+        // index 冇呢份 sheet：真係冇，唔係讀失敗
+        if (!entry.entry) return null
         return fetchData(`data/duties/${entry.entry.file}`)
       })
       .then((data) => {
         entry.data = data
-        entry.status = "ok"
+        entry.status = data ? "ok" : "missing"
       })
       .catch(() => {
         entry.status = "error"
@@ -409,7 +444,7 @@ function dutyPhaseText(st) {
 }
 
 // A cell as the week list and the day page show it:
-// { label, status: none | ok | loading | nosheet | noduty | nocard, duty, c, note }.
+// { label, status: none | ok | loading | failed | nosheet | noduty | nocard, duty, c, note }.
 // date picks the Duty Sheet: on a dated sheet's days (7091M on 1 Nov 2026) its own
 // cards, not the regular sheet that shares the numbers.
 function cellInfo(code, date) {
@@ -421,6 +456,7 @@ function cellInfo(code, date) {
   if (c.kind === "other") return { label: c.code, status: "none", tone: "spare" }
   // 要 index 先知呢日有冇特別 sheet
   if (dutySheets == null) {
+    if (indexFailed) return { label: c.id, status: "failed", c }
     dutyIndexPromise().then(paintData)
     return { label: c.id, status: "loading", c }
   }
@@ -434,7 +470,8 @@ function cellInfo(code, date) {
     // 官表 basic 只係平日嗰份 sheet 嘅時間，特別日子唔用
     const fallback = dated ? null : basicOf(c.id)
     if (fallback) return { label: c.id, tag: "", status: "basic", basic: fallback, on: fallback.on, tone: "duty", c }
-    return { label: c.id, status: book.status === "ok" ? "noduty" : "nosheet", c, dated, sheet: dated ? sheet : "" }
+    const status = book.status === "ok" ? "noduty" : book.status === "missing" ? "nosheet" : "failed"
+    return { label: c.id, status, c, dated, sheet: dated ? sheet : "" }
   }
   return { label: c.id, group: duty.group, status: duty.on ? "ok" : "nocard", duty, c, tone: "duty", on: duty.on?.[0], dated, sheet: dated ? sheet : "" }
 }
@@ -480,6 +517,7 @@ function dayLines(cell) {
 
 function summary(cell) {
   if (cell.status === "loading") return S.loading
+  if (cell.status === "failed") return S.failed
   if (cell.status === "noduty" && cell.dated) return S.notOnSheet(cell.c.id, cell.sheet)
   if (cell.status === "nosheet" || cell.status === "noduty") return S.noSheet(cell.c.id)
   if (cell.status === "nocard") return S.noCard
@@ -520,7 +558,7 @@ function dutyDetailHtml({ sheet, id }, liveOn) {
   const book = dutyBook(sheet)
   if (book.status === "loading") return `<p class="empty">${S.loading}</p>`
   const duty = book.status === "ok" ? book.data.duties.find((item) => item.id === id) : null
-  if (!duty) return `<p class="empty">${book.status === "ok" ? S.noDuty(id) : S.failed}</p>`
+  if (!duty) return `<p class="empty">${book.status === "ok" ? S.noDuty(id) : book.status === "missing" ? S.noSheet(id) : S.failed}</p>`
   const entry = book.entry
   const source = S.source(sheet, duty.tab, entry.issued, entry.dates?.join("、"), S.cls[entry.class] ?? entry.class, Boolean(duty.on))
   if (!duty.on) return `<p class="empty">${S.noCard}</p><dl class="kv"><dt>更份</dt><dd>${id} · ${duty.group}</dd></dl><p class="fine">${source}</p>`
@@ -845,6 +883,7 @@ function paintData() {
     else if (cell.status === "basic") html = basicDetailHtml(cell)
     else if (cell.status === "loading") html = `<p class="empty">${S.loading}</p>`
     else if (cell.status === "nosheet") html = `<p class="empty">${S.noSheet(cell.c.id)}</p>`
+    else if (cell.status === "failed") html = `<p class="empty">${S.failed}</p>`
     else html = dutyDetailHtml({ sheet: cell.c.sheet, id: cell.c.id }, state.date === serviceDate(Date.now()))
   } else if (state.page === "week") {
     const today = serviceDate(Date.now())
@@ -952,9 +991,12 @@ function download(name, text, type) {
 }
 
 // 上傳／下載之前，採用輸入框裡面嘅 token（唔使另外撳「記住」，用一次就會記住）。
+// 用輸入框入面嘅 token；換咗就記住，版本號由 0 開始，並寄 log。
+// 框入面打咗嘢但唔係 token 格式就回 null，唔好靜靜用返舊 token。
 function adoptToken() {
   const value = String(document.getElementById("me-kv-token")?.value ?? "").trim().toLowerCase()
-  if (TOKEN_RE.test(value) && value !== kvToken()) {
+  if (value && !TOKEN_RE.test(value)) return null
+  if (value && value !== kvToken()) {
     writePref(KV_KEY, value)
     writePref(KV_VERSION, "0") // 換咗 token：手上版本號唔再適用
     sendLog("join", value)
@@ -1033,6 +1075,7 @@ function kvNewToken() {
 
 async function kvCopyToken() {
   const token = adoptToken()
+  if (token === null) return kvMessage(S.syncBadToken)
   if (!token) return kvMessage(S.syncNoToken)
   try {
     await navigator.clipboard.writeText(token)
@@ -1246,12 +1289,12 @@ function onClick(event) {
     kvCopyToken()
     return
   } else if (target.closest(".me-kv-up")) {
-    adoptToken()
-    kvUpload()
+    if (adoptToken() === null) kvMessage(S.syncBadToken)
+    else kvUpload()
     return
   } else if (target.closest(".me-kv-down")) {
-    adoptToken()
-    kvDownload()
+    if (adoptToken() === null) kvMessage(S.syncBadToken)
+    else kvDownload()
     return
   } else if (target.closest(".me-export")) {
     // 加 BOM，Excel 開中文唔會亂碼
@@ -1360,14 +1403,8 @@ function wireSettings() {
   top.appendChild(button)
 }
 
-async function boot() {
-  try {
-    const network = await fetchData("data/tml-network.json")
-    stations = stationNames(network)
-    places = placeNames(network)
-  } catch {
-    stations = {}
-  }
+function boot() {
+  loadNetwork()
   title = String(readPref(TITLE_KEY) ?? "").trim().slice(0, 24)
   applyTitle()
   wireTitle()
@@ -1408,6 +1445,8 @@ async function boot() {
   })
   // 每 15 秒重畫一次就夠（時間軸以分鐘為單位）；唔好每秒做全套計算。
   setInterval(paintData, 15000)
+  window.addEventListener("online", retryData)
+  document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && retryData())
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {})
 }
 
