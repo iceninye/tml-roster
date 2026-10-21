@@ -113,6 +113,22 @@ kv.set(`backup-mail:${day}`, "60")
 r = await call("POST", "/api/token-log", { app: "plan", event: "new", token: TOKEN })
 check(r.status === 429 && r.body.reason === "too_many", "the daily mail cap holds")
 
+// ---- per-IP limit on the two mail endpoints (the binding is absent above, so nothing was limited)
+let allowed = 2
+const limiterKeys = []
+const limitedEnv = { ...env, MAIL_LIMITER: { limit: async ({ key }) => (limiterKeys.push(key), { success: allowed-- > 0 }) } }
+kv.delete(`backup-mail:${day}`)
+const mailsBefore = mails.length
+r = await call("POST", "/api/token-log", { app: "plan", event: "new", token: TOKEN }, limitedEnv)
+check(r.status === 200, "within the limit a token log goes out")
+r = await call("POST", "/api/backup", { name: "roster-2026-10-20-v1.json", text: JSON.stringify(planData(3)) }, limitedEnv)
+check(r.status === 200, "within the limit a backup goes out")
+r = await call("POST", "/api/token-log", { app: "plan", event: "new", token: TOKEN }, limitedEnv)
+check(r.status === 429 && r.body.reason === "rate_limited" && mails.length === mailsBefore + 2, "over the limit gets 429 and no mail")
+check(limiterKeys.every((key) => key === "203.0.113.9"), "the limiter is keyed by the caller's IP")
+r = await call("GET", "/api/ping", undefined, limitedEnv)
+check(r.status === 200, "ping and sync are not rate limited")
+
 r = await call("GET", "/api/ping")
 check(r.body.ok && r.body.mail === true, "ping says mail is set up")
 r = await call("GET", "/api/plan/")
