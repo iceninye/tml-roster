@@ -3,7 +3,6 @@
 import { classify, cleanRoster, dayEntry, mondayOf, newRoster, parseRoster, rowLabelFor, setOverride, weekDates, weekdayIndex } from "../lib/tml-roster.js"
 import { shiftOf } from "../lib/tml-shift.js"
 import { reliefOf } from "../lib/tml-duties.js"
-import { readFileSync } from "node:fs"
 import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
 
 let failed = 0
@@ -128,7 +127,7 @@ check(real.minutes !== 6 * 510, "工時用工作時數（扣飯），唔係上�
 
 
 // 工時以官表 Index 為準（後備更都靠佢）；duty sheet 只做後備。
-// 真資料兩邊嘅差異由 tools/validate-hours.mjs 審，唔一致會即刻報。
+// 真資料兩邊嘅差異由 TML-traffic 嘅 tools/validate-hours.mjs 審，唔一致會即刻報。
 const oneDay = (code) => (date) => ({ code: date === "2026-11-02" ? code : "RD" })
 const clash = summariseWeek(weekDates("2026-11-02"), oneDay("9900001"),
   () => ({ on: 24840, duty: { work: 480, off: [55440] }, basic: { off: 55440, hours: 7.5 } }))
@@ -137,13 +136,15 @@ const noIndex = summariseWeek(weekDates("2026-11-02"), oneDay("9900001"),
   () => ({ on: 24840, duty: { work: 480, off: [55440] } }))
 check(noIndex.minutes === 480, "官表冇呢個更份時才用 duty sheet 嘅工作時數")
 
-// 1101131 官表印錯 7.5，data/duty-hours-fixes.json 改返 8：一週有佢就多 0.5 小時
+// 1101131 官表印錯 7.5，TML-traffic data/duty-hours-fixes.json 改返 8：一週有佢就多 0.5 小時
 const fixed = summariseWeek(weekDates("2026-11-02"), oneDay("1101131"),
   () => ({ on: 24840, basic: { off: 55440, hours: 8 } }))
 check(fixed.minutes === 480, `1101131 用修正後 8 小時（實際 ${fixed.minutes} 分）`)
 
-// 接車／交車：用真 duty sheet（公開資料）DS1101
-const sheet = Object.values(JSON.parse(readFileSync(new URL("../data/duties/DS1101.json", import.meta.url))).duties)
+// 接車／交車：用真 duty sheet（公開資料）DS1101，由 TML-traffic 讀。釘死一個 commit，
+// 咁 TML-traffic 出新 sheet 都唔會令呢度嘅答案變、阻住部署。
+const DS1101 = "https://raw.githubusercontent.com/iceninye/TML-traffic/7058e71cc311613656de8272d799e17dc06b8cab/data/duties/DS1101.json"
+const sheet = Object.values((await (await fetch(DS1101)).json()).duties)
 const d105 = sheet.find((d) => d.id === "1101105")
 check(reliefOf(d105, sheet, 1).from === null, "出車準備之後直接開同一個 run，唔當接車")
 check(reliefOf(d105, sheet, 2).from?.id === "1101112", `1101105 喺 WKS 接 Run 10 由 1101112 交（實際 ${reliefOf(d105, sheet, 2).from?.id}）`)

@@ -1,17 +1,18 @@
 // TML Roster: your own duty roster over the Tuen Ma Line Duty Sheet cards.
 // Hand-written, no build step. The roster is kept in this browser's
 // localStorage; the optional cross-device sync uploads it to Workers KV only
-// when the user pastes a token and presses 上傳. Duty cards come from data/duties/, copied
-// from https://github.com/iceninye/TML-traffic (see tools/sync-duties.mjs).
+// when the user pastes a token and presses 上傳. Duty cards, book-on/off times and
+// station names are read from https://github.com/iceninye/TML-traffic (lib/tml-data.js).
 
 import { dutyState, mealMates, reliefOf } from "../lib/tml-duties.js"
 import { addDays, classify, cleanRoster, dayEntry, mondayOf, newRoster, normaliseCode, parseRoster, rowLabelFor, setOverride, weekDates, weekdayIndex } from "../lib/tml-roster.js"
 import { SHIFTS, shiftOf } from "../lib/tml-shift.js"
 import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
 import { serviceDate, serviceSeconds } from "../lib/tml-time.js"
+import { fetchData, stationNames } from "../lib/tml-data.js"
 import { TOKEN_RE, deviceName, fingerprint, hkStamp, logToken, mailWhy, newToken, postJson, saveDeviceName } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.18", commit: "dev" }
+const BUILD = { version: "0.9.19", commit: "dev" }
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
 const TITLE_KEY = "tml-roster-title"
@@ -216,7 +217,7 @@ const state = {
 let roster = null
 let title = ""
 let stations = {}
-let basic = null // data/duty-basic.json: book-on/off of every duty, incl. spare duties
+let basic = null // TML-traffic data/duty-basic.json: book-on/off of every duty, incl. spare duties
 let dutyIndex = null
 let dutySheets = null
 const dutyBooks = new Map()
@@ -274,14 +275,8 @@ function clearRoster() {
 
 /* ---------------------------------------------------------------- data */
 
-async function fetchJson(url) {
-  const response = await fetch(url)
-  if (!response.ok) throw new Error(`${url}: ${response.status}`)
-  return response.json()
-}
-
 function loadBasic() {
-  fetchJson("data/duty-basic.json")
+  fetchData("data/duty-basic.json")
     .then((data) => {
       basic = data.duties
       paintData()
@@ -292,7 +287,7 @@ function loadBasic() {
 }
 
 function dutyIndexPromise() {
-  dutyIndex ??= fetchJson("data/duties/index.json")
+  dutyIndex ??= fetchData("data/duties/index.json")
     .then((index) => {
       dutySheets = index.sheets
       return index
@@ -313,7 +308,7 @@ function dutyBook(code) {
       .then((index) => {
         entry.entry = index?.sheets.find((item) => item.code === code) ?? null
         if (!entry.entry) throw new Error("no such sheet")
-        return fetchJson(`data/duties/${entry.entry.file}`)
+        return fetchData(`data/duties/${entry.entry.file}`)
       })
       .then((data) => {
         entry.data = data
@@ -1354,7 +1349,7 @@ function wireSettings() {
 
 async function boot() {
   try {
-    stations = await fetchJson("data/stations.json")
+    stations = stationNames(await fetchData("data/tml-network.json"))
   } catch {
     stations = {}
   }

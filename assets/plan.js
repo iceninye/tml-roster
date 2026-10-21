@@ -4,14 +4,15 @@
 // plan (names, preferences, results) in this browser's localStorage. With a
 // sync token it is also uploaded to Workers KV (only when 上傳 is pressed);
 // the cloud copy is mailed as a backup before it is overwritten.
-// Book-on/off times come from data/duty-basic.json.
+// Book-on/off times come from TML-traffic data/duty-basic.json (lib/tml-data.js).
 
 import { EMPTY, EXTRA, EXTRA_HOURS, HHS, LEAVE, PENDING, PREFS, SHIFTS, allToTray, canRemove, cleanPlan, clearWeek, combosView, fillMember, fillTeam, formatRanges, fromTray, importWeek, isHhs, isoWeek, missingMembers, mondayOfIsoWeek, namedRows, newPlan, parseRanges, prefDistance, removeBlock, renameBlock, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, trayView, useCombo, weekView } from "../lib/tml-plan.js"
 import { addDays, classify, cleanRoster, mondayOf, newRoster, normaliseCode, parseRoster, weekDates } from "../lib/tml-roster.js"
 import { serviceDate } from "../lib/tml-time.js"
+import { fetchData } from "../lib/tml-data.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.18", commit: "dev" }
+const BUILD = { version: "0.9.19", commit: "dev" }
 
 // 寄去電郵嘅 log 同備份用嘅裝置資料：由瀏覽器自動估（例如「iPhone · Safari」），唔使手動改名。
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
@@ -1412,16 +1413,15 @@ async function boot() {
   state.monday = nextMonday()
   loadTrayView()
   try {
-    const response = await fetch("data/duty-basic.json")
-    basic = (await response.json()).duties ?? {}
+    basic = (await fetchData("data/duty-basic.json")).duties ?? {}
   } catch {
     basic = {}
   }
   try {
-    const index = await (await fetch("data/duties/index.json")).json()
+    const index = await fetchData("data/duties/index.json")
     await Promise.all(index.sheets.map(async (sheet) => {
       if (sheet.class !== "special") return
-      const book = await (await fetch(`data/duties/${sheet.file}`)).json()
+      const book = await fetchData(`data/duties/${sheet.file}`)
       for (const duty of book.duties) if (duty.on && duty.off) cards[duty.id] = { on: duty.on[0], off: duty.off[0], hours: (duty.work ?? 0) / 60 }
     }))
   } catch {
