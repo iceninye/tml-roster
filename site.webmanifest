@@ -1,0 +1,32 @@
+{
+  "name": "我的更表 · TML Roster",
+  "short_name": "我的更表",
+  "description": "屯門線更表：查看每班更份、休息日、工時與路線，支援跨裝置同步。TML duty roster with sync across devices.",
+  "start_url": "/ice/",
+  "scope": "/ice/",
+  "display": "standalone",
+  "background_color": "#0c1613",
+  "theme_color": "#070b14",
+  "orientation": "portrait-primary",
+  "lang": "zh-HK",
+  "icons": [
+    {
+      "src": "/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/android-chrome-maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
