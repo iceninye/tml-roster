@@ -58,7 +58,7 @@
 ## 其他資料
 
 - 服務日喺香港時間 04:00 轉日，所以凌晨收工嘅更仍然算前一日。
-- 更份資料（`data/duties/`）由公開 repo [TML-traffic](https://github.com/iceninye/TML-traffic) 解析 Duty Sheet 後複製過嚟，唔含人員資料。
+- 更份資料（更份卡片、官表上落班時間同工時、站名）只存喺公開 repo [TML-traffic](https://github.com/iceninye/TML-traffic)，呢度唔再有副本：開頁時由 `lib/tml-data.js` 直接讀 TML-traffic 網站（讀唔到就讀 GitHub raw），`sw.js` 快取住離線用。唔含人員資料。
 - 純靜態網站，冇 build step。網頁經 GitHub Pages 發佈（`.github/workflows/pages.yml`）。
 
 ## 開發
@@ -67,11 +67,9 @@
 python3 -m http.server 8000      # 開 http://localhost:8000
 node tools/validate_roster.mjs   # roster 邏輯檢查（用虛構 roster）
 node tools/validate_plan.mjs     # 編更邏輯檢查（用虛構 roster 同更份）
-node tools/sync-duties.mjs       # 由 TML-traffic 同步更份資料
-python3 tools/index-to-basic.py Duty.xlsx   # 由 Duty 總表嘅 Index 工作表更新後備更等上下班時間
 ```
 
-TML-traffic 解析新 Duty Sheet 後，執行 `sync-duties.mjs`，再將 `sw.js` 嘅 `CACHE` 版本加一（新增 sheet 要同時加入 `SHELL`），然後發佈。
+新 Duty Sheet 同 Duty 總表（Index 工作表）只喺 TML-traffic 匯入（見嗰邊 `docs/DUTYSHEET.md`）。merge 咗、Cloudflare 部署完，呢度下次開頁就用新資料，唔使改呢個 repo、唔使加 cache 版本。
 
 版本號同 commit 寫喺 `assets/app.js` 頂部嘅 `BUILD`，每次發佈同步更新 `CHANGELOG.md`。
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.9.19 — unreleased
+- Duty 資料統一喺 TML-traffic：更份卡片（`data/duties/`）、官表上落班時間同工時（`duty-basic.json`）同站名，兩頁開嘅時候直接由 TML-traffic 讀（`lib/tml-data.js`：先讀 TML-traffic 網站，讀唔到就讀 GitHub main 嘅 raw 檔）。TML-traffic 匯入新 Duty Sheet 或總表、部署完，呢度下次開頁就用新資料，唔使同步、唔使出新版。
+- 刪走副本同工具：`data/duties/`、`data/duty-basic.json`、`data/duty-hours-fixes.json`、`data/stations.json`、`tools/sync-duties.mjs`；`tools/index-to-basic.py` 同 `tools/validate-hours.mjs` 搬咗去 TML-traffic。
+- 離線: `sw.js` 安裝時快取 TML-traffic 嘅 index、所有 sheet、`duty-basic.json` 同 `tml-network.json`，之後每次有網都重新攞；新 sheet 唔使改 `SHELL`。Shell cache 改名 `v48`。
+- 測試: `validate_roster.mjs` 嘅 DS1101 接車／交車測試改讀 TML-traffic 某個固定 commit 嘅檔。
+
 ## v0.9.18 — unreleased
 - 編更: 刪走「呢部機嘅名」輸入格；token log 同備份電郵直接用瀏覽器估嘅裝置資料（例如「iPhone · Safari」），Worker 照舊加埋完整瀏覽器資料、IP 同大約地區。
 - 編更: 精簡說明：CSV 格式只講標題行同每行內容；刪走範本說明；「備份」刪走自動寄電郵／匯入前備份嗰句；「跨裝置同步」說明改短（電郵 log 同上傳前備份照舊運作，只係唔再寫出嚟）。

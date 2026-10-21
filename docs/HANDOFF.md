@@ -23,5 +23,5 @@ Ice WONG first asked (2026-10-15, TML-traffic project thread) for an admin back 
 - `lib/tml-roster.js`: parse, weekly cycle, per-day overrides, backup validation (pure; `tools/validate_roster.mjs` checks it on a made-up roster).
 - `lib/tml-plan.js`: 編更 (team plan): members by anchor-week row, preference fit, per-day assignment (Hungarian method), rest check. `assets/plan.js` is its page; `tools/validate_plan.mjs` checks it. Plans (names, preferences) stay in the browser under `tml-roster-plan`, never in the repo.
 - `lib/tml-duties.js`: duty state at a time, 飯腳 (meal mates), copied from TML-traffic.
-- `assets/app.js`: the page. `data/duties/`: copied cards (`node tools/sync-duties.mjs`).
+- `assets/app.js`: the page. Duty cards, `duty-basic.json` and station names are read at run time from TML-traffic (`lib/tml-data.js`: its Workers site, then GitHub raw); no copies here since v0.9.19.
 - Duty cards hold no crew names; keep it that way.
