@@ -98,6 +98,8 @@ const S = {
   swapped: "已對調",
   arranged: (skipped) => `已自動編排${skipped.length ? `；${skipped.length} 位未有 RD 冇編：${skipped.slice(0, 5).join("、")}${skipped.length > 5 ? " 等" : ""}` : ""}`,
   tray: "待定區",
+  trayFold: "收起",
+  trayOpen: "展開",
   trayNone: "—",
   empty: "空",
   toTray: "放入待定區",
@@ -202,14 +204,14 @@ const S = {
   notStored: "呢部機儲存唔到，關閉頁面後會冇咗",
   noDuty: "Duty Sheet 入面冇呢個更份",
   removeBlock: "刪除呢個更份積木",
-  blockRemoved: "已刪除積木，其餘空格已按偏好重新編排",
+  blockRemoved: "已刪除積木",
   needRd: "每位組員一星期要有一日 RD，未有 RD 就唔會自動填更份",
   setupDone: "已儲存組員，積木已放入待定區；設好假期同喜好後按「自動」",
   emptyCount: (n) => `空 ${n}`,
 }
 
 const view = document.getElementById("view")
-const state = { monday: null, sel: null, message: "", syncMsg: "", syncOpen: false, tray: { tab: "blocks", filter: [], sort: "on", order: "row" }, pick: { rows: [] }, notesOpen: false, importOpen: false, leaveOpen: false }
+const state = { monday: null, sel: null, message: "", syncMsg: "", syncOpen: false, tray: { tab: "blocks", filter: [], sort: "on", order: "row", fold: false }, pick: { rows: [] }, notesOpen: false, importOpen: false, leaveOpen: false }
 // How the tray and the members are shown (tab, filter, sort, member order) is this viewer's own; kept in the browser.
 const TRAY_KEY = "tml-plan-tray-view"
 // Earlier { plan, roster } pairs, for 還原上一步; kept for this visit only.
@@ -261,6 +263,7 @@ function loadTrayView() {
   if (Array.isArray(saved.filter)) state.tray.filter = saved.filter.filter((k) => kinds.includes(k))
   if (["on", "off", "code"].includes(saved.sort)) state.tray.sort = saved.sort
   if (["row", "name"].includes(saved.order)) state.tray.order = saved.order
+  if (saved.fold === true) state.tray.fold = true
 }
 
 /* ------------------------------------------------------------- helpers */
@@ -490,7 +493,7 @@ function weekHtml() {
   const fitStd = fitOf((line) => line.std)
   const legend = SHIFTS.map((s) => `<span><i data-shift="${s}"></i>${S.shift[s]}（${S.shiftHelp[s]}）</span>`).join("")
   return `<div class="me-nav"><button type="button" class="btn p-prev" aria-label="${S.prev}">‹</button>` +
-    `<div class="weeklabel"><b>${S.week(year, week)} · ${S.weekOf(meDate(dates[0]), meDate(dates[6]))}</b>` +
+    `<div class="weeklabel"><b><span>${S.week(year, week)}</span> · <span>${S.weekOf(meDate(dates[0]), meDate(dates[6]))}</span></b>` +
     `<span>${S.team(lines.length)}${state.monday === current ? ` · ${S.thisWeek}` : ""}${state.monday === nextMonday() ? ` · ${S.nextWeek}` : ` · <button type="button" class="link p-this">${S.backNext}</button>`}</span></div>` +
     `<button type="button" class="btn p-next" aria-label="${S.next}">›</button></div>` +
     `<div class="plan-actions"><button type="button" class="btn primary p-arrange">${state.pick.rows.length ? S.arrangeScope(state.pick.rows.length) : S.arrange}</button>` +
@@ -690,7 +693,11 @@ function trayHtml() {
     }).join("")
     body = `<div class="tray-cols">${cols}</div>`
   }
-  return `<section class="tray panel" aria-label="${S.tray}"><div class="tray-head"><b>${S.tray}</b>${tabs}</div>` +
+  // 收起咗嘅待定區只剩標題列；揀咗格或者積木（要放落去）就自動展開。
+  const folded = tv.fold && !state.sel
+  const fold = `<button type="button" class="link p-tray-fold" aria-expanded="${!folded}">${folded ? S.trayOpen : S.trayFold}</button>`
+  if (folded) return `<section class="tray panel folded" aria-label="${S.tray}"><div class="tray-head"><b>${S.tray}</b>${fold}</div></section>`
+  return `<section class="tray panel" aria-label="${S.tray}"><div class="tray-head"><b>${S.tray}</b>${tabs}${fold}</div>` +
     `<div class="tray-tools"><span class="pchips">${chips}</span>${sort}</div>${body}</section>`
 }
 
@@ -1112,6 +1119,15 @@ function onClick(event) {
     const ci = Number(comboEl.dataset.ci)
     state.sel = state.sel?.type === "combo" && state.sel.ci === ci ? null : { type: "combo", ci }
     state.message = ""
+    return render()
+  }
+  if (t.closest(".p-tray-fold")) {
+    if (state.tray.fold && !state.sel) state.tray.fold = false
+    else {
+      state.tray.fold = true
+      state.sel = null
+    }
+    saveTrayView()
     return render()
   }
   const tab = t.closest(".tray-tab")

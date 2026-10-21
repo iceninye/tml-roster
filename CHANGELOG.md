@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.9.24 — unreleased
+- 編更: 刪積木後訊息改做「已刪除積木」（以前話「其餘空格已按偏好重新編排」，但其實冇編排）。
+- 編更: 待定區標題列加「收起／展開」掣，手機上收起後表格有晒位；收起狀態記喺呢部機。揀咗格或積木（要放落去）時自動展開。
+- 編更: 手機週標題「第 N 週 · 10/26 – 11/1」只會喺「·」位置斷行，唔會斷開日期；細屏字體縮細少少。
+- 編更: 加入主畫面有圖示同名（「編更」）：`plan.html` 加 `apple-touch-icon`、`apple-mobile-web-app-title` 同新嘅 `plan.webmanifest`。
+- 我的更表: 後備更詳情嘅地點顯示中文名（例如「錦上路 2」），同週列表一致；匯入說明嘅後備更改做「後備更」（KSP／HSP 已有上下班時間）。
+- 兩頁 manifest／圖示用相對路徑，GitHub Pages（`/tml-roster/`）都搵到；`site.webmanifest` 嘅 start_url 改做 `index.html`、冇 scope（以前 `/ice/` 令由 `/roster` 加入主畫面唔喺 scope 入面）；描述由「屯門線」改做「屯馬綫」。
+- 部署: Pages workflow 同 `sw.js` 加埋 `plan.webmanifest`。
+- Shell cache 改名 `v54`。
+
 ## v0.9.23 — unreleased
 - 我的更表: 本週概況唔再將 HC 計入「假期」，改計「待定」（TBC 本身已經係待定）。
 - 我的更表: 更份資料（index、duty-basic、站名、更份卡）讀唔到唔再記住成個 session：顯示「讀取更份資料失敗，請稍後再試」，唔再誤講「搵唔到 Duty Sheet」；網絡返嚟或者返到呢頁就自動再讀。index 真係冇嗰份 sheet 先講搵唔到。

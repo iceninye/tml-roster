@@ -12,7 +12,7 @@ import { serviceDate, serviceSeconds } from "../lib/tml-time.js"
 import { fetchData, placeNames, sheetForDate, stationNames } from "../lib/tml-data.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.23", commit: "dev" }
+const BUILD = { version: "0.9.24", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -162,7 +162,7 @@ const S = {
   howCodes: [
     ["1101179", "7 位更份編號（頭 4 位係 Duty Sheet 編號）"],
     ["RD · AL · SH · HC", "休息日 · 年假 · 法定假日 · 待定"],
-    ["HSP1 · KSP3", "後備更（冇上下班時間）"],
+    ["HSP1 · KSP3", "後備更"],
   ],
   howExample: "1,1101101,1101102,RD,1101104,1101105,6091101,RD\n2,AL,AL,AL,SH,SH,RD,RD",
   fileBtn: "由檔案匯入",
@@ -545,7 +545,7 @@ function mealMatesHtml(duty, duties, sheet) {
 // A duty without leg-by-leg data (spare duties, sheets not copied here).
 function basicDetailHtml(cell) {
   const b = cell.basic
-  const place = (at) => (at ? escapeHtml(at) : "")
+  const place = (at) => (at ? escapeHtml(placeName(at)) : "")
   return `<div class="duty-sub">${cell.tag ? `<span class="badge plain">${cell.tag}</span> ` : ""}<span class="badge plain">${S.shift[shiftOf(b.on, b.off)]}</span></div>` +
     `<div class="hero"><div><small>${S.on}</small><b>${hhmm(b.on)}</b><span>${place(b.onAt)}</span></div>` +
     `<i aria-hidden="true">→</i><div><small>${S.off}</small><b>${clockHtml(b.off)}</b><span>${place(b.offAt)}</span></div></div>` +

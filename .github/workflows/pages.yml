@@ -32,7 +32,7 @@ jobs:
       - name: Collect site files
         run: |
           mkdir _site
-          cp -r index.html plan.html sw.js site.webmanifest *.png assets lib data _site/
+          cp -r index.html plan.html sw.js site.webmanifest plan.webmanifest *.png assets lib data _site/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
