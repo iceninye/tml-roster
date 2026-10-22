@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.9.26 — unreleased
+- 其他代碼（Ice 2026-10-22 定）放入共用表 `lib/tml-extra.js`，兩頁共用。開工日：SPH7、SPL7、SPT7、TRG、TRGK、TRGL、JCC 7 小時；SPT75 7.5 小時；SLP 7.5 小時 15:00–23:00；SEP 8 小時 06:45–15:15；SPKE 7.5 小時 07:00–15:00；SPKL 7.5 小時 15:00–23:00。假期：CL 0；CP、GH、PH、SH、SL、WB 有薪 7 小時。
+- 編更: 「其他」tab 由 13 粒增至 19 粒（新加 SPL7、SLP、SEP、JCC、SPKE、SPKL）。開工日代碼計開工同工時（唔再標做「休息日」）。上落班時間：表入面有就用表（SLP、SEP、SPKE、SPKL），冇就用官表 duty-basic（例如 TRG、SPT7、SPH7）；有時間嘅顯示更類，參與休息時間檢查同喜好計算，但同其他代碼一樣放入格就用咗，唔會返去待定區。工時一律跟 Ice 嘅表（TRGK 7、TRGL 7、SPT75 7.5，官表係 7.5、7.5、7.0）。
+- 我的更表: 開工日代碼計入開工日同工時（時間同上，地點用官表嘅），假期代碼（CL、CP、GH、PH、SL、WB）計假期；以前所有「其他」代碼都當待定，而且 SL 會誤顯示官表嘅時間。假期嘅有薪工時唔計入我的更表工時。
+- 測試: `validate_plan` 加代碼表、工時、固定時間、SLP 唔入待定區；`validate_roster` 加週概況計法。
+- Shell cache 改名 `v56`（`lib/tml-extra.js` 加入離線快取）。
+
 ## v0.9.25 — unreleased
 - Worker: `/api/backup` 同 `/api/token-log` 按 IP 限速，每分鐘最多 5 次，超過回 429 `rate_limited`（頁面顯示「太密，請一分鐘後再試」）。用 Workers 內置 Rate Limiting binding `MAIL_LIMITER`（`wrangler.jsonc`），唔使喺 Cloudflare dashboard 設。冇 binding（本機測試、GitHub Pages）就唔限；每日 60 封上限照舊。上傳／下載同步（`/api/roster`、`/api/plan`）唔受影響。報告 D3。
 - 測試: `validate_worker` 加限速檢查（限內成功、超過 429 冇寄信、按 IP、ping 唔受限）。

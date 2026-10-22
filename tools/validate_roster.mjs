@@ -102,6 +102,13 @@ check(week.days === 3, `週概況計 3 日開工（實際 ${week.days}）`)
 check(week.minutes === 300 + 480 + 510, `週概況工時 21 小時 30 分（實際 ${week.minutes} 分）`)
 check(week.rest === 1 && week.leave === 2 && week.pending === 1, "休息／假期／待定分開計，未載入嘅日子當待定")
 check(summariseWeek([], () => null, () => ({})).days === 0, "冇日期就係零")
+// 其他代碼：TRG（7 小時，冇時間）、SLP（7.5 小時，15:00–23:00）計開工；CP 係假期；HC 待定。
+const extras = { "2026-11-02": "TRG", "2026-11-03": "SLP", "2026-11-04": "CP", "2026-11-05": "HC", "2026-11-06": "SEP" }
+const ex = summariseWeek(weekDates("2026-11-02").slice(0, 5), (date) => ({ code: extras[date] }), (code) => (
+  code === "TRG" ? { on: null, extraHours: 7 }
+    : code === "SLP" ? { on: 15 * 3600, basic: { on: 15 * 3600, off: 23 * 3600, hours: 7.5 } }
+      : { on: 24300, basic: { on: 24300, off: 54900, hours: 8 } }))
+check(ex.days === 3 && ex.minutes === (7 + 7.5 + 8) * 60 && ex.leave === 1 && ex.pending === 1, `TRG／SLP／SEP 計開工同工時，CP 計假期，HC 待定（實際 ${JSON.stringify(ex)}）`)
 const hc = summariseWeek(["2026-11-02", "2026-11-03"], (date) => ({ code: date === "2026-11-02" ? "HC" : "AL" }), () => ({ on: null }))
 check(hc.pending === 1 && hc.leave === 1, "HC 計待定，唔計假期")
 

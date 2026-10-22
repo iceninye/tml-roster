@@ -6,7 +6,8 @@
 // the cloud copy is mailed as a backup before it is overwritten.
 // Book-on/off times come from TML-traffic data/duty-basic.json (lib/tml-data.js).
 
-import { EMPTY, EXTRA, EXTRA_HOURS, HHS, LEAVE, PENDING, PREFS, SHIFTS, allToTray, canRemove, cleanPlan, clearWeek, combosView, fillMember, fillTeam, formatRanges, fromTray, importWeek, isHhs, isoWeek, missingMembers, mondayOfIsoWeek, namedRows, newPlan, parseRanges, prefDistance, removeBlock, renameBlock, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, trayView, useCombo, weekView } from "../lib/tml-plan.js"
+import { extraHours, isOffCode, workOf } from "../lib/tml-extra.js"
+import { EMPTY, EXTRA, HHS, LEAVE, PENDING, PREFS, SHIFTS, allToTray, canRemove, cleanPlan, clearWeek, combosView, fillMember, fillTeam, formatRanges, fromTray, importWeek, isHeld, isHhs, isoWeek, missingMembers, mondayOfIsoWeek, namedRows, newPlan, parseRanges, prefDistance, removeBlock, renameBlock, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, trayView, useCombo, weekView } from "../lib/tml-plan.js"
 import { addDays, classify, cleanRoster, mondayOf, newRoster, normaliseCode, parseRoster, weekDates } from "../lib/tml-roster.js"
 import { serviceDate } from "../lib/tml-time.js"
 import { fetchData, sheetForDate } from "../lib/tml-data.js"
@@ -112,6 +113,7 @@ const S = {
   customLabel: "自定",
   customUse: "用呢個",
   offDay: "休息日",
+  workDay: "開工日",
   pickDuty: "揀當日更份",
   pickNone: "當日冇未用嘅更份",
   autoOn: "自動填入：開",
@@ -285,7 +287,15 @@ const meDate = (date) => `${Number(date.slice(5, 7))}/${Number(date.slice(8))}`
 function timeOf(code, date) {
   const key = code ? String(code).toUpperCase() : ""
   // Days off (CL, SL ...) have no book-on/off, whatever the duty list holds for them.
-  if (key in EXTRA_HOURS) return null
+  if (isOffCode(key)) return null
+  // Work days (SLP, TRG ...): the hours are Ice's (lib/tml-extra.js); the times are its own
+  // or, failing that, the official table's (duty-basic); no times at all -> null.
+  const work = workOf(key)
+  if (work) {
+    const row = basic[key]
+    const on = work.on ?? row?.[0]
+    return on == null ? null : { on, off: work.off ?? row[2], hours: work.hours }
+  }
   const sheet = typeof date === "string" && /^\d{7}$/.test(key) ? datedSheet(date, key) : null
   if (sheet) return cardsBy[sheet]?.[key] ?? null
   const row = basic[key]
@@ -461,7 +471,11 @@ function weekHtml() {
         work += 1
         hours += t.hours || 0
         if (!miss) hits += 1
-      } else hours += EXTRA_HOURS[code] ?? 0
+      } else {
+        // 其他代碼：開工日（冇固定時間）計開工同工時，假期只計有薪工時。
+        if (workOf(code)) work += 1
+        hours += extraHours(code)
+      }
       const c = classify(code)
       const short = issues.get(`${line.member.row}:${d}`)
       const sel = state.sel && state.sel.row === line.member.row && state.sel.day === d
@@ -597,8 +611,8 @@ function selHtml(lines) {
     `<span class="meta">Standard：${escapeHtml(line.std[d])} · ${S.selHelp}</span></div>` + quick +
     `<div class="me-edit-row"><label class="meta">${S.editLabel} <input name="code" value="${line.codes[d] === EMPTY ? "" : escapeHtml(line.codes[d])}" maxlength="10" autocapitalize="characters" spellcheck="false"></label>` +
     `<button type="submit" class="btn primary">${S.editSave}</button>` +
-    (timeOf(line.codes[d], addDays(state.monday, d)) || LEAVE.includes(line.codes[d]) ? `<button type="button" class="btn p-to-tray">${S.toTray}</button>` : "") +
-    (line.codes[d] !== EMPTY && !timeOf(line.codes[d], addDays(state.monday, d)) && !LEAVE.includes(line.codes[d]) ? `<button type="button" class="btn p-clear-cell">${S.clearCell}</button>` : "") +
+    (isHeld(line.codes[d], addDays(state.monday, d), timeOf) || LEAVE.includes(line.codes[d]) ? `<button type="button" class="btn p-to-tray">${S.toTray}</button>` : "") +
+    (line.codes[d] !== EMPTY && !isHeld(line.codes[d], addDays(state.monday, d), timeOf) && !LEAVE.includes(line.codes[d]) ? `<button type="button" class="btn p-clear-cell">${S.clearCell}</button>` : "") +
     `<button type="button" class="btn p-cancel">${S.cancel}</button></div></form>`
 }
 
@@ -606,7 +620,7 @@ function selHtml(lines) {
 function kindOf(code, date) {
   const t = timeOf(code, date)
   if (t) return shiftOf(t.on, t.off)
-  return PENDING.includes(code) ? "hc" : "leave"
+  return PENDING.includes(code) ? "hc" : workOf(code) ? "work" : "leave"
 }
 
 // 紅磡 narrows the kinds picked (紅磡 + 早 = 紅磡嘅早更); the kinds are either-or.
@@ -667,8 +681,8 @@ function trayHtml() {
       const t = timeOf(code)
       const shift = t ? shiftOf(t.on, t.off) : ""
       const sel = state.sel?.type === "other" && state.sel.code === code
-      return `<button type="button" class="block" data-other="${code}" data-shift="${shift}" data-kind="${t ? "duty" : "leave"}"${sel ? ' data-sel="1"' : ""}>` +
-        `<b>${code}</b>${t ? `<small>${hhmm(t.on)}–${hhmm(t.off)}</small><span class="ptag">${S.shift[shift]}</span>` : `<small>${S.offDay} · ${EXTRA_HOURS[code]}h</small>`}</button>`
+      return `<button type="button" class="block" data-other="${code}" data-shift="${shift}" data-kind="${t || workOf(code) ? "duty" : "leave"}"${sel ? ' data-sel="1"' : ""}>` +
+        `<b>${code}</b>${t ? `<small>${hhmm(t.on)}–${hhmm(t.off)}</small><span class="ptag">${S.shift[shift]}</span>` : `<small>${workOf(code) ? S.workDay : S.offDay} · ${extraHours(code)}h</small>`}</button>`
     }).join("")
     body = `<p class="fine">${S.otherHelp}</p><div class="other-blocks">${blocks}</div>` +
       `<form class="p-custom me-edit-row" autocomplete="off"><label class="meta">${S.customLabel} <input name="code" maxlength="10" autocapitalize="characters" spellcheck="false"></label><button type="submit" class="btn">${S.customUse}</button></form>`
@@ -1086,7 +1100,7 @@ function downloadCsv() {
   const quote = (v) => `"${String(v).replace(/"/g, '""')}"`
   const out = [["行", "組員", ...dates.map((d, i) => `${S.weekdays[i]} ${d}`), S.hours].map(quote).join(",")]
   for (const line of lines) {
-    const hours = line.codes.reduce((sum, code, d) => sum + (timeOf(code, dates[d])?.hours || EXTRA_HOURS[code] || 0), 0)
+    const hours = line.codes.reduce((sum, code, d) => sum + (timeOf(code, dates[d])?.hours || extraHours(code)), 0)
     out.push([line.row, who(line.member), ...line.codes.map((code) => (code === EMPTY ? "" : code)), hours ? hours.toFixed(1) : ""].map(quote).join(","))
   }
   const name = `tml-plan-${year}-W${String(week).padStart(2, "0")}.csv`
