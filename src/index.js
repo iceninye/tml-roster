@@ -172,6 +172,14 @@ async function readJson(request, max) {
   }
 }
 
+// 寄信嘅兩個 endpoint 按 IP 限速（Workers Rate Limiting binding MAIL_LIMITER，wrangler.jsonc 設定）。
+// 冇 binding（本機測試、GitHub Pages）就唔限；每日 60 封上限（sendMail）照舊。
+async function limited(request, env) {
+  if (!env.MAIL_LIMITER || request.method !== "POST") return null
+  const { success } = await env.MAIL_LIMITER.limit({ key: request.headers.get("cf-connecting-ip") ?? "unknown" })
+  return success ? null : reply({ ok: false, reason: "rate_limited" }, 429)
+}
+
 const notPost = () => new Response(null, { status: 405, headers: { allow: "POST", "cache-control": "no-store" } })
 
 // POST /api/backup { name, text, device? }：編更備份（roster-<日期>-v<n>.json），
@@ -332,8 +340,8 @@ export default {
     const parts = url.pathname.split("/").filter(Boolean) // ["api","roster","<token>"]
     // 前端用嚟問「呢個網址支唔支援同步」（GitHub Pages 版會 404）
     if (parts[0] === "api" && parts[1] === "ping") return reply({ ok: true, sync: true, mail: !!(env.RESEND_API_KEY && env.BACKUP_TO) })
-    if (parts[0] === "api" && parts[1] === "backup" && parts.length === 2) return mailBackup(request, env)
-    if (parts[0] === "api" && parts[1] === "token-log" && parts.length === 2) return tokenLog(request, env)
+    if (parts[0] === "api" && parts[1] === "backup" && parts.length === 2) return (await limited(request, env)) ?? mailBackup(request, env)
+    if (parts[0] === "api" && parts[1] === "token-log" && parts.length === 2) return (await limited(request, env)) ?? tokenLog(request, env)
     if (parts.length < 2 || parts[0] !== "api" || (parts[1] !== "roster" && parts[1] !== "plan")) {
       return reply({ ok: false, reason: "not_found" }, 404)
     }

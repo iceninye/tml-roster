@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.9.25 — unreleased
+- Worker: `/api/backup` 同 `/api/token-log` 按 IP 限速，每分鐘最多 5 次，超過回 429 `rate_limited`（頁面顯示「太密，請一分鐘後再試」）。用 Workers 內置 Rate Limiting binding `MAIL_LIMITER`（`wrangler.jsonc`），唔使喺 Cloudflare dashboard 設。冇 binding（本機測試、GitHub Pages）就唔限；每日 60 封上限照舊。上傳／下載同步（`/api/roster`、`/api/plan`）唔受影響。報告 D3。
+- 測試: `validate_worker` 加限速檢查（限內成功、超過 429 冇寄信、按 IP、ping 唔受限）。
+- Shell cache 改名 `v55`。
+
 ## v0.9.24 — unreleased
 - 編更: 刪積木後訊息改做「已刪除積木」（以前話「其餘空格已按偏好重新編排」，但其實冇編排）。
 - 編更: 待定區標題列加「收起／展開」掣，手機上收起後表格有晒位；收起狀態記喺呢部機。揀咗格或積木（要放落去）時自動展開。
