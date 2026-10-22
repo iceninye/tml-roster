@@ -2,7 +2,7 @@
 // cached; a file is revalidated every time the network is up, so a release never
 // pairs a new app.js with old libs, and a new Duty Sheet shows up on next open.
 
-const CACHE = "tml-roster-shell-v56"
+const CACHE = "tml-roster-shell-v57"
 const SHELL = [
   "./",
   "index.html",
@@ -82,15 +82,24 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin && !DATA_ORIGINS.includes(url.origin)) return
   // 雲端同步 API 唔快取：cache 住會離線時攞返舊版本，而且 token 會留喺 cache 網址。
   if (url.origin === self.location.origin && url.pathname.startsWith("/api/")) return
-  event.respondWith(
-    fetch(request, { cache: "no-cache" })
-      .then((response) => {
-        if (response.ok) {
-          const copy = response.clone()
-          caches.open(CACHE).then((cache) => cache.put(request, copy)).catch(() => {})
-        }
-        return response
-      })
-      .catch(() => caches.match(request).then((hit) => hit ?? Response.error())),
-  )
+  event.respondWith(answer(event, request))
 })
+
+// 先問網絡（唔係先用快取），但訊號差時唔好等到失敗：3 秒未答就先出快取，網絡背後繼續跑並更新快取。
+const SLOW_MS = 3000
+
+async function answer(event, request) {
+  const network = fetch(request, { cache: "no-cache" }).then((response) => {
+    if (response.ok) {
+      const copy = response.clone()
+      caches.open(CACHE).then((cache) => cache.put(request, copy)).catch(() => {})
+    }
+    return response
+  })
+  const cached = await caches.match(request)
+  if (!cached) return network.catch(() => Response.error())
+  event.waitUntil(network.catch(() => {}))
+  let timer
+  const slow = new Promise((resolve) => { timer = setTimeout(() => resolve(cached), SLOW_MS) })
+  return Promise.race([network.catch(() => cached), slow]).finally(() => clearTimeout(timer))
+}
