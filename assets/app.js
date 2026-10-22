@@ -8,11 +8,12 @@ import { dutyState, mealMates, reliefOf } from "../lib/tml-duties.js"
 import { addDays, classify, cleanRoster, dayEntry, mondayOf, newRoster, normaliseCode, parseRoster, rowLabelFor, setOverride, weekDates, weekdayIndex } from "../lib/tml-roster.js"
 import { SHIFTS, shiftOf } from "../lib/tml-shift.js"
 import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
+import { OFF_CODES, workOf } from "../lib/tml-extra.js"
 import { serviceDate, serviceSeconds } from "../lib/tml-time.js"
 import { fetchData, placeNames, sheetForDate, stationNames } from "../lib/tml-data.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.24", commit: "dev" }
+const BUILD = { version: "0.9.26", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -32,6 +33,8 @@ const S = {
   spareNote: "後備更未有上下班資料",
   noCard: "呢個更份暫時冇上下班資料",
   spareTag: "後備更",
+  extraOff: (hours) => `假期${hours ? ` · ${hours} 小時` : ""}`,
+  extraWork: (hours) => `開工日 · ${hours} 小時（冇上下班時間）`,
   basicNote: "呢個更份冇逐段行程資料，只有上下班時間同地點。",
   shift: { dawn: "死早", early: "早", mid: "中", late: "夜", night: "死夜" },
   nextDay: "翌日",
@@ -450,6 +453,15 @@ function dutyPhaseText(st) {
 function cellInfo(code, date) {
   const c = classify(code)
   if (c.kind === "status") return { label: `${S.status[c.code]} ${c.code}`, status: "none", tone: c.code === "HC" ? "tbd" : (c.code === "AL" || c.code === "SH" ? "leave" : "rest") }
+  // 其他代碼（編更「其他」tab，lib/tml-extra.js）：工時跟 Ice 嘅表；時間用表入面有嘅，冇就用官表（duty-basic）。
+  if (c.kind === "other" && Object.hasOwn(OFF_CODES, c.code)) return { label: S.extraOff(OFF_CODES[c.code]), status: "none", tone: "leave" }
+  const work = c.kind === "other" ? workOf(c.code) : null
+  if (work) {
+    const row = basicOf(c.code)
+    const on = work.on ?? row?.on
+    if (on == null) return { label: c.code, status: "none", note: S.extraWork(work.hours), tone: "duty", extraHours: work.hours }
+    return { label: c.code, status: "basic", basic: { on, off: work.off ?? row.off, hours: work.hours, onAt: row?.onAt ?? "", offAt: row?.offAt ?? "", flag: row?.flag ?? "" }, on, tone: "duty" }
+  }
   const known = c.kind === "duty" ? null : basicOf(c.code)
   if (known) return { label: c.code, tag: c.kind === "spare" ? S.spareTag : "", status: "basic", basic: known, on: known.on, tone: "duty" }
   if (c.kind === "spare") return { label: S.spare(c.code), status: "none", note: S.spareNote, tone: "spare" }

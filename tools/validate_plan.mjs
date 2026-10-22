@@ -1,8 +1,9 @@
 // Checks lib/tml-plan.js on a made-up roster and made-up duty times
 // (real rosters and staff never go in the repo):
 //   node tools/validate_plan.mjs
-import { EMPTY, EXTRA, SHEETS, formatRanges, leaveToTray, namedRows, arrangeWeek, defaultSheet, mapCode, setSheet, sheetOf, assign, cleanPlan, fromTray, toTray, trayView, allToTray, canRemove, fillMember, fillTeam, importWeek, sheetsInRoster, missingMembers, combosView, useCombo, renameBlock, removeBlock, isoWeek, memberRow, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, isHhs, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
+import { EMPTY, EXTRA, SHEETS, isHeld, formatRanges, leaveToTray, namedRows, arrangeWeek, defaultSheet, mapCode, setSheet, sheetOf, assign, cleanPlan, fromTray, toTray, trayView, allToTray, canRemove, fillMember, fillTeam, importWeek, sheetsInRoster, missingMembers, combosView, useCombo, renameBlock, removeBlock, isoWeek, memberRow, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, isHhs, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
 import { newRoster, parseRoster } from "../lib/tml-roster.js"
+import { EXTRA as EXTRA_ALL, OFF_CODES, WORK_CODES, extraHours, workOf } from "../lib/tml-extra.js"
 
 let failed = 0
 const check = (ok, what) => {
@@ -285,6 +286,15 @@ check(cleanPlan(JSON.parse(JSON.stringify(sat))).sheets["2026-10-17"] === "8022"
   check(trayView(trg, week)[0].length === trayView(start, week)[0].length - 1, "a TRG day uses up the member's own block")
   const back = setCell(roster, trg, week, 2, 0, null)
   check(!trayView(back, week)[0].includes("TRG") && weekView(roster, back, week)[0].codes[0] === "-", "clearing a TRG day puts no TRG block in the tray")
+  // 其他代碼 (Ice, 2026-10-22): work days with hours, some with fixed times; days off with paid hours.
+  check(["SPH7", "SPL7", "SPT7", "SPT75", "TRG", "TRGK", "TRGL", "SLP", "SEP", "JCC", "SPKE", "SPKL"].every((c) => c in WORK_CODES) && Object.keys(WORK_CODES).length === 12, "the 12 work-day codes")
+  check(["CL", "CP", "GH", "PH", "SH", "SL", "WB"].every((c) => c in OFF_CODES) && Object.keys(OFF_CODES).length === 7 && EXTRA_ALL.length === 19 && EXTRA.length === 19, "the 7 day-off codes; 19 其他 blocks")
+  check(extraHours("SPT75") === 7.5 && extraHours("jcc") === 7 && extraHours("CL") === 0 && extraHours("CP") === 7 && extraHours("1101001") === 0, "hours of the 其他 codes")
+  check(workOf("SLP").on === 15 * 3600 && workOf("SLP").off === 23 * 3600 && workOf("SEP").on === 6.75 * 3600 && workOf("SEP").off === 15.25 * 3600 && workOf("SPKE").on === 7 * 3600 && workOf("SPKL").off === 23 * 3600 && workOf("TRG").on === undefined && workOf("RD") === null, "fixed times of SLP, SEP, SPKE, SPKL; none for TRG")
+  const slpTime = (code) => (code === "SLP" ? { on: 15 * 3600, off: 23 * 3600, hours: 7.5 } : timeOf(code))
+  check(isHeld("SLP", week, slpTime) === false && isHeld("1101001", week, timeOf) === Boolean(timeOf("1101001")), "SLP has times but is not a duty to move to the tray; a duty still is")
+  const slp = setCell(roster, start, week, 2, 0, "SLP")
+  check(toTray(roster, slp, week, 2, 0, slpTime) === null, "an SLP cell cannot be taken into the tray")
 }
 
 // Weekly import: next week's roster, members found by name one row down, preferences kept, earlier weeks kept.
