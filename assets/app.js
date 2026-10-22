@@ -5,7 +5,7 @@
 // station names are read from https://github.com/iceninye/TML-traffic (lib/tml-data.js).
 
 import { dutyState, mealMates, reliefOf } from "../lib/tml-duties.js"
-import { addDays, classify, cleanRoster, dayEntry, mondayOf, newRoster, normaliseCode, parseRoster, rowLabelFor, setOverride, weekDates, weekdayIndex } from "../lib/tml-roster.js"
+import { addDays, classify, cleanRoster, dayEntry, mondayOf, newRoster, normaliseCode, parseRoster, recentOverrides, rowLabelFor, setOverride, weekDates, weekdayIndex } from "../lib/tml-roster.js"
 import { SHIFTS, shiftOf } from "../lib/tml-shift.js"
 import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
 import { OFF_CODES, workOf } from "../lib/tml-extra.js"
@@ -13,7 +13,7 @@ import { serviceDate, serviceSeconds } from "../lib/tml-time.js"
 import { fetchData, placeNames, sheetForDate, stationNames } from "../lib/tml-data.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.26", commit: "dev" }
+const BUILD = { version: "0.9.27", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -39,6 +39,7 @@ const S = {
   shift: { dawn: "死早", early: "早", mid: "中", late: "夜", night: "死夜" },
   nextDay: "翌日",
   hours: (h) => `${h} 小時`,
+  sheetHint: (sheet, id) => `當日用 Duty Sheet ${sheet}，你嘅更可能係 ${id}，請檢查。`,
   noSheet: (id) => `搵唔到更份 ${id} 所屬嘅 Duty Sheet 資料`,
   notOnSheet: (id, sheet) => `呢日用 Duty Sheet ${sheet}，入面冇 ${id}；請改做當日嘅更份編號`,
   noDuty: (id) => `Duty Sheet 入面冇更份 ${id} 嘅資料`,
@@ -230,6 +231,7 @@ let indexFailed = false
 let networkFailed = false
 const dutyBooks = new Map()
 let shown = ""
+let openedWeek = ""
 
 /* ------------------------------------------------------------- storage */
 
@@ -486,6 +488,15 @@ function cellInfo(code, date) {
     return { label: c.id, status, c, dated, sheet: dated ? sheet : "" }
   }
   return { label: c.id, group: duty.group, status: duty.on ? "ok" : "nocard", duty, c, tone: "duty", on: duty.on?.[0], dated, sheet: dated ? sheet : "" }
+}
+
+// 特別日提示：Standard Roster 寫 6091124，但當日行 8022，就提示更份可能係 8022124（只提示，唔自動換）。
+function sheetHint(code, date) {
+  const c = classify(code)
+  if (c.kind !== "duty" || !dutySheets) return ""
+  const special = dutySheets.find((s) => s.class === "special" && [...(s.dates ?? []), ...(s.alsoOn ?? [])].includes(date))
+  if (!special || special.code === sheetForDate(dutySheets, date, c.id)) return ""
+  return `<p class="fine sheet-hint">${S.sheetHint(special.code, special.code.slice(0, 4) + c.id.slice(4))}</p>`
 }
 
 // 卡上工時：官表有 basic 時數就用佢，否則用更份卡嘅 work（分鐘）。
@@ -805,8 +816,20 @@ function open() {
   roster = loadRoster()
   state.page = roster ? "week" : "setup"
   state.monday = mondayOf(serviceDate(Date.now()))
+  openedWeek = state.monday
   state.date = null
   render()
+}
+
+// 放喺主畫面過夜：週一 04:00 之後，如果仲停喺舊一週（冇自己換週），就跳返本週。
+function rollWeek() {
+  const current = mondayOf(serviceDate(Date.now()))
+  if (current === openedWeek) return
+  if (state.page === "week" && state.monday === openedWeek) {
+    state.monday = current
+    render()
+  }
+  openedWeek = current
 }
 
 // 頁首副標：一頁一句實用資訊（唔係死板標語）
@@ -897,11 +920,12 @@ function paintData() {
     else if (cell.status === "nosheet") html = `<p class="empty">${S.noSheet(cell.c.id)}</p>`
     else if (cell.status === "failed") html = `<p class="empty">${S.failed}</p>`
     else html = dutyDetailHtml({ sheet: cell.c.sheet, id: cell.c.id }, state.date === serviceDate(Date.now()))
+    html = sheetHint(entry.code, state.date) + html
   } else if (state.page === "week") {
     const today = serviceDate(Date.now())
     const week = weekDates(state.monday)
     const short = shortRestDates(week)
-    const heroHtml = week.includes(today) ? todayHtml(today, dayEntry(roster, today), cellInfo(dayEntry(roster, today).code, today), short.has(today)) : ""
+    const heroHtml = week.includes(today) ? todayHtml(today, dayEntry(roster, today), cellInfo(dayEntry(roster, today).code, today), short.has(today)) + sheetHint(dayEntry(roster, today).code, today) : ""
     // 今日已經有 hero，列表唔再重複
     const listDays = week.includes(today) ? week.filter((date) => date !== today) : week
     // 本週最常見嘅組別（例如 KSR）唔使每張卡都寫，唔同先顯示
@@ -1112,7 +1136,7 @@ async function kvUpload(force = false, skipBackup = false) {
         numbers: roster.numbers,
         names: roster.names,
         anchor: roster.anchor, // 基準週（week number）要同步，唔係第二部機會自己揀「今週」
-        overrides: roster.overrides,
+        overrides: recentOverrides(roster.overrides, serviceDate(Date.now())),
         version: Number(readPref(KV_VERSION) ?? 0),
         force,
         skipBackup,
@@ -1132,6 +1156,7 @@ async function kvUpload(force = false, skipBackup = false) {
     if (confirm(S.syncBackupFail(mailWhy(body.why)))) return kvUpload(true, true)
     return kvMessage(S.syncKeptLocal)
   }
+  if (body?.reason === "too_many_overrides") return kvMessage(mailWhy(body.reason))
   if (!res.ok || !body?.ok) return kvMessage(S.syncFail)
   writePref(KV_VERSION, String(body.version))
   writePref(KV_SYNCED, kvPrint())
@@ -1456,9 +1481,13 @@ function boot() {
     if (index) document.getElementById("foot").insertAdjacentHTML("beforeend", ` · ${S.dutyData(index.sheets.filter((s) => s.class !== "special").map((s) => s.issued).sort().pop())}`)
   })
   // 每 15 秒重畫一次就夠（時間軸以分鐘為單位）；唔好每秒做全套計算。
-  setInterval(paintData, 15000)
+  setInterval(() => { rollWeek(); paintData() }, 15000)
   window.addEventListener("online", retryData)
-  document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && retryData())
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") return
+    rollWeek()
+    retryData()
+  })
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {})
 }
 

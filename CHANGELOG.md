@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.9.27 — unreleased
+- 編更: 匯入新一週 Standard Roster 時，plan 只保留匯入週之前 8 週（積木、待定區、特別日 sheet），以前只會越嚟越大，每次上傳同電郵備份都包晒（報告 P5）。
+- 我的更表: 週一 04:00 之後，如果仲停喺舊一週（冇自己換週），回到前景或者 15 秒檢查時自動跳返本週（M10）。特別日提示：Standard Roster 寫 6091124 但當日行 8022，今日卡同更份詳情加一行「當日用 Duty Sheet 8022，你嘅更可能係 8022124，請檢查」，只提示唔自動換（M11）。
+- 匯入 CSV 識得雙引號：名有逗號（`"Chan, Tai Man"`）唔再被拆開，匯出再貼返得（M9，兩頁都受惠）。
+- Worker: 手動改動超過 400 個唔再靜靜截走最新嗰幾個，改為回 400 `too_many_overrides`（頁面顯示原因）；前端上傳前先刪走一年前嘅改動（M6）。
+- Service worker: 頁面檔案 3 秒冇回應就先出快取，網絡背後繼續更新快取（D5）。
+- CI: 新增 `.github/workflows/test.yml`，每個 PR 都行四個測試（加 `validate_version`），並比對 `lib/tml-duties.js` 同 TML-traffic main 係咪一樣（唔同只警告）；Pages workflow 都加 `validate_version`（D4、T8）。
+- 測試: 加 CSV 引號、一年前改動、400 個改動邊界、`pruneWeeks`。
+- Shell cache 改名 `v57`。
+
 ## v0.9.26 — unreleased
 - 其他代碼（Ice 2026-10-22 定）放入共用表 `lib/tml-extra.js`，兩頁共用。開工日：SPH7、SPL7、SPT7、TRG、TRGK、TRGL、JCC 7 小時；SPT75 7.5 小時；SLP 7.5 小時 15:00–23:00；SEP 8 小時 06:45–15:15；SPKE 7.5 小時 07:00–15:00；SPKL 7.5 小時 15:00–23:00。假期：CL 0；CP、GH、PH、SH、SL、WB 有薪 7 小時。
 - 編更: 「其他」tab 由 13 粒增至 19 粒（新加 SPL7、SLP、SEP、JCC、SPKE、SPKL）。開工日代碼計開工同工時（唔再標做「休息日」）。上落班時間：表入面有就用表（SLP、SEP、SPKE、SPKL），冇就用官表 duty-basic（例如 TRG、SPT7、SPH7）；有時間嘅顯示更類，參與休息時間檢查同喜好計算，但同其他代碼一樣放入格就用咗，唔會返去待定區。工時一律跟 Ice 嘅表（TRGK 7、TRGL 7、SPT75 7.5，官表係 7.5、7.5、7.0）。

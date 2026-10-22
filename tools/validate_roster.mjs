@@ -1,6 +1,6 @@
 // Checks lib/tml-roster.js on a made-up roster (a real one never goes in the repo):
 //   node tools/validate_roster.mjs
-import { classify, cleanRoster, dayEntry, mondayOf, newRoster, parseRoster, rowLabelFor, setOverride, weekDates, weekdayIndex } from "../lib/tml-roster.js"
+import { classify, cleanRoster, dayEntry, mondayOf, newRoster, parseRoster, recentOverrides, rowLabelFor, setOverride, weekDates, weekdayIndex } from "../lib/tml-roster.js"
 import { shiftOf } from "../lib/tml-shift.js"
 import { reliefOf } from "../lib/tml-duties.js"
 import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
@@ -24,6 +24,9 @@ check(parsed.rows.length === 3 && parsed.issues.length === 0, "a header line is 
 check(parsed.numbers.join() === "7,8,9", "the row labels are kept")
 check(parseRoster(csv.replace(/,/g, "\t")).rows.length === 3, "tab separated rows read too")
 check(parseRoster("1101101 RD RD 1101104 1101105 RD RD").rows.length === 1, "white space separated rows without a label read too")
+const quoted = parseRoster('1,"Chan, Tai ""Man""",1101101,RD,RD,RD,RD,RD,RD')
+check(quoted.issues.length === 0 && quoted.names[0] === 'Chan, Tai "Man"' && quoted.rows[0][0] === "1101101", "a quoted name with a comma and quotes reads back as one cell")
+check(Object.keys(recentOverrides({ "2025-01-01": "AL", "2026-01-01": "RD", "2026-10-22": "AL" }, "2026-10-22")).join() === "2026-01-01,2026-10-22", "overrides older than a year are left out of the upload")
 check(parseRoster("1,1101101,RD").issues.length === 1, "a short line is reported, not guessed")
 check(parseRoster("1,1101101,RD,RD,RD,RD,RD,??").issues.length === 1, "a cell that is no duty or status is reported")
 

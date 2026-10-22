@@ -1,7 +1,7 @@
 // Checks lib/tml-plan.js on a made-up roster and made-up duty times
 // (real rosters and staff never go in the repo):
 //   node tools/validate_plan.mjs
-import { EMPTY, EXTRA, SHEETS, isHeld, formatRanges, leaveToTray, namedRows, arrangeWeek, defaultSheet, mapCode, setSheet, sheetOf, assign, cleanPlan, fromTray, toTray, trayView, allToTray, canRemove, fillMember, fillTeam, importWeek, sheetsInRoster, missingMembers, combosView, useCombo, renameBlock, removeBlock, isoWeek, memberRow, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, isHhs, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
+import { pruneWeeks, EMPTY, EXTRA, SHEETS, isHeld, formatRanges, leaveToTray, namedRows, arrangeWeek, defaultSheet, mapCode, setSheet, sheetOf, assign, cleanPlan, fromTray, toTray, trayView, allToTray, canRemove, fillMember, fillTeam, importWeek, sheetsInRoster, missingMembers, combosView, useCombo, renameBlock, removeBlock, isoWeek, memberRow, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, isHhs, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
 import { newRoster, parseRoster } from "../lib/tml-roster.js"
 import { EXTRA as EXTRA_ALL, OFF_CODES, WORK_CODES, extraHours, workOf } from "../lib/tml-extra.js"
 
@@ -342,6 +342,12 @@ check(cleanPlan(JSON.parse(JSON.stringify(sat))).sheets["2026-10-17"] === "8022"
   restIssues(r4, p4, w4, spy)
   fillTeam(r4, p4, w4, spy)
   check([...asked].sort().join() === "2026-10-25,2026-10-26,2026-10-27,2026-10-28,2026-10-29,2026-10-30,2026-10-31,2026-11-01", "timeOf is asked with each day's date")
+}
+
+{
+  const old = { weeks: { "2026-08-24": { 1: {} }, "2026-10-19": { 1: {} } }, trays: { "2026-08-24": [[]], "2026-10-26": [[]] }, sheets: { "2026-08-25": "8022", "2026-10-30": "8027" } }
+  const out = pruneWeeks(old, "2026-09-07")
+  check(Object.keys(out.weeks).join() === "2026-10-19" && Object.keys(out.trays).join() === "2026-10-26" && Object.keys(out.sheets).join() === "2026-10-30", "pruneWeeks drops weeks, trays and sheets before the cut")
 }
 
 if (failed) {

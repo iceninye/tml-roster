@@ -64,9 +64,7 @@ function cleanRecord(input) {
 
   // 手動改動：日期 -> 代號；數量封頂，唔好比人塞爆 KV。
   const overrides = {}
-  let count = 0
   for (const [date, code] of Object.entries(input.overrides ?? {})) {
-    if (++count > MAX_OVERRIDES) break
     const clean = String(code ?? "").trim().toUpperCase()
     if (DATE_RE.test(date) && CODE_RE.test(clean)) overrides[date] = clean
   }
@@ -300,6 +298,8 @@ async function syncRecord(kind, token, request, env) {
 
   const { body, error } = await readJson(request, MAX_BYTES[kind])
   if (error) return error
+  // 手動改動太多就拒絕（以前靜靜截走最新嗰幾個）；前端上傳前會刪走一年前嘅。
+  if (kind !== "plan" && Object.keys(body?.overrides ?? {}).length > MAX_OVERRIDES) return reply({ ok: false, reason: "too_many_overrides" }, 400)
   const clean = kind === "plan" ? cleanPlanRecord(body) : cleanRecord(body)
   if (!clean) return reply({ ok: false, reason: "bad_shape" }, 400)
   const device = cleanDevice(body.device)

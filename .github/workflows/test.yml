@@ -1,0 +1,31 @@
+# Runs the checks on every pull request (Pages only runs after a merge to main).
+name: Test
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check roster logic, Worker and version
+        run: |
+          node tools/validate_roster.mjs
+          node tools/validate_plan.mjs
+          node tools/validate_worker.mjs
+          node tools/validate_version.mjs
+      - name: lib/tml-duties.js same as TML-traffic
+        # 兩個 repo 各有一份拷貝；唔一樣只警告（TML-traffic 嗰邊未合併時都會唔同），唔擋 PR。
+        run: |
+          if curl -fsSL https://raw.githubusercontent.com/iceninye/TML-traffic/main/lib/tml-duties.js -o /tmp/traffic-duties.js; then
+            diff -u /tmp/traffic-duties.js lib/tml-duties.js || echo "::warning::lib/tml-duties.js is different from TML-traffic main"
+          else
+            echo "::warning::could not read TML-traffic lib/tml-duties.js"
+          fi

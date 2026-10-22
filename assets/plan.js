@@ -7,7 +7,7 @@
 // Book-on/off times come from TML-traffic data/duty-basic.json (lib/tml-data.js).
 
 import { extraHours, isOffCode, workOf } from "../lib/tml-extra.js"
-import { EMPTY, EXTRA, HHS, LEAVE, PENDING, PREFS, SHIFTS, allToTray, canRemove, cleanPlan, clearWeek, combosView, fillMember, fillTeam, formatRanges, fromTray, importWeek, isHeld, isHhs, isoWeek, missingMembers, mondayOfIsoWeek, namedRows, newPlan, parseRanges, prefDistance, removeBlock, renameBlock, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, trayView, useCombo, weekView } from "../lib/tml-plan.js"
+import { EMPTY, EXTRA, HHS, LEAVE, PENDING, PREFS, SHIFTS, allToTray, canRemove, cleanPlan, clearWeek, combosView, fillMember, fillTeam, formatRanges, fromTray, importWeek, isHeld, isHhs, isoWeek, missingMembers, mondayOfIsoWeek, namedRows, newPlan, parseRanges, prefDistance, pruneWeeks, removeBlock, renameBlock, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, trayView, useCombo, weekView } from "../lib/tml-plan.js"
 import { addDays, classify, cleanRoster, mondayOf, newRoster, normaliseCode, parseRoster, weekDates } from "../lib/tml-roster.js"
 import { serviceDate } from "../lib/tml-time.js"
 import { fetchData, sheetForDate } from "../lib/tml-data.js"
@@ -960,6 +960,9 @@ function submitSetup(form) {
 }
 
 
+// 匯入新一週之後，plan 只保留匯入週之前 8 週（舊週唔會再睇，省上傳同備份嘅大小）。
+const KEEP_WEEKS = 8
+
 // Read a CSV (or pasted rows) as the Standard Roster; rows with a name become the team.
 function importRoster(text, anchor) {
   const parsed = parseRoster(text)
@@ -989,7 +992,7 @@ function importRoster(text, anchor) {
     state.pick = { rows: [] }
     state.importOpen = false
     const special = Object.keys(made.sheets).filter((date) => date >= anchor).map((date) => S.weekdays[weekDates(anchor).indexOf(date)]).join("、")
-    state.message = savePlan(opened(made, anchor)) ? backup + S.csvDone(parsed.rows.length, named.length, weekNo(anchor), kept) + (special ? S.csvSheets(special) : "") : S.notStored
+    state.message = savePlan(opened(pruneWeeks(made, addDays(anchor, -KEEP_WEEKS * 7)), anchor)) ? backup + S.csvDone(parsed.rows.length, named.length, weekNo(anchor), kept) + (special ? S.csvSheets(special) : "") : S.notStored
   } else state.message = S.csvDone(parsed.rows.length, 0)
   render()
 }

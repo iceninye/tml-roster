@@ -78,6 +78,17 @@ resendDown = false
 // conflict still comes first, and says which device
 r = await call("PUT", `/api/roster/${TOKEN}`, { ...roster("1101104"), version: 1 })
 check(r.status === 409 && r.body.reason === "conflict" && r.body.cloud.version === 4, "stale version is a conflict")
+{
+  const many = Object.fromEntries(Array.from({ length: 401 }, (_, i) => [new Date(Date.UTC(2026, 0, 1 + i)).toISOString().slice(0, 10), "AL"]))
+  const few = Object.fromEntries(Object.entries(many).slice(0, 400))
+  r = await call("PUT", `/api/roster/${TOKEN}`, { ...roster("1101101"), overrides: many, version: 4, skipBackup: true })
+  check(r.status === 400 && r.body.reason === "too_many_overrides", "more than 400 manual changes are refused, not cut off")
+  const other = "zyxwvutsrq9876543210zyxwvutsrq98"
+  r = await call("PUT", `/api/roster/${other}`, { ...roster("1101101"), overrides: few, version: 0 })
+  check(r.status === 200 && r.body.ok, "400 manual changes are accepted")
+  const stored = await call("GET", `/api/roster/${other}`)
+  check(Object.keys(stored.body.record.overrides).length === 400, "all 400 are kept")
+}
 r = await call("GET", `/api/roster/${TOKEN}`)
 check(r.status === 200 && r.body.record.rows[0][0] === "1101103", "GET returns the latest roster")
 
