@@ -2,6 +2,8 @@
   "name": "tml-roster",
   "main": "src/index.js",
   "compatibility_date": "2026-10-01",
+  // 部署時唔好洗走 dashboard 設嘅 variables／secrets（RESEND_API_KEY、BACKUP_TO）。
+  "keep_vars": true,
   "assets": {
     "directory": ".",
     "binding": "ASSETS",
