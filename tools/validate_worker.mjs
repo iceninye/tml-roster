@@ -1,7 +1,7 @@
 // Checks src/index.js (sync, token log, mail-before-overwrite) with a fake KV and a fake Resend:
 //   node tools/validate_worker.mjs
 import worker from "../src/index.js"
-import { TOKEN_RE, guessDevice, hkStamp, newToken } from "../lib/tml-cloud.js"
+import { TOKEN_RE, guessDevice, hkStamp, newToken, syncState } from "../lib/tml-cloud.js"
 
 let failed = 0
 const check = (ok, what) => {
@@ -151,6 +151,13 @@ check(guessDevice("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleW
 check(guessDevice("Mozilla/5.0 (Windows NT 10.0) Chrome/130.0 Safari/537.36 Edg/130.0") === "Windows · Edge", "Edge on Windows is named")
 check(guessDevice("Android Chrome/1") === "Android · Chrome", "an Android Chrome is named")
 check(hkStamp("2026-10-20T06:03:00Z") === "2026-10-20 14:03", "hkStamp shows Hong Kong time")
+check(syncState({ cloudVersion: null, localVersion: 3, dirty: true }) === "none", "🔔 no cloud answer: no bell")
+check(syncState({ cloudVersion: 3, localVersion: 3, dirty: false }) === "none", "🔔 same version, no change: no bell")
+check(syncState({ cloudVersion: 4, localVersion: 3, dirty: false }) === "cloud", "🔔 cloud has a newer version")
+check(syncState({ cloudVersion: 3, localVersion: 3, dirty: true }) === "local", "🔔 this device changed since the last sync")
+check(syncState({ cloudVersion: 4, localVersion: 3, dirty: true }) === "both", "🔔 both changed")
+check(syncState({ cloudVersion: 4, localVersion: 3, dirty: true, same: true }) === "none", "🔔 same content under another version: no bell")
+check(syncState({ cloudVersion: 1, localVersion: 0, dirty: false }) === "cloud", "🔔 fresh token on this device, cloud already has one")
 
 if (failed) {
   console.error(`${failed} check(s) failed`)
