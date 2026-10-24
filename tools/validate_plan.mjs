@@ -1,7 +1,7 @@
 // Checks lib/tml-plan.js on a made-up roster and made-up duty times
 // (real rosters and staff never go in the repo):
 //   node tools/validate_plan.mjs
-import { pruneWeeks, EMPTY, EXTRA, SHEETS, isHeld, formatRanges, leaveToTray, namedRows, arrangeWeek, defaultSheet, mapCode, setSheet, sheetOf, assign, cleanPlan, fromTray, toTray, trayView, allToTray, canRemove, fillMember, fillTeam, importWeek, sheetsInRoster, missingMembers, combosView, useCombo, renameBlock, removeBlock, isoWeek, memberRow, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, isHhs, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
+import { isLocked, toggleLock, weekContent, pruneWeeks, EMPTY, EXTRA, SHEETS, isHeld, formatRanges, leaveToTray, namedRows, arrangeWeek, defaultSheet, mapCode, setSheet, sheetOf, assign, cleanPlan, fromTray, toTray, trayView, allToTray, canRemove, fillMember, fillTeam, importWeek, sheetsInRoster, missingMembers, combosView, useCombo, renameBlock, removeBlock, isoWeek, memberRow, mondayOfIsoWeek, newPlan, parseRanges, prefDistance, isHhs, restIssues, setCell, shiftOf, swapCells, weekView } from "../lib/tml-plan.js"
 import { newRoster, parseRoster } from "../lib/tml-roster.js"
 import { EXTRA as EXTRA_ALL, OFF_CODES, WORK_CODES, extraHours, workOf } from "../lib/tml-extra.js"
 
@@ -348,6 +348,24 @@ check(cleanPlan(JSON.parse(JSON.stringify(sat))).sheets["2026-10-17"] === "8022"
   const old = { weeks: { "2026-08-24": { 1: {} }, "2026-10-19": { 1: {} } }, trays: { "2026-08-24": [[]], "2026-10-26": [[]] }, sheets: { "2026-08-25": "8022", "2026-10-30": "8027" } }
   const out = pruneWeeks(old, "2026-09-07")
   check(Object.keys(out.weeks).join() === "2026-10-19" && Object.keys(out.trays).join() === "2026-10-26" && Object.keys(out.sheets).join() === "2026-10-30", "pruneWeeks drops weeks, trays and sheets before the cut")
+}
+
+// 🔒 編更鎖住嘅週：匯入唔會清走，特別日 sheet 都唔換
+{
+  const w1 = "2026-10-26"
+  const w2 = "2026-11-02"
+  const r1 = newRoster(parseRoster(",Name,Mon,Tue,Wed,Thu,Fri,Sat,Sun\n1,Ann,RD,RD,RD,RD,RD,RD,RD\n2,Bo,AL,AL,AL,AL,AL,AL,AL"), { row: 1, monday: w1 })
+  let p = importWeek(r1, null, w1)
+  p = { ...p, weeks: { [w1]: { 1: { codes: Array(7).fill("AL"), pins: Array(7).fill(1) } }, [w2]: { 2: { codes: Array(7).fill("SH"), pins: Array(7).fill(1) } } }, sheets: { "2026-11-07": "8022" } }
+  p = toggleLock(p, w2)
+  check(isLocked(p, w2) && !isLocked(p, w1), "a 編更 week can be locked")
+  const r2 = newRoster(parseRoster(",Name,Mon,Tue,Wed,Thu,Fri,Sat,Sun\n1,Bo,RD,RD,RD,RD,RD,RD,RD\n2,Ann,RD,RD,RD,RD,RD,RD,RD\n3,Cy,8022101,RD,RD,RD,RD,8022111,RD"), { row: 1, monday: w1 })
+  const out = importWeek(r2, p, w1)
+  check(!out.weeks[w1] && out.weeks[w2]?.["1"]?.codes[0] === "SH" && isLocked(out, w2), "an import keeps a locked week (moved to the new rows by name) and its lock")
+  check(out.sheets["2026-11-07"] === "8022", "a locked week keeps its special sheets")
+  check(weekContent(out, w2) !== weekContent(p, w2) && weekContent(p, w2) === weekContent(toggleLock(p, w2), w2), "weekContent tells a changed week apart, not a lock")
+  check(isLocked(cleanPlan(JSON.parse(JSON.stringify(out))), w2) && !isLocked(toggleLock(out, w2), w2), "locks survive a save and can be undone")
+  check(!isLocked(pruneWeeks(toggleLock(out, w1), w2), w1), "pruned weeks drop their lock")
 }
 
 if (failed) {

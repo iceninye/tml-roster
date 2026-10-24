@@ -135,6 +135,18 @@ check(r.status === 200 && r.body.record.rows[0][0] === "1101103", "GET returns t
   check(r.status === 200 && mails.length === mailsBefore + 1, "deleting notes counts as a change (old version mailed)")
 }
 
+// 🔒 鎖住嘅星期跟更表同步；格式唔啱嘅清走
+{
+  const lockToken = "lklklklklklklklklklklklklklklklk"
+  const locks = { "2026-10-19": { row: 7, codes: ["1101101", "rd", "RD", "AL", "AL", "SH", "RD"], own: [1, 0, 0, 0, 0, 0, 0] }, "2026-10-12": { codes: ["RD"] }, bad: { codes: Array(7).fill("RD") } }
+  r = await call("PUT", `/api/roster/${lockToken}`, { ...roster("1101101"), locks, version: 0 })
+  const got = (await call("GET", `/api/roster/${lockToken}`)).body.record.locks
+  check(r.status === 200 && JSON.stringify(got) === JSON.stringify({ "2026-10-19": { row: 7, codes: ["1101101", "RD", "RD", "AL", "AL", "SH", "RD"], own: [1, 0, 0, 0, 0, 0, 0] } }), "week locks are synced and cleaned")
+  const mailsBefore = mails.length
+  r = await call("PUT", `/api/roster/${lockToken}`, { ...roster("1101101"), version: 1 })
+  check(r.status === 200 && mails.length === mailsBefore + 1, "removing a lock counts as a change (old version mailed)")
+}
+
 // ---- plan sync
 const planData = (n) => ({ app: "tml-plan", appVersion: "0.9.16", plan: { v: 2, n }, roster: { v: 1, rows: [] } })
 r = await call("PUT", `/api/plan/${TOKEN}`, { schema: 1, data: { app: "other" }, version: 0 })

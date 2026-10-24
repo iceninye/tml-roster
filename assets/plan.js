@@ -7,9 +7,10 @@
 // Book-on/off times come from TML-traffic data/duty-basic.json (lib/tml-data.js).
 
 import { extraHours, isOffCode, workOf } from "../lib/tml-extra.js"
-import { EMPTY, EXTRA, HHS, LEAVE, PENDING, PREFS, SHIFTS, allToTray, canRemove, cleanPlan, clearWeek, combosView, fillMember, fillTeam, formatRanges, fromTray, importWeek, isHeld, isHhs, isoWeek, missingMembers, mondayOfIsoWeek, namedRows, newPlan, parseRanges, prefDistance, pruneWeeks, removeBlock, renameBlock, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, trayView, useCombo, weekView } from "../lib/tml-plan.js"
+import { EMPTY, EXTRA, HHS, LEAVE, PENDING, PREFS, SHIFTS, allToTray, canRemove, cleanPlan, clearWeek, combosView, fillMember, fillTeam, formatRanges, fromTray, importWeek, isHeld, isHhs, isLocked, isoWeek, missingMembers, mondayOfIsoWeek, namedRows, newPlan, parseRanges, prefDistance, pruneWeeks, removeBlock, renameBlock, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, toggleLock, trayView, useCombo, weekContent, weekView } from "../lib/tml-plan.js"
 import { addDays, classify, cleanRoster, mondayOf, newRoster, normaliseCode, parseRoster, weekDates } from "../lib/tml-roster.js"
 import { serviceDate } from "../lib/tml-time.js"
+import { weekLabel } from "../lib/tml-week.js"
 import { fetchData, sheetForDate } from "../lib/tml-data.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson } from "../lib/tml-cloud.js"
 
@@ -62,14 +63,18 @@ const S = {
   rangesLabel: "組員行號（基準星期）",
   rangesHelp: "例如 31-40, 55-70。用逗號分隔，可以有多段。",
   save: "儲存",
-  week: (y, w) => `${y} 年第 ${w} 週`,
-  weekOf: (a, b) => `${a} – ${b}`,
   team: (n) => `${n} 位組員`,
   prev: "上週",
   next: "下週",
   backNext: "回到下週",
   thisWeek: "本週",
   nextWeek: "下週",
+  weekNo: (label, week) => (label ? `${label}（第${week}週）` : `第${week}週`),
+  lock: "鎖住呢個星期（唔可以改，匯入都唔會蓋）",
+  unlock: "解鎖呢個星期",
+  locked: "呢個星期鎖住咗 🔒，撳標題旁邊個鎖先改得",
+  lockedOn: (w) => `第 ${w} 週已鎖住 🔒：唔可以改，匯入新 Standard Roster 都唔會蓋`,
+  lockedOff: (w) => `第 ${w} 週已解鎖 🔓`,
   arrange: "自動",
   undo: "還原",
   undone: "已還原",
@@ -420,7 +425,7 @@ function importAllowed(anchor) {
   }
   if (anchor !== nextMonday() && !window.confirm(S.importNotNext(weekNo(anchor), weekNo(nextMonday())))) return false
   const touched = Object.entries(plan?.weeks ?? {})
-    .filter(([monday, week]) => monday >= anchor && Object.values(week).some((cell) => cell.pins?.some(Boolean)))
+    .filter(([monday, week]) => monday >= anchor && !isLocked(plan, monday) && Object.values(week).some((cell) => cell.pins?.some(Boolean)))
     .map(([monday]) => monday).sort()
   if (touched.length && !window.confirm(S.importOver(touched.map((m) => `第 ${isoWeek(m).week} 週`).join("、")))) return false
   return true
@@ -451,7 +456,8 @@ function weekHtml() {
   const lines = weekView(roster, plan, state.monday)
   const empties = dates.map((_, d) => lines.filter((line) => line.codes[d] === EMPTY).length)
   const issues = new Map(restIssues(roster, plan, state.monday, timeOf).map((x) => [`${x.row}:${x.day}`, x.rest]))
-  const { year, week } = isoWeek(state.monday)
+  const { week } = isoWeek(state.monday)
+  const locked = isLocked(plan, state.monday)
   const order = Object.entries(S.orderBy).map(([k, label]) => `<button type="button" class="pchip p-order" data-order="${k}" data-shift="" aria-pressed="${state.tray.order === k}">${label}</button>`).join("")
   const head = `<tr><th class="who"><span class="who-head">${S.member}<span class="pchips" role="group" aria-label="${S.orderLabel}">${order}</span></span></th>` +
     `${dates.map((d, i) => `<th>${S.weekdays[i]}<small>${meDate(d)}</small>${empties[i] ? `<small class="p-empties">${S.emptyCount(empties[i])}</small>` : ""}</th>`).join("")}<th>${S.fit}</th><th>${S.hours}</th></tr>`
@@ -507,19 +513,21 @@ function weekHtml() {
   const fitStd = fitOf((line) => line.std)
   const legend = SHIFTS.map((s) => `<span><i data-shift="${s}"></i>${S.shift[s]}（${S.shiftHelp[s]}）</span>`).join("")
   return `<div class="me-nav"><button type="button" class="btn p-prev" aria-label="${S.prev}">‹</button>` +
-    `<div class="weeklabel"><b><span>${S.week(year, week)}</span> · <span>${S.weekOf(meDate(dates[0]), meDate(dates[6]))}</span></b>` +
-    `<span>${S.team(lines.length)}${state.monday === current ? ` · ${S.thisWeek}` : ""}${state.monday === nextMonday() ? ` · ${S.nextWeek}` : ` · <button type="button" class="link p-this">${S.backNext}</button>`}</span></div>` +
+    `<div class="weeklabel"><b>${weekLabel(dates)}</b>` +
+    `<span>${S.team(lines.length)} · ${S.weekNo(state.monday === current ? S.thisWeek : state.monday === nextMonday() ? S.nextWeek : "", week)}` +
+    `<button type="button" class="lock p-lock" aria-pressed="${locked}" title="${locked ? S.unlock : S.lock}" aria-label="${locked ? S.unlock : S.lock}">${locked ? "🔒" : "🔓"}</button>` +
+    `${state.monday === nextMonday() ? "" : ` · <button type="button" class="link p-this">${S.backNext}</button>`}</span></div>` +
     `<button type="button" class="btn p-next" aria-label="${S.next}">›</button></div>` +
-    `<div class="plan-actions"><button type="button" class="btn primary p-arrange">${state.pick.rows.length ? S.arrangeScope(state.pick.rows.length) : S.arrange}</button>` +
+    `<div class="plan-actions"><button type="button" class="btn primary p-arrange"${locked ? " disabled" : ""}>${state.pick.rows.length ? S.arrangeScope(state.pick.rows.length) : S.arrange}</button>` +
     (state.pick.rows.length ? `<button type="button" class="link p-pick-clear">${S.pickClear}</button>` : "") +
     `<button type="button" class="btn p-auto" aria-pressed="${plan.auto !== false}">${plan.auto !== false ? S.autoOn : S.autoOff}</button>` +
     `<button type="button" class="btn p-undo"${history.length ? "" : " disabled"}>↶ ${S.undo}</button>` +
-    `<span class="plan-actions-end"><button type="button" class="btn p-csv">${S.csv}</button><button type="button" class="btn danger p-reset">${S.reset}</button></span></div>` +
+    `<span class="plan-actions-end"><button type="button" class="btn p-csv">${S.csv}</button><button type="button" class="btn danger p-reset"${locked ? " disabled" : ""}>${S.reset}</button></span></div>` +
     `<p class="me-msg" role="status">${escapeHtml(state.message)}</p>` +
     `<p class="fine plan-fit">${S.fitLine(fitNow.hit, fitNow.all, fitStd.hit, fitStd.all, issues.size)}</p>` +
     notesHtml(lines, issues) +
     selHtml(lines) +
-    `<div class="ptable"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>` +
+    `<div class="ptable"${locked ? ' data-locked="1"' : ""}><table><thead>${head}</thead><tbody>${body}</tbody></table></div>` +
     trayHtml() +
     `<p class="legend plan-legend">${legend}</p>`
 }
@@ -905,6 +913,11 @@ function remember() {
 }
 
 function store(next, message = S.saved) {
+  // 🔒 鎖住嘅週：任何會改到呢週嘅動作都唔做
+  if (isLocked(plan, state.monday) && isLocked(next, state.monday) && weekContent(next, state.monday) !== weekContent(plan, state.monday)) {
+    state.message = S.locked
+    return
+  }
   if (JSON.stringify(next) !== JSON.stringify(plan)) remember()
   state.message = savePlan(next) ? message : S.notStored
 }
@@ -1239,7 +1252,13 @@ function onClick(event) {
   if (t.closest(".p-prev")) state.monday = addDays(state.monday, -7)
   else if (t.closest(".p-next")) state.monday = addDays(state.monday, 7)
   else if (t.closest(".p-this")) state.monday = nextMonday()
-  else if (t.closest(".p-arrange")) return autoFill()
+  else if (t.closest(".p-lock")) {
+    state.sel = null
+    const on = !isLocked(plan, state.monday)
+    // 經 store 做，「還原」都還原得返
+    remember()
+    state.message = savePlan(toggleLock(plan, state.monday)) ? (on ? S.lockedOn : S.lockedOff)(isoWeek(state.monday).week) : S.notStored
+  } else if (t.closest(".p-arrange")) return autoFill()
   else if (t.closest(".p-undo")) return undo()
   else if (t.closest(".p-auto")) {
     const on = plan.auto === false
