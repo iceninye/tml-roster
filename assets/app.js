@@ -9,14 +9,14 @@ import { MAX_NOTE, addDays, classify, cleanRoster, dayEntry, isLocked, keepLocke
 import { SHIFTS, shiftOf } from "../lib/tml-shift.js"
 import { summariseWeek, weekLabel } from "../lib/tml-week.js"
 import { OFF_CODES, workOf } from "../lib/tml-extra.js"
-import { serviceDate, serviceSeconds } from "../lib/tml-time.js"
+import { serviceDate, hkDate, secondsInto } from "../lib/tml-time.js"
 import { fetchData, placeNames, sheetForDate, stationNames } from "../lib/tml-data.js"
 import { holidaysOn } from "../lib/tml-ics.js"
 import { isoWeek } from "../lib/tml-plan.js"
 import { monthDates, otClock, otFromClock, recentOt, setOt } from "../lib/tml-ot.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson, syncState } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.43", commit: "dev" }
+const BUILD = { version: "0.9.44", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -499,6 +499,19 @@ function withOt(cell, ot) {
   return out
 }
 
+// 「今日」：00:00 就換日；但 00:00–04:00 如果昨日嗰更（夜更例如 15:34–00:04，連更後 OT）
+// 仲未放工，就繼續當昨日，等收工前今日卡仲顯示緊返緊嗰更。
+function todayDate(ms = Date.now()) {
+  const cal = hkDate(ms)
+  const prev = serviceDate(ms)
+  if (prev === cal || !roster) return cal
+  const { cell } = dayCell(prev)
+  // 更份資料未載入：未知幾點放工，暫時留喺昨日（每 15 秒會再計）
+  if (cell.status === "loading") return prev
+  const off = offOf(cell)
+  return off != null && secondsInto(prev, ms) < off ? prev : cal
+}
+
 // 一日嘅 { entry, cell }，cell 已經計埋 OT
 function dayCell(date) {
   const entry = dayEntry(roster, date)
@@ -704,8 +717,8 @@ function basicDetailHtml(cell) {
     `<p class="fine">${S.basicNote}</p>`
 }
 
-// The full card of one duty. liveOn marks what it is doing now, for today only.
-function dutyDetailHtml({ sheet, id }, liveOn) {
+// The full card of one duty. liveDate (today only) marks what it is doing now.
+function dutyDetailHtml({ sheet, id }, liveDate) {
   const book = dutyBook(sheet)
   if (book.status === "loading") return `<p class="empty">${S.loading}</p>`
   const duty = book.status === "ok" ? book.data.duties.find((item) => item.id === id) : null
@@ -713,7 +726,7 @@ function dutyDetailHtml({ sheet, id }, liveOn) {
   const entry = book.entry
   const source = S.source(sheet, duty.tab, entry.issued, entry.dates?.join("、"), S.cls[entry.class] ?? entry.class, Boolean(duty.on))
   if (!duty.on) return `<p class="empty">${S.noCard}</p><dl class="kv"><dt>更份</dt><dd>${id} · ${duty.group}</dd></dl><p class="fine">${source}</p>`
-  const live = liveOn ? dutyState(duty, serviceSeconds(Date.now())) : null
+  const live = liveDate ? dutyState(duty, secondsInto(liveDate, Date.now())) : null
   const nowBox = live
     ? `<div class="duty-nowbox"><span class="badge now">${S.now}</span> ${escapeHtml(dutyPhaseText(live))} <span class="meta">${S.until(hhmm(live.until))}</span></div>`
     : ""
@@ -755,7 +768,7 @@ function barHtml(span, nowAt = null) {
 
 // 今日卡下面嘅幾行：返工／放工倒數、下一程（接邊個嘅車）、落車交俾邊個、用膳、下一更。
 function todayFactsHtml(date, cell, live) {
-  const tau = serviceSeconds(Date.now())
+  const tau = secondsInto(date, Date.now())
   const rows = []
   const on = cell.on
   const off = offOf(cell)
@@ -844,8 +857,8 @@ function todayPlacesHtml(cell) {
 }
 
 // 返緊工：進度條下面「已做 3 小時 10 分 · 剩 4 小時 20 分」
-function progressHtml(span) {
-  const tau = serviceSeconds(Date.now())
+function progressHtml(span, date) {
+  const tau = secondsInto(date, Date.now())
   if (!span || span[0] == null || span[1] == null || tau < span[0] || tau >= span[1]) return ""
   return `<span class="today-progress">${S.doneLeft(S.dur(tau - span[0]), S.dur(span[1] - tau))}</span>`
 }
@@ -854,7 +867,7 @@ function progressHtml(span) {
 function todayHtml(date, entry, cell, short = false) {
   const lines = dayLines(cell)
   const shift = shiftOfCell(cell)
-  const live = cell.status === "ok" ? dutyState(cell.duty, serviceSeconds(Date.now())) : null
+  const live = cell.status === "ok" ? dutyState(cell.duty, secondsInto(date, Date.now())) : null
   const tags = (cell.group ? `<span class="badge plain">${cell.group}</span>` : "") + (cell.tag ? `<span class="badge plain">${cell.tag}</span>` : "") +
     (cell.sheet ? `<span class="badge plain">${cell.sheet}</span>` : "") +
     (shift ? `<span class="badge shift">${S.shift[shift]}</span>` : "") +
@@ -864,7 +877,7 @@ function todayHtml(date, entry, cell, short = false) {
   return `<button type="button" class="today me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}"${short ? ' data-short="1"' : ""}>` +
     `<span class="today-label">${S.today} · ${S.weekdays[weekdayIndex(date)]} ${meDate(date)}</span>` +
     `<span class="today-title">${tags ? `<span class="today-tags">${tags}</span>` : ""}${isOffTone(cell) ? offTitleHtml(entry.code, cell) : escapeHtml(cell.label)}${short ? `<span class="badge rest-short">${S.restShort}</span>` : ""}</span>` +
-    (lines.times ? `<span class="today-times">${lines.times}</span>${todayPlacesHtml(cell)}${barHtml(lines.span, serviceSeconds(Date.now()))}${progressHtml(lines.span)}` : "") +
+    (lines.times ? `<span class="today-times">${lines.times}</span>${todayPlacesHtml(cell)}${barHtml(lines.span, secondsInto(date, Date.now()))}${progressHtml(lines.span, date)}` : "") +
     (lines.note && !lines.times ? `<span class="today-note">${escapeHtml(lines.note)}</span>` : "") +
     // OT badge 已經講咗有 OT，呢度只寫更前／更後幾耐（唔再寫「成更 OT」）
     (lines.times && otText({ ...cell.ot, whole: false }) ? `<span class="today-note">${escapeHtml(otText({ ...cell.ot, whole: false }))}</span>` : "") +
@@ -924,7 +937,7 @@ function subLine(monday) {
   const row = dayEntry(roster, monday)?.row ?? rowLabelFor(roster, monday)
   const s = weekSummary(weekDates(monday))
   if (row == null) return S.title
-  const today = serviceDate(Date.now())
+  const today = todayDate()
   const month = weekSummary(monthDates(weekDates(monday).includes(today) ? today : monday))
   return `${S.stdRow(row)}${s.days ? ` · ${S.sumDays(s.days)} · ${S.sumWork} ${S.workMin(s.minutes)}` : ""} · ${S.otMonth(month.ot)}`
 }
@@ -1019,7 +1032,7 @@ const shiftMonth = (month, delta) => {
 
 // 提示同「我嘅 roster」之間嘅月曆：更份只顯示最後 3 位，顏色跟更類；RD、AL 等照原樣。
 function calendarHtml(month) {
-  const today = serviceDate(Date.now())
+  const today = todayDate()
   const days = monthDates(`${month}-01`)
   const [y, m] = month.split("-").map(Number)
   const blanks = Array.from({ length: weekdayIndex(days[0]) }, () => `<span class="cal-blank" aria-hidden="true"></span>`)
@@ -1084,7 +1097,7 @@ function previewHtml(text, row) {
   const t = text.trim()
   if (!t) {
     return roster
-      ? `<p class="fine">${S.previewKeep(roster.rows.length)}</p>${rosterTableHtml(roster, rowLabelFor(roster, mondayOf(serviceDate(Date.now()))))}`
+      ? `<p class="fine">${S.previewKeep(roster.rows.length)}</p>${rosterTableHtml(roster, rowLabelFor(roster, mondayOf(todayDate())))}`
       : `<p class="fine">${S.previewHint}</p>`
   }
   if (t.startsWith("{")) {
@@ -1120,7 +1133,7 @@ function refreshPreview(form) {
 function open() {
   roster = loadRoster()
   state.page = roster ? "week" : "setup"
-  state.monday = mondayOf(serviceDate(Date.now()))
+  state.monday = mondayOf(todayDate())
   openedWeek = state.monday
   state.date = null
   render()
@@ -1128,7 +1141,7 @@ function open() {
 
 // 放喺主畫面過夜：週一 04:00 之後，如果仲停喺舊一週（冇自己換週），就跳返本週。
 function rollWeek() {
-  const current = mondayOf(serviceDate(Date.now()))
+  const current = mondayOf(todayDate())
   if (current === openedWeek) return
   if (state.page === "week" && state.monday === openedWeek) {
     state.monday = current
@@ -1219,7 +1232,7 @@ function renderPage() {
     return
   }
   if (state.page === "mates") {
-    const current = mondayOf(serviceDate(Date.now()))
+    const current = mondayOf(todayDate())
     const week = isoWeek(state.monday).week
     view.innerHTML =
       `<div class="me-nav"><button type="button" class="btn me-prev" aria-label="${S.prev}">‹</button>` +
@@ -1234,7 +1247,7 @@ function renderPage() {
     return
   }
   const dates = weekDates(state.monday)
-  const current = mondayOf(serviceDate(Date.now()))
+  const current = mondayOf(todayDate())
   const locked = isLocked(roster, state.monday)
   view.innerHTML =
     `<div class="me-nav"><button type="button" class="btn me-prev" aria-label="${S.prev}">‹</button>` +
@@ -1268,12 +1281,12 @@ function paintData() {
     else if (cell.status === "loading") html = `<p class="empty">${S.loading}</p>`
     else if (cell.status === "nosheet") html = `<p class="empty">${S.noSheet(cell.c.id)}</p>`
     else if (cell.status === "failed") html = `<p class="empty">${S.failed}</p>`
-    else html = dutyDetailHtml({ sheet: cell.c.sheet, id: cell.c.id }, state.date === serviceDate(Date.now()))
+    else html = dutyDetailHtml({ sheet: cell.c.sheet, id: cell.c.id }, state.date === todayDate() && state.date)
     html = sheetHint(entry.code, state.date) + html
   } else if (state.page === "mates") {
     html = matesTableHtml()
   } else if (state.page === "week") {
-    const today = serviceDate(Date.now())
+    const today = todayDate()
     const week = weekDates(state.monday)
     const short = shortRestDates(week)
     const heroHtml = week.includes(today) ? todayHtml(today, dayEntry(roster, today), dayCell(today).cell, short.has(today)) + sheetHint(dayEntry(roster, today).code, today) : ""
@@ -1336,7 +1349,7 @@ function matesLines(monday) {
 function matesTableHtml() {
   if (!roster.mates?.length) return `<p class="empty">${S.matesNone}</p>`
   const dates = weekDates(state.monday)
-  const today = serviceDate(Date.now())
+  const today = todayDate()
   const head = `<tr><th class="who">${S.matesWho}</th>${dates.map((d, i) => `<th${d === today ? ' class="now"' : ""}>${S.weekdays[i]}<small>${meDate(d)}</small></th>`).join("")}</tr>`
   const body = matesLines(state.monday).map((line) => {
     const cells = line.codes.map((code, d) => {
@@ -1380,7 +1393,7 @@ function copyMatesCsv() {
 
 // 設定頁：剔選同事（本週行號），自己嗰行唔使揀
 function matesPickHtml() {
-  const monday = mondayOf(serviceDate(Date.now()))
+  const monday = mondayOf(todayDate())
   const mine = rowLabelFor(roster, monday)
   const picked = new Set((roster.mates ?? []).map((m) => mateRow(roster, m, monday)))
   const opts = roster.numbers.map((label, i) => label === mine ? "" :
@@ -1398,7 +1411,7 @@ function foldPanel(id, title, body) {
 }
 
 function setupHtml() {
-  const monday = mondayOf(serviceDate(Date.now()))
+  const monday = mondayOf(todayDate())
   const row = roster ? rowLabelFor(roster, monday) : ""
   const codes = S.howCodes.map(([code, what]) => `<li><code>${code}</code><span>${what}</span></li>`).join("")
   return `<div class="duty-head">${roster ? `<button type="button" class="btn me-back">${S.back}</button>` : `<h2>${S.setupTitle}</h2>`}</div>` +
@@ -1631,11 +1644,11 @@ async function kvUpload(force = false, skipBackup = false) {
         numbers: roster.numbers,
         names: roster.names,
         anchor: roster.anchor, // 基準週（week number）要同步，唔係第二部機會自己揀「今週」
-        overrides: recentOverrides(roster.overrides, serviceDate(Date.now())),
-        ot: recentOt(roster.ot, serviceDate(Date.now())),
+        overrides: recentOverrides(roster.overrides, todayDate()),
+        ot: recentOt(roster.ot, todayDate()),
         mates: roster.mates ?? [],
-        notes: recentNotes(roster.notes, serviceDate(Date.now())),
-        locks: recentLocks(roster.locks, serviceDate(Date.now())),
+        notes: recentNotes(roster.notes, todayDate()),
+        locks: recentLocks(roster.locks, todayDate()),
         version: Number(readPref(KV_VERSION) ?? 0),
         force,
         skipBackup,
@@ -1684,7 +1697,7 @@ async function kvDownload() {
   const anchorRow = numbers.includes(Number(rec.anchor?.row))
     ? Number(rec.anchor.row)
     : (numbers.includes(Number(roster?.anchor?.row)) ? Number(roster.anchor.row) : numbers[0])
-  const anchorMonday = isDateStr(rec.anchor?.monday) ? rec.anchor.monday : (roster?.anchor?.monday ?? mondayOf(serviceDate(Date.now())))
+  const anchorMonday = isDateStr(rec.anchor?.monday) ? rec.anchor.monday : (roster?.anchor?.monday ?? mondayOf(todayDate()))
   // 雲端有呢個欄位就以雲端為準（刻意清空都要跟）；舊記錄冇欄位才沿用本機
   const overrides = rec.overrides && typeof rec.overrides === "object"
     ? rec.overrides
@@ -1722,7 +1735,7 @@ async function kvDownload() {
   cloud = { version: Number(rec.version ?? 0), updatedAt: rec.updatedAt ?? "", device: rec.device ?? "", print: kvPrint() }
   if (fresh) {
     state.page = "week"
-    state.monday = mondayOf(serviceDate(Date.now()))
+    state.monday = mondayOf(todayDate())
   }
   kvMessage(S.syncDown(when) + (backup ? backup : ""))
 }
@@ -1754,7 +1767,7 @@ const AUTO_LOCK_WEEKS = 8
 function submitSetup(form) {
   const text = form.elements.text.value.trim()
   const row = Number(form.elements.row.value)
-  const monday = mondayOf(serviceDate(Date.now()))
+  const monday = mondayOf(todayDate())
   const range = (r) => `${r.numbers[0]}–${r.numbers[r.numbers.length - 1]}`
   let next = null
   if (text.startsWith("{")) {
@@ -1833,11 +1846,11 @@ function onClick(event) {
     state.editing = false
   } else if (target.closest(".me-prev")) state.monday = addDays(state.monday, -7)
   else if (target.closest(".me-next")) state.monday = addDays(state.monday, 7)
-  else if (target.closest(".me-this")) state.monday = mondayOf(serviceDate(Date.now()))
+  else if (target.closest(".me-this")) state.monday = mondayOf(todayDate())
   else if (target.closest(".me-mates-csv")) return copyMatesCsv()
   else if (target.closest(".me-cal-prev") || target.closest(".me-cal-next")) {
     // 只換月曆，唔重畫成頁、唔捲返頂
-    const from = state.calMonth ?? serviceDate(Date.now()).slice(0, 7)
+    const from = state.calMonth ?? todayDate().slice(0, 7)
     state.calMonth = shiftMonth(from, target.closest(".me-cal-prev") ? -1 : 1)
     paintData()
     return
@@ -1877,12 +1890,12 @@ function onClick(event) {
     return
   } else if (target.closest(".me-export")) {
     // 加 BOM，Excel 開中文唔會亂碼
-    download(`tml-roster-${serviceDate(Date.now())}.csv`, "\uFEFF" + csvText(), "text/csv;charset=utf-8")
+    download(`tml-roster-${todayDate()}.csv`, "\uFEFF" + csvText(), "text/csv;charset=utf-8")
     state.message = S.exported
     render()
     return
   } else if (target.closest(".me-export-json")) {
-    download(`tml-roster-${serviceDate(Date.now())}.json`, JSON.stringify(roster, null, 1), "application/json")
+    download(`tml-roster-${todayDate()}.json`, JSON.stringify(roster, null, 1), "application/json")
     state.message = S.exported
     render()
     return
@@ -2022,7 +2035,7 @@ function boot() {
     }
     if (event.target.matches(".me-mate")) {
       // 唔重畫（設定頁有輸入框），只更新數目
-      const monday = mondayOf(serviceDate(Date.now()))
+      const monday = mondayOf(todayDate())
       saveRoster(toggleMate(roster, Number(event.target.value), monday, event.target.dataset.name))
       const count = view.querySelector(".me-mates-count")
       if (count) count.textContent = S.matesCount(roster.mates?.length ?? 0)
