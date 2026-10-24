@@ -5,7 +5,7 @@
 // station names are read from https://github.com/iceninye/TML-traffic (lib/tml-data.js).
 
 import { dutyState, mealMates, reliefOf } from "../lib/tml-duties.js"
-import { MAX_NOTE, addDays, classify, cleanRoster, dayEntry, isLocked, keepLocked, mondayOf, newRoster, normaliseCode, parseRoster, recentLocks, recentNotes, recentOverrides, rowLabelFor, setNote, setOverride, toggleLock, weekDates, weekdayIndex } from "../lib/tml-roster.js"
+import { MAX_NOTE, addDays, classify, cleanRoster, dayEntry, isLocked, keepLocked, mateRow, mateWeek, mondayOf, newRoster, normaliseCode, parseRoster, recentLocks, recentNotes, recentOverrides, rowLabelFor, setNote, setOverride, toggleLock, toggleMate, weekDates, weekdayIndex } from "../lib/tml-roster.js"
 import { SHIFTS, shiftOf } from "../lib/tml-shift.js"
 import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
 import { OFF_CODES, workOf } from "../lib/tml-extra.js"
@@ -16,7 +16,7 @@ import { isoWeek } from "../lib/tml-plan.js"
 import { monthDates, otClock, otFromClock, recentOt, setOt } from "../lib/tml-ot.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson, syncState } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.36", commit: "dev" }
+const BUILD = { version: "0.9.37", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -255,6 +255,17 @@ const S = {
   otSaved: "已儲存 OT",
   otCleared: "已清除 OT",
   otBad: "OT 時數唔啱：請輸入 0 至 12 小時（例如 3.5）",
+  matesTitle: "同事更表",
+  matesHelp: "剔選想睇嘅同事（本週行號）。之後每個星期會跟佢哋跳去下一行，同你自己一樣。撳右上角 ⚙ 第二下就睇到；再撳返主頁。",
+  matesCount: (n) => (n ? `已揀 ${n} 位` : "未揀"),
+  matesNone: "未揀同事：去設定「同事更表」剔選",
+  matesMe: "我",
+  matesRow: (n) => `第 ${n} 行`,
+  matesWho: "同事",
+  matesCopy: "複製本週 CSV",
+  matesCopied: "已複製，可以貼去 WhatsApp／Excel",
+  matesSaved: (name) => `已下載 ${name}`,
+  matesHint: "撳更份睇詳情。同事只跟 Standard Roster，唔包佢哋自己手動改。",
   noteTitle: "備註",
   notePlaceholder: "例如：同 Ken 換更、帶證件、7 點前到",
   noteSave: "儲存",
@@ -271,7 +282,7 @@ const DEPOT_NAMES = { TAD: "大圍廠", HHS: "紅磡廠", TT: "大圍廠", W1A: 
 
 const view = document.getElementById("view")
 const state = {
-  page: "week", // week | detail | duty | setup
+  page: "week", // week | detail | duty | setup | mates
   monday: null,
   date: null,
   duty: null, // { sheet, id } of a duty opened from 飯腳
@@ -1211,6 +1222,21 @@ function renderPage() {
     }
     return
   }
+  if (state.page === "mates") {
+    const current = mondayOf(serviceDate(Date.now()))
+    const week = isoWeek(state.monday).week
+    view.innerHTML =
+      `<div class="me-nav"><button type="button" class="btn me-prev" aria-label="${S.prev}">‹</button>` +
+      `<div class="weeklabel"><b>${weekLabel(weekDates(state.monday))}</b>` +
+      `<span>${state.monday === current ? S.weekNo(S.thisWeek, week) : `${S.weekNo("", week)} · <button type="button" class="link me-this">${S.backThis}</button>`}</span></div>` +
+      `<button type="button" class="btn me-next" aria-label="${S.next}">›</button></div>` +
+      `<div id="me-data"></div>` +
+      `<div class="row mates-tools"><button type="button" class="btn me-mates-csv">${S.matesCopy}</button><span class="fine">${S.matesHint}</span></div>` +
+      `<p class="me-msg" role="status">${escapeHtml(state.message)}</p>`
+    setSub(S.matesTitle)
+    paintData()
+    return
+  }
   const dates = weekDates(state.monday)
   const current = mondayOf(serviceDate(Date.now()))
   const curRow = rowLabelFor(roster, state.monday)
@@ -1256,6 +1282,8 @@ function paintData() {
     else if (cell.status === "failed") html = `<p class="empty">${S.failed}</p>`
     else html = dutyDetailHtml({ sheet: cell.c.sheet, id: cell.c.id }, state.date === serviceDate(Date.now()))
     html = sheetHint(entry.code, state.date) + html
+  } else if (state.page === "mates") {
+    html = matesTableHtml()
   } else if (state.page === "week") {
     const today = serviceDate(Date.now())
     const week = weekDates(state.monday)
@@ -1302,6 +1330,75 @@ function paintData() {
   box.innerHTML = html
 }
 
+/* ------------------------------------------------------- 同事更表 */
+
+// 本週一同事一行：自己（包括手動改）+ 揀咗嘅同事（只跟 Standard Roster）。
+function matesLines(monday) {
+  const dates = weekDates(monday)
+  const mine = dates.map((date) => dayEntry(roster, date))
+  const lines = [{ who: S.matesMe, row: mine[0]?.row ?? null, codes: mine.map((e) => e?.code ?? ""), self: true }]
+  for (const mate of roster.mates ?? []) {
+    const week = mateWeek(roster, mate, monday)
+    if (week) lines.push({ who: mate.name || S.matesRow(week.row), row: week.row, codes: week.codes })
+  }
+  return lines
+}
+
+// 仿編更：每行一個人，7 日橫排，格入面寫更份同上落班時間，顏色跟更類。
+function matesTableHtml() {
+  if (!roster.mates?.length) return `<p class="empty">${S.matesNone}</p>`
+  const dates = weekDates(state.monday)
+  const today = serviceDate(Date.now())
+  const head = `<tr><th class="who">${S.matesWho}</th>${dates.map((d, i) => `<th${d === today ? ' class="now"' : ""}>${S.weekdays[i]}<small>${meDate(d)}</small></th>`).join("")}</tr>`
+  const body = matesLines(state.monday).map((line) => {
+    const cells = line.codes.map((code, d) => {
+      const date = dates[d]
+      const cell = cellInfo(code, date)
+      const c = classify(code)
+      const shift = shiftOfCell(cell)
+      const off = offOf(cell)
+      const times = cell.on != null && off != null ? `<small>${hhmm(cell.on)}–${hhmm(off)}</small>` : ""
+      const inner = `<span class="pcell" data-kind="${c.kind}" data-shift="${shift}"><b>${escapeHtml(code || "–")}</b>${times}</span>`
+      const open = c.kind === "duty" ? `<button type="button" class="mate-cell" data-duty="${c.id}" data-sheet="${cell.c?.sheet ?? c.sheet}">${inner}</button>` : inner
+      return `<td${date === today ? ' class="now"' : ""}>${open}</td>`
+    }).join("")
+    return `<tr${line.self ? ' class="self"' : ""}><th class="who"><b>${escapeHtml(line.who)}</b>${line.row != null ? `<small>${S.matesRow(line.row)}</small>` : ""}</th>${cells}</tr>`
+  }).join("")
+  return `<div class="ptable mtable"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>`
+}
+
+// 複製本週同事更表做 CSV（行、名、週一至週日）；冇剪貼簿就下載
+function copyMatesCsv() {
+  const dates = weekDates(state.monday)
+  const quote = (v) => (/[",\r\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v))
+  const text = [["行", S.matesWho, ...dates.map((d, i) => `${S.weekdays[i]} ${meDate(d)}`)], ...matesLines(state.monday).map((l) => [l.row ?? "", l.who, ...l.codes])]
+    .map((row) => row.map(quote).join(",")).join("\r\n")
+  const name = `mates-${state.monday}.csv`
+  const fallback = () => {
+    download(name, `\ufeff${text}`, "text/csv")
+    state.message = S.matesSaved(name)
+    render()
+  }
+  if (!navigator.clipboard?.writeText) return fallback()
+  navigator.clipboard.writeText(text).then(() => {
+    state.message = S.matesCopied
+    render()
+  }, fallback)
+}
+
+// 設定頁：剔選同事（本週行號），自己嗰行唔使揀
+function matesPickHtml() {
+  const monday = mondayOf(serviceDate(Date.now()))
+  const mine = rowLabelFor(roster, monday)
+  const picked = new Set((roster.mates ?? []).map((m) => mateRow(roster, m, monday)))
+  const opts = roster.numbers.map((label, i) => label === mine ? "" :
+    `<label class="mate-opt"><input type="checkbox" class="me-mate" value="${label}" data-name="${escapeHtml(roster.names[i] ?? "")}"${picked.has(label) ? " checked" : ""}>` +
+    `<b>${label}</b>${roster.names[i] ? `<span>${escapeHtml(roster.names[i])}</span>` : ""}</label>`).join("")
+  return `<section class="panel"><h3>${S.matesTitle} <span class="meta me-mates-count">${S.matesCount(roster.mates?.length ?? 0)}</span></h3>` +
+    `<details class="fine-box"><summary>${S.hintTitle}</summary><p class="fine">${S.matesHelp}</p></details>` +
+    `<div class="mate-pick">${opts}</div></section>`
+}
+
 function setupHtml() {
   const monday = mondayOf(serviceDate(Date.now()))
   const row = roster ? rowLabelFor(roster, monday) : ""
@@ -1327,6 +1424,7 @@ function setupHtml() {
         `<input id="me-title-input" name="title" class="mini wide" maxlength="24" value="${escapeHtml(title)}" placeholder="${S.title}">` +
         `<button type="submit" class="btn primary">${S.ok}</button></div></form></section>`
       : "") +
+    (roster ? matesPickHtml() : "") +
     (roster
       ? `<section class="panel"><h3>${S.backupTitle}</h3><details class="fine-box"><summary>${S.hintTitle}</summary><p class="fine">${S.backupHelp}</p></details>` +
         `<div class="me-foot"><button type="button" class="btn me-export">${S.export}</button> ` +
@@ -1400,7 +1498,7 @@ function kvPrint() {
   if (!roster) return ""
   // OT 有先計（同 Worker content() 一樣），舊版冇 OT 嘅指紋唔會因為升級而變
   const ot = Object.keys(roster.ot ?? {}).length ? [roster.ot] : []
-  return fingerprint(JSON.stringify([title, roster.rows, roster.numbers, roster.names, roster.anchor, roster.overrides, ...ot, ...notePart(roster.notes), ...lockPart(roster.locks)]))
+  return fingerprint(JSON.stringify([title, roster.rows, roster.numbers, roster.names, roster.anchor, roster.overrides, ...ot, ...notePart(roster.notes), ...(roster.mates?.length ? [roster.mates] : []), ...lockPart(roster.locks)]))
 }
 
 // 有 token、網址支援同步，而且更表同上次同步唔同
@@ -1419,7 +1517,7 @@ function paintDirty() {
 // 雲端記錄嘅指紋，同 kvPrint() 一樣計法：內容一樣就唔使響 🔔
 function cloudPrint(rec) {
   const ot = Object.keys(rec.ot ?? {}).length ? [rec.ot] : []
-  return fingerprint(JSON.stringify([rec.title ?? "", rec.rows, rec.numbers, rec.names, rec.anchor, rec.overrides, ...ot, ...notePart(rec.notes), ...lockPart(rec.locks)]))
+  return fingerprint(JSON.stringify([rec.title ?? "", rec.rows, rec.numbers, rec.names, rec.anchor, rec.overrides, ...ot, ...notePart(rec.notes), ...(rec.mates?.length ? [rec.mates] : []), ...lockPart(rec.locks)]))
 }
 
 // 備註有先計（舊版冇備註嘅指紋唔變），按日子排好先比
@@ -1537,6 +1635,7 @@ async function kvUpload(force = false, skipBackup = false) {
         anchor: roster.anchor, // 基準週（week number）要同步，唔係第二部機會自己揀「今週」
         overrides: recentOverrides(roster.overrides, serviceDate(Date.now())),
         ot: recentOt(roster.ot, serviceDate(Date.now())),
+        mates: roster.mates ?? [],
         notes: recentNotes(roster.notes, serviceDate(Date.now())),
         locks: recentLocks(roster.locks, serviceDate(Date.now())),
         version: Number(readPref(KV_VERSION) ?? 0),
@@ -1594,6 +1693,7 @@ async function kvDownload() {
     : (roster?.overrides ?? {})
   // OT：雲端有欄位就跟雲端；舊記錄（未有 OT 嗰陣上傳）冇就保留呢部機嘅
   const ot = rec.ot && typeof rec.ot === "object" ? rec.ot : (roster?.ot ?? {})
+  const mates = Array.isArray(rec.mates) ? rec.mates : (roster?.mates ?? [])
   const notes = rec.notes && typeof rec.notes === "object" ? rec.notes : (roster?.notes ?? {})
   const locks = rec.locks && typeof rec.locks === "object" ? rec.locks : (roster?.locks ?? {})
   const next = cleanRoster({
@@ -1604,6 +1704,7 @@ async function kvDownload() {
     anchor: { row: anchorRow ?? 1, monday: anchorMonday },
     overrides,
     ot,
+    mates,
     notes,
     locks,
   })
@@ -1675,6 +1776,7 @@ function submitSetup(form) {
       next = newRoster(parsed, { row, monday })
       next.overrides = roster?.overrides ?? {}
       next.ot = roster?.ot ?? {}
+      next.mates = roster?.mates ?? []
       next.notes = roster?.notes ?? {}
       // 鎖住嘅週照舊；本週同之前 8 個星期未鎖嘅自動鎖住，匯入唔會改到已經返咗嘅更
       next = keepLocked(roster, next, Array.from({ length: AUTO_LOCK_WEEKS + 1 }, (_, i) => addDays(monday, -7 * i)))
@@ -1708,7 +1810,7 @@ function submitCode(form) {
 
 function onClick(event) {
   const target = event.target
-  const mate = target.closest(".duty-mate")
+  const mate = target.closest(".duty-mate") ?? target.closest(".mate-cell")
   if (mate) {
     state.from = state.page
     state.page = "duty"
@@ -1735,6 +1837,7 @@ function onClick(event) {
   else if (target.closest(".me-next")) state.monday = addDays(state.monday, 7)
   else if (target.closest(".me-this")) state.monday = mondayOf(serviceDate(Date.now()))
   else if (target.closest(".me-roster-toggle")) state.rosterAll = !state.rosterAll
+  else if (target.closest(".me-mates-csv")) return copyMatesCsv()
   else if (target.closest(".me-cal-prev") || target.closest(".me-cal-next")) {
     // 只換月曆，唔重畫成頁、唔捲返頂
     const from = state.calMonth ?? serviceDate(Date.now()).slice(0, 7)
@@ -1797,7 +1900,7 @@ function onClick(event) {
 
 function wireKeys() {
   const step = (delta) => {
-    if (state.page !== "week" || !roster) return
+    if ((state.page !== "week" && state.page !== "mates") || !roster) return
     state.monday = addDays(state.monday, delta * 7)
     render()
   }
@@ -1870,8 +1973,10 @@ function wireSettings() {
   button.setAttribute("aria-label", S.settings)
   button.textContent = "⚙"
   button.addEventListener("click", () => {
-    // 撳一下入設定，再撳一下返主頁
-    state.page = state.page === "setup" && roster ? "week" : "setup"
+    // 撳一下入設定，第二下睇同事更表（有揀同事先有），第三下返主頁
+    if (state.page === "setup" && roster) state.page = roster.mates?.length ? "mates" : "week"
+    else if (state.page === "mates") state.page = "week"
+    else state.page = "setup"
     state.editing = false
     state.message = ""
     state.syncMsg = ""
@@ -1901,6 +2006,15 @@ function boot() {
     if (otForm) syncOtInputs(otForm, event.target)
   })
   view.addEventListener("change", (event) => {
+    if (event.target.matches(".me-mate")) {
+      // 唔重畫（設定頁有輸入框），只更新數目
+      const monday = mondayOf(serviceDate(Date.now()))
+      saveRoster(toggleMate(roster, Number(event.target.value), monday, event.target.dataset.name))
+      const count = view.querySelector(".me-mates-count")
+      if (count) count.textContent = S.matesCount(roster.mates?.length ?? 0)
+      paintDirty()
+      return
+    }
     if (!event.target.matches(".me-file")) return
     const file = event.target.files?.[0]
     const form = event.target.closest(".me-setup")

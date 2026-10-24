@@ -123,6 +123,15 @@ check(r.status === 200 && r.body.record.rows[0][0] === "1101103", "GET returns t
   check(r.status === 400 && r.body.reason === "too_many_overrides", "more than 400 OT days are refused")
 }
 
+// 同事更表跟更表同步；亂嘢清走
+{
+  const mateToken = "mtmtmtmtmtmtmtmtmtmtmtmtmtmtmtmt"
+  const mates = [{ row: 2, monday: "2026-10-19", name: "Bo" }, { row: "x", monday: "2026-10-19" }, { row: 3, monday: "bad" }]
+  r = await call("PUT", `/api/roster/${mateToken}`, { ...roster("1101101"), mates, version: 0 })
+  const got = (await call("GET", `/api/roster/${mateToken}`)).body.record.mates
+  check(r.status === 200 && JSON.stringify(got) === JSON.stringify([{ row: 2, monday: "2026-10-19", name: "Bo" }]), "colleagues are synced and cleaned")
+}
+
 // 每日備註跟更表同步；亂嘢清走
 {
   const noteToken = "ntntntntntntntntntntntntntntntnt"

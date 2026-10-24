@@ -1,6 +1,6 @@
 // Checks lib/tml-roster.js on a made-up roster (a real one never goes in the repo):
 //   node tools/validate_roster.mjs
-import { classify, cleanNote, cleanRoster, dayEntry, isLocked, keepLocked, mondayOf, newRoster, recentLocks, recentNotes, setNote, toggleLock, parseRoster, recentOverrides, rowLabelFor, setOverride, weekDates, weekdayIndex } from "../lib/tml-roster.js"
+import { classify, cleanMates, cleanNote, cleanRoster, dayEntry, isLocked, keepLocked, mateRow, mateWeek, mondayOf, newRoster, recentLocks, recentNotes, setNote, toggleLock, toggleMate, parseRoster, recentOverrides, rowLabelFor, setOverride, weekDates, weekdayIndex } from "../lib/tml-roster.js"
 import { shiftOf } from "../lib/tml-shift.js"
 import { reliefOf } from "../lib/tml-duties.js"
 import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
@@ -204,6 +204,17 @@ check(reliefOf(d105, sheet, 2).from?.id === "1101112", `1101105 喺 WKS 接 Run 
 check(reliefOf(d105, sheet, 3).from?.id === "1101126", "1101105 喺錦上路接 Run 22 由 1101126 交")
 const back = reliefOf(sheet.find((d) => d.id === "1101112"), sheet, sheet.find((d) => d.id === "1101112").legs.findIndex((l) => l[1] === 10 && l[5] === 26520))
 check(back.to?.id === "1101105", "反方向：1101112 喺 WKS 將 Run 10 交俾 1101105")
+
+// 同事更表：揀本週嘅行，之後每週跟循環跳行
+{
+  const base = newRoster(parseRoster(",Mon,Tue,Wed,Thu,Fri,Sat,Sun\n1,1101101,RD,RD,AL,AL,SH,RD\n2,1101102,1101103,RD,RD,1101104,1101105,1101106\n3,RD,RD,RD,RD,RD,RD,RD"), { row: 1, monday: "2026-10-19" })
+  const one = toggleMate(base, 2, "2026-10-19", "Bo")
+  check(one.mates.length === 1 && mateRow(one, one.mates[0], "2026-10-26") === 3 && mateRow(one, one.mates[0], "2026-11-02") === 1, "a colleague moves down a row every week, wrapping round")
+  check(mateWeek(one, one.mates[0], "2026-10-19").codes[1] === "1101103", "a colleague's week comes from their row")
+  check(toggleMate(one, 3, "2026-10-26").mates.length === 0, "ticking the same colleague in a later week takes them off")
+  check(JSON.stringify(cleanRoster(JSON.parse(JSON.stringify(one))).mates) === JSON.stringify([{ row: 2, monday: "2026-10-19", name: "Bo" }]), "colleagues survive a save")
+  check(cleanMates([{ row: "x", monday: "2026-10-19" }, { row: 2, monday: "2026-10-20" }, { row: 2 }]).length === 0, "bad colleagues are dropped")
+}
 
 // 每日備註
 {

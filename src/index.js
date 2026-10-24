@@ -88,6 +88,11 @@ function cleanRecord(input) {
     if (Object.keys(clean).length) ot[date] = clean
   }
 
+  // 同事更表：[{ row, monday, name }]，同 lib/tml-roster.js cleanMates 一樣規則；最多 50 個。
+  const mates = (Array.isArray(input.mates) ? input.mates : [])
+    .filter((m) => m?.row !== null && m?.row !== "" && Number.isInteger(Number(m?.row)) && DATE_RE.test(String(m?.monday ?? "")))
+    .slice(0, 50)
+    .map((m) => ({ row: Number(m.row), monday: String(m.monday), name: String(m.name ?? "").slice(0, MAX_NAME) }))
   // 每日備註：日期 -> 字（最多 200 字，去走控制字元，換行除外），同 lib/tml-roster.js cleanNote 一樣。
   const notes = {}
   for (const [date, text] of Object.entries(input.notes && typeof input.notes === "object" ? input.notes : {})) {
@@ -110,11 +115,13 @@ function cleanRecord(input) {
     locks[monday] = { row, codes, own }
   }
 
-  return { schema: 1, title, rows, numbers, names, anchor, overrides, ot, notes, locks }
+  return { schema: 1, title, rows, numbers, names, anchor, overrides, ot, notes, mates, locks }
 }
 
 // 有 OT 先加入比較，冇 OT 嘅記錄同舊版一樣（唔會因為升級而當內容改咗）
 const otPart = (record) => (Object.keys(record.ot ?? {}).length ? [record.ot] : [])
+// 同事同樣有先加
+const matePart = (record) => (record.mates?.length ? [record.mates] : [])
 // 備註同樣有先加，按日子排
 const notePart = (record) => {
   const keys = Object.keys(record.notes ?? {}).sort()
@@ -138,7 +145,7 @@ function cleanPlanRecord(input) {
 // 兩個版本內容一樣（只係版本號／時間唔同）就唔使寄備份。
 function content(kind, record) {
   if (kind === "plan") return JSON.stringify([record.data?.plan ?? null, record.data?.roster ?? null])
-  return JSON.stringify([record.title ?? "", record.rows, record.numbers, record.names, record.anchor, record.overrides, ...otPart(record), ...notePart(record), ...lockPart(record)])
+  return JSON.stringify([record.title ?? "", record.rows, record.numbers, record.names, record.anchor, record.overrides, ...otPart(record), ...notePart(record), ...matePart(record), ...lockPart(record)])
 }
 
 // 用戶自己改嘅裝置名，例如「Ice iPhone」；去走控制字元。
