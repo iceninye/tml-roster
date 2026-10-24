@@ -100,6 +100,7 @@ a.btn { display: inline-flex; align-items: center; text-decoration: none; }
 }
 .badge.now { background: var(--accent); color: #fff; }
 .badge.plain { background: var(--panel-2); color: var(--muted); }
+.badge.ot { background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--warn); }
 .badge.shift { background: transparent; box-shadow: inset 0 0 0 1px currentColor; }
 [data-shift="dawn"] .badge.shift { color: var(--dawn); }
 [data-shift="early"] .badge.shift { color: var(--early); }
@@ -735,6 +736,7 @@ button.cal-day { cursor: pointer; }
 .cal-day[data-today="1"] b { color: var(--accent); }
 .cal-school { position: absolute; left: 50%; bottom: 3px; width: 18px; height: 3px; margin-left: -9px; border-radius: 2px; background: var(--warn); }
 .cal-changed { position: absolute; top: 4px; right: 4px; width: 5px; height: 5px; border-radius: 50%; background: var(--muted); }
+.cal-ot { position: absolute; top: 4px; left: 4px; width: 6px; height: 6px; border-radius: 50%; font-size: 0; background: var(--warn); }
 .cal-blank { min-height: 52px; }
 .cal-school-box { margin-top: 10px; font-size: 14px; }
 .cal-school-list { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 2px; }
@@ -742,3 +744,15 @@ button.cal-day { cursor: pointer; }
 .cal-school-list i { flex: none; width: 14px; height: 3px; border-radius: 2px; background: var(--warn); }
 @media (max-width: 380px) { .cal-code { font-size: 13px; } .cal-day { min-height: 46px; } }
 @media (min-width: 900px) { .me-cal { max-width: 720px; } }
+
+/* ---- OT（日詳情） ---- */
+.me-ot { margin: 0 0 12px; }
+.me-ot > summary { display: flex; align-items: baseline; gap: 10px; cursor: pointer; }
+.me-ot-form { display: grid; gap: 10px; margin-top: 12px; }
+.ot-check { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.ot-check input { width: 20px; height: 20px; }
+.ot-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.ot-row .ot-side { min-width: 2.5em; font-weight: 700; }
+.ot-row input.mini { width: 4.5em; min-height: 44px; font: inherit; font-size: 16px; color: var(--text); background: var(--panel-2); border: 1px solid var(--edge); border-radius: 12px; padding: 0 10px; }
+.ot-row input.mini[type="time"] { width: 7.5em; padding: 0 6px; }
+.ot-row .ot-or { color: var(--muted); }
