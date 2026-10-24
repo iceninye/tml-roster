@@ -1,6 +1,6 @@
 // Checks lib/tml-roster.js on a made-up roster (a real one never goes in the repo):
 //   node tools/validate_roster.mjs
-import { classify, cleanRoster, dayEntry, mondayOf, newRoster, parseRoster, recentOverrides, rowLabelFor, setOverride, weekDates, weekdayIndex } from "../lib/tml-roster.js"
+import { classify, cleanRoster, dayEntry, isLocked, keepLocked, mondayOf, newRoster, recentLocks, toggleLock, parseRoster, recentOverrides, rowLabelFor, setOverride, weekDates, weekdayIndex } from "../lib/tml-roster.js"
 import { shiftOf } from "../lib/tml-shift.js"
 import { reliefOf } from "../lib/tml-duties.js"
 import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
@@ -204,5 +204,26 @@ check(reliefOf(d105, sheet, 2).from?.id === "1101112", `1101105 喺 WKS 接 Run 
 check(reliefOf(d105, sheet, 3).from?.id === "1101126", "1101105 喺錦上路接 Run 22 由 1101126 交")
 const back = reliefOf(sheet.find((d) => d.id === "1101112"), sheet, sheet.find((d) => d.id === "1101112").legs.findIndex((l) => l[1] === 10 && l[5] === 26520))
 check(back.to?.id === "1101105", "反方向：1101112 喺 WKS 將 Run 10 交俾 1101105")
+
+// 🔒 鎖住嘅星期：影低 7 格（包括手動改），換 Standard Roster／行號都唔變
+{
+  const base = newRoster(parseRoster(",Mon,Tue,Wed,Thu,Fri,Sat,Sun\n1,1101101,RD,RD,AL,AL,SH,RD\n2,1101102,1101103,RD,RD,1101104,1101105,1101106"), { row: 1, monday: "2026-10-19" })
+  const edited = setOverride(base, "2026-10-21", "1101199")
+  const locked = toggleLock(edited, "2026-10-19")
+  check(isLocked(locked, "2026-10-19") && !isLocked(locked, "2026-10-26"), "a week can be locked")
+  const moved = { ...locked, anchor: { row: 2, monday: "2026-10-19" } }
+  check(dayEntry(moved, "2026-10-21").code === "1101199" && dayEntry(moved, "2026-10-21").source === "override" && dayEntry(moved, "2026-10-19").code === "1101101" && dayEntry(moved, "2026-10-19").locked, "a locked week keeps its cells and manual changes when the row changes")
+  check(dayEntry(moved, "2026-10-26").code === "1101101" && !dayEntry(moved, "2026-10-26").locked, "other weeks follow the new row")
+  check(dayEntry(moved, "2026-10-19").row === 1, "a locked week keeps its row number")
+  const unlocked = toggleLock(moved, "2026-10-19")
+  check(!isLocked(unlocked, "2026-10-19") && dayEntry(unlocked, "2026-10-19").code === "1101102", "unlocking goes back to the roster")
+  const fresh = newRoster(parseRoster(",Mon,Tue,Wed,Thu,Fri,Sat,Sun\n1,RD,RD,RD,RD,RD,RD,RD\n2,AL,AL,AL,AL,AL,AL,AL"), { row: 2, monday: "2026-10-19" })
+  const kept = keepLocked(locked, fresh, ["2026-10-12", "2026-10-19"])
+  check(dayEntry(kept, "2026-10-21").code === "1101199" && dayEntry(kept, "2026-10-13").code === "1101103" && dayEntry(kept, "2026-10-26").code === "RD", "an import keeps locked weeks and locks the given earlier weeks from the old roster")
+  const saved = cleanRoster(JSON.parse(JSON.stringify(kept)))
+  check(JSON.stringify(Object.entries(saved.locks).sort()) === JSON.stringify(Object.entries(kept.locks).sort()), "locks survive a save")
+  check(Object.keys(cleanRoster({ ...kept, locks: { "2026-10-20": locked.locks["2026-10-19"], x: 1, "2026-10-26": { codes: [] } } }).locks).length === 0, "bad locks are dropped")
+  check(Object.keys(recentLocks(kept.locks, "2027-10-20")).join() === "2026-10-19", "only locks from the last year are uploaded")
+}
 
 process.exit(failed ? 1 : 0)

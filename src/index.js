@@ -22,6 +22,7 @@ const MAX_BYTES = { roster: 128 * 1024, plan: 1024 * 1024 }
 const CODE_RE = /^[A-Z0-9-]{1,10}$/i
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const MAX_OVERRIDES = 400
+const MAX_LOCKS = 120
 const MAX_OT_MIN = 12 * 60 // 更前／更後 OT 最多 12 小時，同 lib/tml-ot.js 一致
 const MAX_NAME = 40 // 同 lib/tml-roster.js 一致，唔好上傳再下載靜靜變短
 const MAX_DEVICE = 60
@@ -86,11 +87,31 @@ function cleanRecord(input) {
     if (Object.keys(clean).length) ot[date] = clean
   }
 
-  return { schema: 1, title, rows, numbers, names, anchor, overrides, ot }
+  // 🔒 鎖住嘅星期：週一 -> { row, codes: [7], own: [7 x 0/1] }，同 lib/tml-roster.js cleanLocks 一樣規則；最多 120 個。
+  const locks = {}
+  const lockList = Object.entries(input.locks && typeof input.locks === "object" ? input.locks : {})
+    .filter(([monday]) => DATE_RE.test(monday))
+    .sort(([a], [b]) => (a < b ? 1 : -1))
+    .slice(0, MAX_LOCKS)
+  for (const [monday, held] of lockList) {
+    if (!Array.isArray(held?.codes) || held.codes.length !== 7) continue
+    const codes = held.codes.map((c) => String(c ?? "").trim().toUpperCase())
+    if (!codes.every((c) => CODE_RE.test(c))) continue
+    const own = Array.from({ length: 7 }, (_, i) => (Array.isArray(held.own) && held.own[i] ? 1 : 0))
+    const row = held.row !== null && held.row !== "" && Number.isInteger(Number(held.row)) ? Number(held.row) : null
+    locks[monday] = { row, codes, own }
+  }
+
+  return { schema: 1, title, rows, numbers, names, anchor, overrides, ot, locks }
 }
 
 // 有 OT 先加入比較，冇 OT 嘅記錄同舊版一樣（唔會因為升級而當內容改咗）
 const otPart = (record) => (Object.keys(record.ot ?? {}).length ? [record.ot] : [])
+// 鎖同樣有先加，按日子排
+const lockPart = (record) => {
+  const keys = Object.keys(record.locks ?? {}).sort()
+  return keys.length ? [keys.map((k) => [k, record.locks[k].row, record.locks[k].codes, record.locks[k].own])] : []
+}
 
 // 編更：收成份備份（{ app: "tml-plan", plan, roster }，同「下載備份」個檔一樣），
 // 雲端只檢查係唔係編更備份，內容由前端 cleanPlan／cleanRoster 讀返先用。
@@ -104,7 +125,7 @@ function cleanPlanRecord(input) {
 // 兩個版本內容一樣（只係版本號／時間唔同）就唔使寄備份。
 function content(kind, record) {
   if (kind === "plan") return JSON.stringify([record.data?.plan ?? null, record.data?.roster ?? null])
-  return JSON.stringify([record.title ?? "", record.rows, record.numbers, record.names, record.anchor, record.overrides, ...otPart(record)])
+  return JSON.stringify([record.title ?? "", record.rows, record.numbers, record.names, record.anchor, record.overrides, ...otPart(record), ...lockPart(record)])
 }
 
 // 用戶自己改嘅裝置名，例如「Ice iPhone」；去走控制字元。
