@@ -1,6 +1,6 @@
 // Checks lib/tml-roster.js on a made-up roster (a real one never goes in the repo):
 //   node tools/validate_roster.mjs
-import { classify, cleanMates, cleanRoster, dayEntry, isLocked, keepLocked, mateRow, mateWeek, mondayOf, newRoster, recentLocks, toggleLock, toggleMate, parseRoster, recentOverrides, rowLabelFor, setOverride, weekDates, weekdayIndex } from "../lib/tml-roster.js"
+import { classify, cleanMates, cleanNote, cleanRoster, dayEntry, isLocked, keepLocked, mateRow, mateWeek, mondayOf, newRoster, recentLocks, recentNotes, setNote, toggleLock, toggleMate, parseRoster, recentOverrides, rowLabelFor, setOverride, weekDates, weekdayIndex } from "../lib/tml-roster.js"
 import { shiftOf } from "../lib/tml-shift.js"
 import { reliefOf } from "../lib/tml-duties.js"
 import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
@@ -214,6 +214,17 @@ check(back.to?.id === "1101105", "反方向：1101112 喺 WKS 將 Run 10 交俾 
   check(toggleMate(one, 3, "2026-10-26").mates.length === 0, "ticking the same colleague in a later week takes them off")
   check(JSON.stringify(cleanRoster(JSON.parse(JSON.stringify(one))).mates) === JSON.stringify([{ row: 2, monday: "2026-10-19", name: "Bo" }]), "colleagues survive a save")
   check(cleanMates([{ row: "x", monday: "2026-10-19" }, { row: 2, monday: "2026-10-20" }, { row: 2 }]).length === 0, "bad colleagues are dropped")
+}
+
+// 每日備註
+{
+  const base = newRoster(parseRoster(",Mon,Tue,Wed,Thu,Fri,Sat,Sun\n1,1101101,RD,RD,AL,AL,SH,RD"), { row: 1, monday: "2026-10-19" })
+  const noted = setNote(base, "2026-10-21", "  同 Ken 換更\r\n帶證件\u0007 ")
+  check(noted.notes["2026-10-21"] === "同 Ken 換更\n帶證件", "a note is trimmed, keeps line breaks and drops control characters")
+  check(!("2026-10-21" in setNote(noted, "2026-10-21", "   ").notes), "a blank note deletes it")
+  check(cleanNote("字".repeat(300)).length === 200, "a note is cut at 200 characters")
+  check(JSON.stringify(cleanRoster(JSON.parse(JSON.stringify({ ...noted, notes: { ...noted.notes, bad: "x", "2026-10-22": "" } }))).notes) === JSON.stringify({ "2026-10-21": "同 Ken 換更\n帶證件" }), "notes survive a save; bad ones are dropped")
+  check(Object.keys(recentNotes({ "2025-01-01": "a", "2026-10-21": "b" }, "2026-10-24")).join() === "2026-10-21", "only notes from the last year are uploaded")
 }
 
 // 🔒 鎖住嘅星期：影低 7 格（包括手動改），換 Standard Roster／行號都唔變
