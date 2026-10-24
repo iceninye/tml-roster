@@ -655,6 +655,14 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 }
 .me-sync-dirty { color: var(--warn); font-weight: 600; }
 
+/* ---- 🔔 雲端／呢部機邊個新啲 ---- */
+.me-bell-slot:empty { display: none; }
+.me-bell { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; margin: 0 0 12px; padding: 10px 14px; font: inherit; font-size: 15px; line-height: 1.45; text-align: left; color: var(--text); background: color-mix(in srgb, var(--warn) 14%, var(--panel)); border: 1px solid color-mix(in srgb, var(--warn) 55%, transparent); border-radius: 12px; }
+button.me-bell { cursor: pointer; }
+.me-bell b { flex: none; color: var(--warn); font-weight: 700; white-space: nowrap; }
+.me-bell[data-kind="both"] { border-color: var(--bad, #e5484d); background: color-mix(in srgb, var(--bad, #e5484d) 12%, var(--panel)); }
+.me-bell[data-kind="both"] b { color: var(--bad, #e5484d); }
+
 /* ---- 本週概況：只喺桌面左欄（今日卡下面）顯示 ---- */
 .week-card { display: none; }
 @media (min-width: 900px) {
