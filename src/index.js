@@ -309,15 +309,28 @@ export const SCHOOL_ICS = "https://calendar.google.com/calendar/ical/skhsslmc.ed
 const SCHOOL_TTL = 6 * 3600
 
 // 回前後約一年嘅活動 [{ start, end, title }]；Cloudflare 同瀏覽器都快取 6 個鐘。
+// Google 有時唔睬冇 User-Agent 嘅請求；@ 寫做 %40 定原字都試（兩種 Google 都出過）。
 async function schoolHolidays() {
-  let text
-  try {
-    const res = await fetch(SCHOOL_ICS, { cf: { cacheTtl: SCHOOL_TTL, cacheEverything: true } })
-    if (!res.ok) throw new Error(String(res.status))
-    text = await res.text()
-  } catch {
-    return reply({ ok: false, reason: "upstream" }, 502)
+  let text = null
+  const tried = []
+  for (const url of [SCHOOL_ICS, SCHOOL_ICS.replace("%40", "@")]) {
+    try {
+      const res = await fetch(url, {
+        headers: { "user-agent": "Mozilla/5.0 (compatible; tml-roster/1.0; +https://tml-roster.iceninye.workers.dev)", accept: "text/calendar, text/plain, */*" },
+        cf: { cacheTtl: SCHOOL_TTL, cacheEverything: true },
+      })
+      const body = await res.text()
+      if (res.ok && body.includes("BEGIN:VCALENDAR")) {
+        text = body
+        break
+      }
+      tried.push(res.ok ? "not_ics" : res.status)
+    } catch (error) {
+      tried.push(String(error?.message ?? error).slice(0, 60))
+    }
   }
+  // 讀唔到：回埋每次嘅 HTTP 狀態，方便睇係 404（日曆唔公開）定被擋
+  if (text == null) return reply({ ok: false, reason: "upstream", tried }, 502)
   const today = new Date().toISOString().slice(0, 10)
   const year = Number(today.slice(0, 4))
   const holidays = holidaysBetween(parseIcs(text), `${year - 1}${today.slice(4)}`, `${year + 1}${today.slice(4)}`)

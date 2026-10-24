@@ -30,7 +30,7 @@ const SCHOOL_TEXT = [
   "BEGIN:VEVENT", `DTSTART;VALUE=DATE:${year - 5}0101`, "SUMMARY:好舊", "END:VEVENT", "END:VCALENDAR",
 ].join("\r\n")
 globalThis.fetch = async (url, init) => {
-  if (String(url).startsWith("https://calendar.google.com/")) return schoolDown ? new Response("", { status: 500 }) : new Response(SCHOOL_TEXT)
+  if (String(url).startsWith("https://calendar.google.com/")) return schoolDown ? new Response("", { status: 404 }) : new Response(SCHOOL_TEXT)
   if (!String(url).startsWith("https://api.resend.com/")) throw new Error(`unexpected fetch ${url}`)
   if (resendDown) return new Response("{}", { status: 500 })
   mails.push(JSON.parse(init.body))
@@ -178,7 +178,7 @@ check(r.status === 200 && r.body.ok && JSON.stringify(r.body.holidays.map((h) =>
 ]), "school holidays: all-day end is inclusive, cancelled and old events dropped")
 schoolDown = true
 r = await call("GET", "/api/school-holidays")
-check(r.status === 502 && r.body.reason === "upstream", "school calendar down -> 502 upstream")
+check(r.status === 502 && r.body.reason === "upstream" && r.body.tried.join() === "404,404", "school calendar down -> 502 upstream with both statuses")
 schoolDown = false
 
 // ---- lib/tml-cloud.js
