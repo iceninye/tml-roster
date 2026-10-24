@@ -6,6 +6,7 @@
 //   PUT /api/plan/<token>
 //   POST /api/token-log       -> 產生／用新 token 時寄一封 log 電郵（裝置、時間、token）
 //   POST /api/backup          -> 將一份備份檔寄去 owner 電郵
+//   GET /api/school-holidays  -> 代讀學校假期 iCal（Google Calendar 唔俾瀏覽器直接讀），回 JSON
 //
 // PUT 要蓋掉雲端現有版本之前，會先將現有版本寄電郵做備份；寄唔到就唔寫，回 502
 // backup_failed，等用戶揀（帶 skipBackup: true 先會照寫）。
@@ -13,6 +14,8 @@
 // 設計上刻意冇 listing：冇 token 就冇入口，`/api/roster/` 一律 404，
 // 所以唔可以 enumerate 出任何記錄。token 由用戶自己保管（只存佢自己部機）。
 // 呢個係「靠 URL 保密」，唔係認證 —— 攞到條 URL 嘅人讀寫得到。
+
+import { holidaysBetween, parseIcs } from "../lib/tml-ics.js"
 
 const TOKEN_RE = /^[a-z0-9]{20,64}$/
 const MAX_BYTES = { roster: 128 * 1024, plan: 1024 * 1024 }
@@ -281,6 +284,30 @@ async function mailOldVersion(kind, token, stored, request, device, env) {
   })
 }
 
+/* ------------------------------------------------------------ 學校假期 */
+
+// Ice 2026-10-24 俾嘅公開日曆。只讀呢一條（唔係任意 URL 嘅 proxy）。
+export const SCHOOL_ICS = "https://calendar.google.com/calendar/ical/skhsslmc.edu.hk_5k7g1ubf9dqnlvn7fegnkuj3h0%40group.calendar.google.com/public/basic.ics"
+const SCHOOL_TTL = 6 * 3600
+
+// 回前後約一年嘅活動 [{ start, end, title }]；Cloudflare 同瀏覽器都快取 6 個鐘。
+async function schoolHolidays() {
+  let text
+  try {
+    const res = await fetch(SCHOOL_ICS, { cf: { cacheTtl: SCHOOL_TTL, cacheEverything: true } })
+    if (!res.ok) throw new Error(String(res.status))
+    text = await res.text()
+  } catch {
+    return reply({ ok: false, reason: "upstream" }, 502)
+  }
+  const today = new Date().toISOString().slice(0, 10)
+  const year = Number(today.slice(0, 4))
+  const holidays = holidaysBetween(parseIcs(text), `${year - 1}${today.slice(4)}`, `${year + 1}${today.slice(4)}`)
+  return new Response(JSON.stringify({ ok: true, holidays }), {
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": `public, max-age=${SCHOOL_TTL}` },
+  })
+}
+
 /* ---------------------------------------------------------------- 同步 */
 
 async function syncRecord(kind, token, request, env) {
@@ -340,6 +367,7 @@ export default {
     const parts = url.pathname.split("/").filter(Boolean) // ["api","roster","<token>"]
     // 前端用嚟問「呢個網址支唔支援同步」（GitHub Pages 版會 404）
     if (parts[0] === "api" && parts[1] === "ping") return reply({ ok: true, sync: true, mail: !!(env.RESEND_API_KEY && env.BACKUP_TO) })
+    if (parts[0] === "api" && parts[1] === "school-holidays" && parts.length === 2 && request.method === "GET") return schoolHolidays()
     if (parts[0] === "api" && parts[1] === "backup" && parts.length === 2) return (await limited(request, env)) ?? mailBackup(request, env)
     if (parts[0] === "api" && parts[1] === "token-log" && parts.length === 2) return (await limited(request, env)) ?? tokenLog(request, env)
     if (parts.length < 2 || parts[0] !== "api" || (parts[1] !== "roster" && parts[1] !== "plan")) {

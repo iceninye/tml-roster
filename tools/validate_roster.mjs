@@ -5,6 +5,7 @@ import { shiftOf } from "../lib/tml-shift.js"
 import { reliefOf } from "../lib/tml-duties.js"
 import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
 import { placeNames, sheetForDate } from "../lib/tml-data.js"
+import { holidaysOn, parseIcs } from "../lib/tml-ics.js"
 
 let failed = 0
 const check = (ok, what) => {
@@ -164,6 +165,14 @@ check(fixed.minutes === 480, `1101131 用修正後 8 小時（實際 ${fixed.min
   const days = []
   summariseWeek(["2026-11-01"], (date) => ({ code: "7091123" }), (code, date) => { days.push(date); return { on: 31080, duty: { work: 480 } } })
   check(days.join() === "2026-11-01", "週概況問更份時間時帶埋日期")
+}
+
+// 學校假期 iCal（lib/tml-ics.js）
+{
+  const ics = "BEGIN:VEVENT\r\nDTSTART;VALUE=DATE:20261029\r\nDTEND;VALUE=DATE:20261031\r\nSUMMARY:中期考試後\r\n 假期\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nDTSTART;VALUE=DATE:20261001\r\nSUMMARY:國慶日\r\nEND:VEVENT"
+  const list = parseIcs(ics)
+  check(list.length === 2 && list[0].start === "2026-10-01" && list[1].end === "2026-10-30" && list[1].title === "中期考試後假期", "iCal：長行接返、全日活動 DTEND 唔包、按日期排")
+  check(holidaysOn(list, "2026-10-30").join() === "中期考試後假期" && holidaysOn(list, "2026-10-31").length === 0 && holidaysOn(null, "2026-10-01").length === 0, "holidaysOn 搵某日嘅假期")
 }
 
 // 接車／交車：用真 duty sheet（公開資料）DS1101，由 TML-traffic 讀。釘死一個 commit，
