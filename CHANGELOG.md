@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.9.42 — unreleased
+- 我的更表（Ice 2026-10-24）: 假日日卡（RD／AL／SH 等）英文代號 24px、中文字（年假、休息日）22px（之前兩樣都係 26px）；顏色不變。
+- Shell cache 改名 `v72`。
+
 ## v0.9.41 — unreleased
 - 我的更表（Ice 2026-10-24）: 假日日卡（RD／AL／SH 等）嘅字（代號同狀態）同日期數字一樣大（26px）、同日期數字一樣嘅顏色；底色維持淺紅漸變。
 - Shell cache 改名 `v71`。
