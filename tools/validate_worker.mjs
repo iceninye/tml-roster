@@ -92,6 +92,21 @@ check(r.status === 409 && r.body.reason === "conflict" && r.body.cloud.version =
 r = await call("GET", `/api/roster/${TOKEN}`)
 check(r.status === 200 && r.body.record.rows[0][0] === "1101103", "GET returns the latest roster")
 
+// OT 跟更表一齊同步；亂嘢會被清走
+{
+  const otToken = "otototototototototototototototo"
+  const ot = { "2026-10-25": { whole: true }, "2026-10-26": { after: 210, before: -5 }, "2026-10-27": { after: 9999 }, bad: { whole: true }, "2026-10-28": { whole: "yes" } }
+  r = await call("PUT", `/api/roster/${otToken}`, { ...roster("1101101"), ot, version: 0 })
+  const got = (await call("GET", `/api/roster/${otToken}`)).body.record.ot
+  check(r.status === 200 && JSON.stringify(got) === JSON.stringify({ "2026-10-25": { whole: true }, "2026-10-26": { after: 210 }, "2026-10-27": { after: 720 } }), "OT is synced and cleaned")
+  const mailsBefore = mails.length
+  r = await call("PUT", `/api/roster/${otToken}`, { ...roster("1101101"), ot: { "2026-10-25": { whole: true } }, version: 1 })
+  check(r.status === 200 && mails.length === mailsBefore + 1, "changing only OT counts as a change (old version mailed)")
+  const many = Object.fromEntries(Array.from({ length: 401 }, (_, i) => [new Date(Date.UTC(2026, 0, 1 + i)).toISOString().slice(0, 10), { after: 60 }]))
+  r = await call("PUT", `/api/roster/${otToken}`, { ...roster("1101101"), ot: many, version: 2 })
+  check(r.status === 400 && r.body.reason === "too_many_overrides", "more than 400 OT days are refused")
+}
+
 // ---- plan sync
 const planData = (n) => ({ app: "tml-plan", appVersion: "0.9.16", plan: { v: 2, n }, roster: { v: 1, rows: [] } })
 r = await call("PUT", `/api/plan/${TOKEN}`, { schema: 1, data: { app: "other" }, version: 0 })
