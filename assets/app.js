@@ -16,7 +16,7 @@ import { isoWeek } from "../lib/tml-plan.js"
 import { monthDates, otClock, otFromClock, recentOt, setOt } from "../lib/tml-ot.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson, syncState } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.37", commit: "dev" }
+const BUILD = { version: "0.9.38", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -265,7 +265,8 @@ const S = {
   matesCopy: "複製本週 CSV",
   matesCopied: "已複製，可以貼去 WhatsApp／Excel",
   matesSaved: (name) => `已下載 ${name}`,
-  matesHint: "撳更份睇詳情。同事只跟 Standard Roster，唔包佢哋自己手動改。",
+  matesNameLabel: "同事名稱（可以自己改）",
+  matesNamePlaceholder: "名稱",
   noteTitle: "備註",
   notePlaceholder: "例如：同 Ken 換更、帶證件、7 點前到",
   noteSave: "儲存",
@@ -294,6 +295,7 @@ const state = {
   calMonth: null, // 月曆睇緊邊個月 "YYYY-MM"（null = 今個月）
   otOpen: null, // 日詳情：OT 格打開咗嘅日子（預設收埋，儲存後收埋）
   noteOpen: null, // 日詳情：備註格打開咗嘅日子
+  setupOpen: new Set(), // 設定頁：打開咗邊幾格（預設全部收埋，Ice 2026-10-24）
 }
 
 // 每日備註（冇就 ""）
@@ -1231,7 +1233,7 @@ function renderPage() {
       `<span>${state.monday === current ? S.weekNo(S.thisWeek, week) : `${S.weekNo("", week)} · <button type="button" class="link me-this">${S.backThis}</button>`}</span></div>` +
       `<button type="button" class="btn me-next" aria-label="${S.next}">›</button></div>` +
       `<div id="me-data"></div>` +
-      `<div class="row mates-tools"><button type="button" class="btn me-mates-csv">${S.matesCopy}</button><span class="fine">${S.matesHint}</span></div>` +
+      `<div class="row mates-tools"><button type="button" class="btn me-mates-csv">${S.matesCopy}</button></div>` +
       `<p class="me-msg" role="status">${escapeHtml(state.message)}</p>`
     setSub(S.matesTitle)
     paintData()
@@ -1269,6 +1271,8 @@ function renderPage() {
 function paintData() {
   const box = document.getElementById("me-data")
   if (!box) return
+  // 同事更表打緊名，唔好重畫洗走
+  if (state.page === "mates" && document.activeElement?.matches?.(".mate-name")) return
   let html
   if (state.page === "duty") {
     html = dutyDetailHtml(state.duty, false)
@@ -1339,7 +1343,7 @@ function matesLines(monday) {
   const lines = [{ who: S.matesMe, row: mine[0]?.row ?? null, codes: mine.map((e) => e?.code ?? ""), self: true }]
   for (const mate of roster.mates ?? []) {
     const week = mateWeek(roster, mate, monday)
-    if (week) lines.push({ who: mate.name || S.matesRow(week.row), row: week.row, codes: week.codes })
+    if (week) lines.push({ who: mate.name || S.matesRow(week.row), name: mate.name ?? "", index: roster.mates.indexOf(mate), row: week.row, codes: week.codes })
   }
   return lines
 }
@@ -1362,7 +1366,11 @@ function matesTableHtml() {
       const open = c.kind === "duty" ? `<button type="button" class="mate-cell" data-duty="${c.id}" data-sheet="${cell.c?.sheet ?? c.sheet}">${inner}</button>` : inner
       return `<td${date === today ? ' class="now"' : ""}>${open}</td>`
     }).join("")
-    return `<tr${line.self ? ' class="self"' : ""}><th class="who"><b>${escapeHtml(line.who)}</b>${line.row != null ? `<small>${S.matesRow(line.row)}</small>` : ""}</th>${cells}</tr>`
+    // 第一行顯示名稱（同事嗰行可以自己改），下面細字先係行數
+    const who = line.self
+      ? `<b>${escapeHtml(line.who)}</b>`
+      : `<input class="mate-name" data-mate="${line.index}" maxlength="40" value="${escapeHtml(line.name)}" placeholder="${S.matesNamePlaceholder}" aria-label="${S.matesNameLabel}" autocomplete="off" spellcheck="false">`
+    return `<tr${line.self ? ' class="self"' : ""}><th class="who">${who}${line.row != null ? `<small>${S.matesRow(line.row)}</small>` : ""}</th>${cells}</tr>`
   }).join("")
   return `<div class="ptable mtable"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>`
 }
@@ -1392,11 +1400,17 @@ function matesPickHtml() {
   const mine = rowLabelFor(roster, monday)
   const picked = new Set((roster.mates ?? []).map((m) => mateRow(roster, m, monday)))
   const opts = roster.numbers.map((label, i) => label === mine ? "" :
-    `<label class="mate-opt"><input type="checkbox" class="me-mate" value="${label}" data-name="${escapeHtml(roster.names[i] ?? "")}"${picked.has(label) ? " checked" : ""}>` +
-    `<b>${label}</b>${roster.names[i] ? `<span>${escapeHtml(roster.names[i])}</span>` : ""}</label>`).join("")
-  return `<section class="panel"><h3>${S.matesTitle} <span class="meta me-mates-count">${S.matesCount(roster.mates?.length ?? 0)}</span></h3>` +
+    `<label class="mate-opt"${roster.names[i] ? ` title="${escapeHtml(roster.names[i])}"` : ""}><input type="checkbox" class="me-mate" value="${label}" data-name="${escapeHtml(roster.names[i] ?? "")}"${picked.has(label) ? " checked" : ""}>` +
+    `<b>${label}</b></label>`).join("")
+  return foldPanel("mates", `${S.matesTitle} <span class="meta me-mates-count">${S.matesCount(roster.mates?.length ?? 0)}</span>`,
     `<details class="fine-box"><summary>${S.hintTitle}</summary><p class="fine">${S.matesHelp}</p></details>` +
-    `<div class="mate-pick">${opts}</div></section>`
+    `<div class="mate-pick">${opts}</div>`)
+}
+
+// 設定頁每一格：有更表就預設收埋（記住打開咗嘅），未有更表（第一次用）直接攤開。
+function foldPanel(id, title, body) {
+  if (!roster) return `<section class="panel"><h3>${title}</h3>${body}</section>`
+  return `<details class="panel set-fold" data-fold="${id}"${state.setupOpen.has(id) ? " open" : ""}><summary>${title}</summary>${body}</details>`
 }
 
 function setupHtml() {
@@ -1406,34 +1420,34 @@ function setupHtml() {
   return `<div class="duty-head">${roster ? `<button type="button" class="btn me-back">${S.back}</button>` : `<h2>${S.setupTitle}</h2>`}</div>` +
     (roster ? "" : `<p class="lead">${S.setupIntro}</p>`) +
     `<form class="me-setup" autocomplete="off">` +
-    `<section class="panel"><h3><span class="step">1</span>${S.step1}</h3>` +
+    foldPanel("paste", `<span class="step">1</span>${S.step1}`,
     `<details class="how"><summary>${S.howTitle}</summary><p class="fine">${S.howBody}</p><ul class="how-codes">${codes}</ul>` +
     `<pre>${escapeHtml(S.howExample).replace(/\n/g, "<br>")}</pre></details>` +
     `<label><span class="sr">${S.pasteLabel}</span><textarea name="text" rows="6" spellcheck="false" placeholder="${roster ? S.pasteKeep : S.pastePlaceholder}"></textarea></label>` +
     `<div class="me-edit-row"><label class="btn filebtn">${S.fileBtn}<input type="file" class="me-file" accept=".csv,.tsv,.txt,text/plain,text/csv" hidden></label><span class="meta">${S.fileHelp}</span></div>` +
-    `<h4 class="prev-title">${S.previewTitle}</h4><div id="setup-preview">${previewHtml("", row)}</div></section>` +
-    `<section class="panel"><h3><span class="step">2</span>${S.step2}</h3>` +
+    `<h4 class="prev-title">${S.previewTitle}</h4><div id="setup-preview">${previewHtml("", row)}</div>`) +
+    foldPanel("row", `<span class="step">2</span>${S.step2}`,
     `<div class="field-line"><label for="me-row">${S.rowLabel(monday)}</label>` +
     `<input id="me-row" name="row" class="mini" type="number" inputmode="numeric" min="1" value="${row}" required>` +
-    `<button type="submit" class="btn primary">${S.ok}</button></div></section>` +
+    `<button type="submit" class="btn primary">${S.ok}</button></div>`) +
     `<p class="me-msg" role="status">${escapeHtml(state.message)}</p></form>` +
     (roster
-      ? `<section class="panel"><h3>${S.titleLabel}</h3>` +
+      ? foldPanel("title", S.titleLabel,
         `<form class="me-title" autocomplete="off">` +
         `<div class="field-line"><label for="me-title-input"><span class="sr">${S.titleLabel}</span></label>` +
         `<input id="me-title-input" name="title" class="mini wide" maxlength="24" value="${escapeHtml(title)}" placeholder="${S.title}">` +
-        `<button type="submit" class="btn primary">${S.ok}</button></div></form></section>`
+        `<button type="submit" class="btn primary">${S.ok}</button></div></form>`)
       : "") +
     (roster ? matesPickHtml() : "") +
     (roster
-      ? `<section class="panel"><h3>${S.backupTitle}</h3><details class="fine-box"><summary>${S.hintTitle}</summary><p class="fine">${S.backupHelp}</p></details>` +
+      ? foldPanel("backup", S.backupTitle, `<details class="fine-box"><summary>${S.hintTitle}</summary><p class="fine">${S.backupHelp}</p></details>` +
         `<div class="me-foot"><button type="button" class="btn me-export">${S.export}</button> ` +
         `<button type="button" class="btn danger me-clear">${S.clear}</button></div>` +
-        `<p class="fine"><button type="button" class="linkish me-export-json">${S.exportJson}</button> · ${S.exportHelp}</p></section>`
+        `<p class="fine"><button type="button" class="linkish me-export-json">${S.exportJson}</button> · ${S.exportHelp}</p>`)
       : "") +
     (syncSupported === false
-      ? `<section class="panel"><h3>${S.syncTitle}</h3><p class="fine">${S.syncUnsupported}</p></section>`
-      : `<section class="panel"><h3>${roster ? S.syncTitle : S.syncFirstTitle}</h3><details class="fine-box"><summary>${S.hintTitle}</summary><p class="fine">${roster ? S.syncHelp : S.syncFirstHelp}</p></details>` +
+      ? foldPanel("sync", S.syncTitle, `<p class="fine">${S.syncUnsupported}</p>`)
+      : foldPanel("sync", roster ? S.syncTitle : S.syncFirstTitle, `<details class="fine-box"><summary>${S.hintTitle}</summary><p class="fine">${roster ? S.syncHelp : S.syncFirstHelp}</p></details>` +
         `<div class="field-line"><label for="me-kv-token">${S.syncToken}</label>` +
         `<input id="me-kv-token" class="mini wide mono" type="password" autocomplete="off" spellcheck="false" maxlength="64" value="${escapeHtml(kvToken())}" placeholder="a1b2c3d4...">` +
         `<button type="button" class="btn me-kv-new">${S.syncNew}</button>` +
@@ -1443,7 +1457,7 @@ function setupHtml() {
         `<button type="button" class="btn ${roster ? "" : "primary "}me-kv-down">${S.syncDownload}</button></div>` +
         (bellState() === "none" && kvDirty() ? `<p class="fine me-sync-dirty">${S.syncDirty}</p>` : "") +
         `<div id="me-bell" class="me-bell-slot">${bellHtml(false)}</div>` +
-        `<p class="me-msg me-sync-msg" role="status">${escapeHtml(state.syncMsg)}</p></section>`)
+        `<p class="me-msg me-sync-msg" role="status">${escapeHtml(state.syncMsg)}</p>`))
 }
 
 // 匯出：CSV 每行一個星期（行號、名、週一至週日），可以原封不動貼返入「Standard Roster 內容」
@@ -1851,6 +1865,7 @@ function onClick(event) {
   }
   else if (target.closest(".me-settings") || target.closest("button.me-bell")) {
     state.page = "setup"
+    state.setupOpen = new Set(target.closest("button.me-bell") ? ["sync"] : [])
     state.message = ""
     state.syncMsg = ""
   } else if (target.closest(".me-note-clear")) {
@@ -1954,6 +1969,7 @@ function wireTitle() {
   h1.addEventListener("click", () => {
     if (!roster) return
     state.page = "setup"
+    state.setupOpen = new Set(["title"])
     state.message = ""
     render()
     const input = view.querySelector(".me-title input")
@@ -1976,7 +1992,10 @@ function wireSettings() {
     // 撳一下入設定，第二下睇同事更表（有揀同事先有），第三下返主頁
     if (state.page === "setup" && roster) state.page = roster.mates?.length ? "mates" : "week"
     else if (state.page === "mates") state.page = "week"
-    else state.page = "setup"
+    else {
+      state.page = "setup"
+      state.setupOpen = new Set()
+    }
     state.editing = false
     state.message = ""
     state.syncMsg = ""
@@ -1994,7 +2013,10 @@ function boot() {
   view.addEventListener("click", onClick)
   // OT／備註格開咗定收埋，記住佢（重畫唔好自己收埋）；toggle 唔會 bubble，要用 capture
   view.addEventListener("toggle", (event) => {
-    if (event.target.matches?.(".me-note")) state.noteOpen = event.target.open ? state.date : null
+    if (event.target.matches?.(".set-fold")) {
+      if (event.target.open) state.setupOpen.add(event.target.dataset.fold)
+      else state.setupOpen.delete(event.target.dataset.fold)
+    } else if (event.target.matches?.(".me-note")) state.noteOpen = event.target.open ? state.date : null
     else if (event.target.matches?.(".me-ot")) state.otOpen = event.target.open ? state.date : null
   }, true)
   wireKeys()
@@ -2006,6 +2028,15 @@ function boot() {
     if (otForm) syncOtInputs(otForm, event.target)
   })
   view.addEventListener("change", (event) => {
+    if (event.target.matches(".mate-name")) {
+      // 同事更表第一欄：手動改名，唔重畫
+      const index = Number(event.target.dataset.mate)
+      if (!roster.mates?.[index]) return
+      const mates = roster.mates.map((m, i) => (i === index ? { ...m, name: event.target.value.trim().slice(0, 40) } : m))
+      saveRoster({ ...roster, mates })
+      paintDirty()
+      return
+    }
     if (event.target.matches(".me-mate")) {
       // 唔重畫（設定頁有輸入框），只更新數目
       const monday = mondayOf(serviceDate(Date.now()))
