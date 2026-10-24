@@ -188,7 +188,6 @@ a.btn { display: inline-flex; align-items: center; text-decoration: none; }
 .day-main { display: grid; gap: 3px; min-width: 0; }
 .day-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .day-times { font-size: 22px; line-height: 1.2; font-weight: 800; font-variant-numeric: tabular-nums; }
-.day[data-tone="rest"], .day[data-tone="tbd"], .day[data-tone="spare"] { background: transparent; box-shadow: none; }
 /* 休息日代號同工作日一樣粗，只係灰一級（唔再變幼）。 */
 .day[data-tone="rest"] .day-title { color: var(--muted); font-weight: 700; }
 /* 單欄排列唔再等高：休息日／假期縮成一條窄卡，一週大約一屏睇晒。 */
@@ -599,10 +598,8 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .day-times { font-size: 19px; line-height: 1.25; }
 .day .bar { height: 6px; margin: 4px 0 3px; }
 .day .meta { font-size: 12.5px; line-height: 1.35; }
-/* 休息日／假期／待定：一條窄卡，日期同代號排一行 */
-.day[data-tone="rest"], .day[data-tone="leave"], .day[data-tone="tbd"] { padding-top: 6px; padding-bottom: 6px; align-items: center; }
-.day[data-tone="rest"] .day-date small, .day[data-tone="leave"] .day-date small, .day[data-tone="tbd"] .day-date small { font-size: 11px; }
-.day[data-tone="rest"] .day-date b, .day[data-tone="leave"] .day-date b, .day[data-tone="tbd"] .day-date b { font-size: 16px; }
+/* 日卡（休息／假期／待定都係）同開工卡一樣大小，一個樣 */
+.day { min-height: 96px; }
 
 /* ---- roster 表：每格一個代號，用細格；7 欄一定放得落手機 ---- */
 .rtable table { table-layout: fixed; min-width: 284px; font-size: clamp(8.5px, 2.3vw, 12px); letter-spacing: -0.03em; }
@@ -806,3 +803,13 @@ button.cal-day { cursor: pointer; }
 .set-form > .me-msg { margin: 0 0 14px; }
 .set-form > .me-msg:empty { display: none; }
 .badge.school { background: color-mix(in srgb, var(--ok, #2e9e6b) 20%, transparent); color: var(--ok, #2e9e6b); }
+
+/* 今日卡：tags 一行，更號喺下一行 */
+.today-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex-basis: 100%; }
+/* 假日卡（RD／AL／SH 等）：漸變紅 */
+.today[data-tone="rest"], .today[data-tone="leave"] { background: linear-gradient(145deg, #a63a3a, #3c1313); }
+.today[data-tone="rest"]::before, .today[data-tone="leave"]::before { background: #ff8a80; }
+.day[data-tone="rest"], .day[data-tone="leave"] { background: linear-gradient(135deg, color-mix(in srgb, #e5484d 30%, var(--panel)), var(--panel)); }
+.day[data-tone="rest"]::before, .day[data-tone="leave"]::before { background: #e5484d; }
+.cal-day[data-tone="rest"], .cal-day[data-tone="leave"] { background: color-mix(in srgb, #e5484d 16%, var(--panel)); }
+.cal-day[data-tone="rest"] .cal-code, .cal-day[data-tone="leave"] .cal-code { color: #e5484d; }
