@@ -16,7 +16,7 @@ import { isoWeek } from "../lib/tml-plan.js"
 import { monthDates, otClock, otFromClock, recentOt, setOt } from "../lib/tml-ot.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson, syncState } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.39", commit: "dev" }
+const BUILD = { version: "0.9.40", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -863,7 +863,7 @@ function todayHtml(date, entry, cell, short = false) {
     holidaysOn(school, date).map((h) => `<span class="badge school">${S.factSchool}假期 · ${escapeHtml(h)}</span>`).join("")
   return `<button type="button" class="today me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}"${short ? ' data-short="1"' : ""}>` +
     `<span class="today-label">${S.today} · ${S.weekdays[weekdayIndex(date)]} ${meDate(date)}</span>` +
-    `<span class="today-title">${tags}${isOffTone(cell) ? offTitleHtml(entry.code, cell) : escapeHtml(cell.label)}${short ? `<span class="badge rest-short">${S.restShort}</span>` : ""}</span>` +
+    `<span class="today-title">${tags ? `<span class="today-tags">${tags}</span>` : ""}${isOffTone(cell) ? offTitleHtml(entry.code, cell) : escapeHtml(cell.label)}${short ? `<span class="badge rest-short">${S.restShort}</span>` : ""}</span>` +
     (lines.times ? `<span class="today-times">${lines.times}</span>${todayPlacesHtml(cell)}${barHtml(lines.span, serviceSeconds(Date.now()))}${progressHtml(lines.span)}` : "") +
     (lines.note && !lines.times ? `<span class="today-note">${escapeHtml(lines.note)}</span>` : "") +
     // OT badge 已經講咗有 OT，呢度只寫更前／更後幾耐（唔再寫「成更 OT」）
