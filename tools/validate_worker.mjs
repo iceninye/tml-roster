@@ -123,6 +123,18 @@ check(r.status === 200 && r.body.record.rows[0][0] === "1101103", "GET returns t
   check(r.status === 400 && r.body.reason === "too_many_overrides", "more than 400 OT days are refused")
 }
 
+// 每日備註跟更表同步；亂嘢清走
+{
+  const noteToken = "ntntntntntntntntntntntntntntntnt"
+  const notes = { "2026-10-21": " 換更\u0007 ", bad: "x", "2026-10-22": "", "2026-10-23": "字".repeat(300) }
+  r = await call("PUT", `/api/roster/${noteToken}`, { ...roster("1101101"), notes, version: 0 })
+  const got = (await call("GET", `/api/roster/${noteToken}`)).body.record.notes
+  check(r.status === 200 && got["2026-10-21"] === "換更" && got["2026-10-23"].length === 200 && Object.keys(got).length === 2, "notes are synced and cleaned")
+  const mailsBefore = mails.length
+  r = await call("PUT", `/api/roster/${noteToken}`, { ...roster("1101101"), version: 1 })
+  check(r.status === 200 && mails.length === mailsBefore + 1, "deleting notes counts as a change (old version mailed)")
+}
+
 // 🔒 鎖住嘅星期跟更表同步；格式唔啱嘅清走
 {
   const lockToken = "lklklklklklklklklklklklklklklklk"

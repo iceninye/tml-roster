@@ -5,7 +5,7 @@
 // station names are read from https://github.com/iceninye/TML-traffic (lib/tml-data.js).
 
 import { dutyState, mealMates, reliefOf } from "../lib/tml-duties.js"
-import { addDays, classify, cleanRoster, dayEntry, isLocked, keepLocked, mondayOf, newRoster, normaliseCode, parseRoster, recentLocks, recentOverrides, rowLabelFor, setOverride, toggleLock, weekDates, weekdayIndex } from "../lib/tml-roster.js"
+import { MAX_NOTE, addDays, classify, cleanRoster, dayEntry, isLocked, keepLocked, mondayOf, newRoster, normaliseCode, parseRoster, recentLocks, recentNotes, recentOverrides, rowLabelFor, setNote, setOverride, toggleLock, weekDates, weekdayIndex } from "../lib/tml-roster.js"
 import { SHIFTS, shiftOf } from "../lib/tml-shift.js"
 import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
 import { OFF_CODES, workOf } from "../lib/tml-extra.js"
@@ -16,7 +16,7 @@ import { isoWeek } from "../lib/tml-plan.js"
 import { monthDates, otClock, otFromClock, recentOt, setOt } from "../lib/tml-ot.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson, syncState } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.35", commit: "dev" }
+const BUILD = { version: "0.9.36", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -243,17 +243,26 @@ const S = {
   otWhole: "成更 OT",
   otBefore: (m) => `更前 OT ${S.workMin(m)}`,
   otAfter: (m) => `更後 OT ${S.workMin(m)}`,
-  otWholeLabel: "成更 OT",
+  otWholeLabel: "OT",
+  otTitle: "OT",
   otBeforeLabel: "更前",
   otAfterLabel: "更後",
   otHoursUnit: "小時",
   otFrom: "或由",
   otTo: "或至",
-  otSave: "儲存 OT",
-  otClear: "清除 OT",
+  otSave: "儲存",
+  otClear: "清除",
   otSaved: "已儲存 OT",
   otCleared: "已清除 OT",
   otBad: "OT 時數唔啱：請輸入 0 至 12 小時（例如 3.5）",
+  noteTitle: "備註",
+  notePlaceholder: "例如：同 Ken 換更、帶證件、7 點前到",
+  noteSave: "儲存",
+  noteClear: "刪除",
+  noteSaved: "已儲存備註",
+  noteCleared: "已刪除備註",
+  factTomorrow: "明天",
+  tomorrowWork: (code, on, off) => `${code} ${on}–${off}`,
 }
 
 // Depot and siding codes as the sheets print them (read from the sheets' own
@@ -272,7 +281,12 @@ const state = {
   editing: false,
   syncMsg: "",
   calMonth: null, // 月曆睇緊邊個月 "YYYY-MM"（null = 今個月）
+  otOpen: null, // 日詳情：OT 格打開咗嘅日子（預設收埋，儲存後收埋）
+  noteOpen: null, // 日詳情：備註格打開咗嘅日子
 }
+
+// 每日備註（冇就 ""）
+const noteOf = (date) => roster?.notes?.[date] ?? ""
 
 let roster = null
 let title = ""
@@ -783,9 +797,13 @@ function todayFactsHtml(date, cell, live) {
   const hol = holidaysOn(school, date)
   if (hol.length) rows.push([S.factSchool, hol.join("、")])
 
-  // 下一更：今日放咗工，或者今日唔使返工
-  if (off == null || tau >= off) {
-    for (let k = 1; k <= 14; k += 1) {
+  // 明天（Ice 2026-10-24）：返工就寫更份同上落班時間，放假就寫 RD／AL 等；有休息唔夠、OT、備註都寫埋
+  const tomorrow = addDays(date, 1)
+  const { entry: entry1, cell: next1 } = dayCell(tomorrow)
+  const works = next1.on != null
+  // 下一更：今日放咗工，或者今日唔使返工；明天返工就唔使（下面「明天」已經寫咗）
+  if (!works && (off == null || tau >= off)) {
+    for (let k = 2; k <= 14; k += 1) {
       const day = addDays(date, k)
       const next = dayCell(day).cell
       if (next.on == null) continue
@@ -793,6 +811,18 @@ function todayFactsHtml(date, cell, live) {
       rows.push([S.factNextDuty, `${S.weekdays[weekdayIndex(day)]} ${meDate(day)} · ${next.label} ${hhmm(next.on)}${gap}`])
       break
     }
+  }
+  {
+    const gap = works && off != null ? 86400 + next1.on - off : null
+    const parts = [
+      `${S.weekdays[weekdayIndex(tomorrow)]} ${meDate(tomorrow)}`,
+      works ? S.tomorrowWork(next1.label, hhmm(next1.on), offOf(next1) != null ? hhmm(offOf(next1)) : "")
+        : (next1.label.includes(entry1.code) ? next1.label : `${entry1.code} ${next1.label}`),
+      gap != null ? `${S.restGap(S.dur(gap))}${gap < REST_MIN ? `（${S.restShort}）` : ""}` : "",
+      otText(next1.ot),
+      noteOf(tomorrow) ? `📝 ${noteOf(tomorrow)}` : "",
+    ]
+    rows.push([S.factTomorrow, parts.filter(Boolean).join(" · ")])
   }
   if (!rows.length) return ""
   // 卡本身係 <button>，入面只可以用 span
@@ -832,6 +862,7 @@ function todayHtml(date, entry, cell, short = false) {
     // OT badge 已經講咗有 OT，呢度只寫更前／更後幾耐（唔再寫「成更 OT」）
     (lines.times && otText({ ...cell.ot, whole: false }) ? `<span class="today-note">${escapeHtml(otText({ ...cell.ot, whole: false }))}</span>` : "") +
     (live ? `<span class="today-live"><i class="pulse"></i><span>${S.now}：${escapeHtml(dutyPhaseText(live))} <small>${S.until(hhmm(live.until))}</small></span></span>` : "") +
+    (noteOf(date) ? `<span class="today-note today-memo">📝 ${escapeHtml(noteOf(date))}</span>` : "") +
     todayFactsHtml(date, cell, live) +
     `</button>`
 }
@@ -905,13 +936,32 @@ function otPanelHtml(date, entry) {
     `<input name="${side}H" class="mini" type="number" inputmode="decimal" step="any" value="${hours(mins)}" placeholder="0" aria-label="${label} ${S.otHoursUnit}"><span>${S.otHoursUnit}</span>` +
     `<span class="ot-or">${word}</span><input name="${side}T" class="mini" type="time" value="${mins && ref != null ? otClock(ref, mins, side) : ""}"${ref == null ? " disabled" : ""} aria-label="${label} ${word}"></div>`
   // Ice 2026-10-24：唔要標題同說明，格本身已經講清楚
-  return `<section class="panel me-ot"><form class="me-ot-form" autocomplete="off">` +
+  const sum = otText(entry.ot)
+  return `<details class="panel me-ot"${state.otOpen === date ? " open" : ""}><summary><b>${S.otTitle}</b>${sum ? `<span class="meta">${escapeHtml(sum)}</span>` : ""}</summary>` +
+    `<form class="me-ot-form" autocomplete="off">` +
     `<label class="ot-check"><input type="checkbox" name="whole"${ot.whole ? " checked" : ""}> ${S.otWholeLabel}</label>` +
     row("before", S.otBeforeLabel, S.otFrom, ot.before, on) +
     row("after", S.otAfterLabel, S.otTo, ot.after, off) +
     `<div class="row"><button type="submit" class="btn primary">${S.otSave}</button>` +
     (entry.ot ? ` <button type="button" class="btn me-ot-clear">${S.otClear}</button>` : "") + `</div>` +
-    `</form></section>`
+    `</form></details>`
+}
+
+// 日詳情嘅備註：同 OT 一樣預設收埋，有備註就喺標題行顯示頭幾個字。
+function notePanelHtml(date) {
+  const note = noteOf(date)
+  const head = note.length > 24 ? `${note.slice(0, 24)}…` : note
+  return `<details class="panel me-ot me-note"${state.noteOpen === date ? " open" : ""}><summary><b>${S.noteTitle}</b>${head ? `<span class="meta">${escapeHtml(head)}</span>` : ""}</summary>` +
+    `<form class="me-note-form" autocomplete="off"><textarea name="note" rows="3" maxlength="${MAX_NOTE}" placeholder="${S.notePlaceholder}" aria-label="${S.noteTitle}">${escapeHtml(note)}</textarea>` +
+    `<div class="row"><button type="submit" class="btn primary">${S.noteSave}</button>` +
+    (note ? ` <button type="button" class="btn me-note-clear">${S.noteClear}</button>` : "") + `</div></form></details>`
+}
+
+function submitNote(form) {
+  const next = setNote(roster, state.date, form.elements.note.value)
+  state.noteOpen = null
+  state.message = saveRoster(next) ? (next.notes[state.date] ? S.noteSaved : S.noteCleared) : S.notStored
+  render()
 }
 
 // 時數同鐘數兩格互相對返：改時數就計鐘數，揀鐘數就計時數。
@@ -946,6 +996,7 @@ function submitOt(form) {
     return render()
   }
   const next = setOt(roster, state.date, { whole: form.elements.whole.checked, before, after })
+  state.otOpen = null
   state.message = saveRoster(next) ? (next.ot[state.date] ? S.otSaved : S.otCleared) : S.notStored
   render()
 }
@@ -974,12 +1025,13 @@ function calendarHtml(month) {
     const c = classify(entry.code)
     const label = c.kind === "duty" ? entry.code.slice(-3) : entry.code
     const shift = shiftOfCell(cell)
-    const title = [`${meDate(date)} ${entry.code}`, otText(cell.ot), ...hol].filter(Boolean).join(" · ")
+    const title = [`${meDate(date)} ${entry.code}`, otText(cell.ot), ...hol, noteOf(date) ? `📝 ${noteOf(date)}` : ""].filter(Boolean).join(" · ")
     return `<button type="button" class="cal-day me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}" data-today="${date === today ? 1 : 0}"` +
       `${hol.length ? ' data-school="1"' : ""} title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">` +
       `<b>${n}</b><span class="cal-code" data-len="${Math.min(label.length, 6)}">${escapeHtml(label)}</span>${schoolMark}` +
       (entry.source === "override" ? `<i class="cal-changed" aria-hidden="true"></i>` : "") +
-      (cell.ot ? `<i class="cal-ot" aria-hidden="true"></i>` : "") + `</button>`
+      (cell.ot ? `<i class="cal-ot" aria-hidden="true"></i>` : "") +
+      (noteOf(date) ? `<i class="cal-memo" aria-hidden="true"></i>` : "") + `</button>`
   })
   // 每行頭加週數（ISO，星期一開始；Ice 2026-10-24）
   const slots = [...blanks, ...cells]
@@ -1148,6 +1200,7 @@ function renderPage() {
       `<p class="me-msg" role="status">${escapeHtml(state.message)}</p>` +
       (entry.locked ? `<p class="fine me-locked">${S.lockedDay}</p>` : "") +
       otPanelHtml(state.date, entry) +
+      notePanelHtml(state.date) +
       `<div id="me-data"></div>`
     setSub(`${S.weekdays[weekdayIndex(state.date)]} ${meDate(state.date)} · ${S.stdRow(entry.row)}`)
     paintData()
@@ -1227,6 +1280,7 @@ function paintData() {
         `<span class="day-main"><span class="day-title">${isOffTone(cell) ? offTitleHtml(entry.code, cell) : escapeHtml(cell.label)}${tags}${badges}${short.has(date) ? `<span class="badge rest-short">${S.restShort}</span>` : ""}</span>` +
         (lines.times ? `<span class="day-times">${lines.times}</span>${barHtml(lines.span)}` : "") +
         (noteWithHours(lines.note, cell) ? `<span class="meta">${escapeHtml(noteWithHours(lines.note, cell))}</span>` : "") +
+        (noteOf(date) ? `<span class="meta day-memo">📝 ${escapeHtml(noteOf(date))}</span>` : "") +
         `</span></button></li>`
     }).join("")}</ul>`
     html = `<div class="me-cols"><div class="me-col-a">${heroHtml}${weekCardHtml(week, short)}</div>` +
@@ -1346,7 +1400,7 @@ function kvPrint() {
   if (!roster) return ""
   // OT 有先計（同 Worker content() 一樣），舊版冇 OT 嘅指紋唔會因為升級而變
   const ot = Object.keys(roster.ot ?? {}).length ? [roster.ot] : []
-  return fingerprint(JSON.stringify([title, roster.rows, roster.numbers, roster.names, roster.anchor, roster.overrides, ...ot, ...lockPart(roster.locks)]))
+  return fingerprint(JSON.stringify([title, roster.rows, roster.numbers, roster.names, roster.anchor, roster.overrides, ...ot, ...notePart(roster.notes), ...lockPart(roster.locks)]))
 }
 
 // 有 token、網址支援同步，而且更表同上次同步唔同
@@ -1365,7 +1419,13 @@ function paintDirty() {
 // 雲端記錄嘅指紋，同 kvPrint() 一樣計法：內容一樣就唔使響 🔔
 function cloudPrint(rec) {
   const ot = Object.keys(rec.ot ?? {}).length ? [rec.ot] : []
-  return fingerprint(JSON.stringify([rec.title ?? "", rec.rows, rec.numbers, rec.names, rec.anchor, rec.overrides, ...ot, ...lockPart(rec.locks)]))
+  return fingerprint(JSON.stringify([rec.title ?? "", rec.rows, rec.numbers, rec.names, rec.anchor, rec.overrides, ...ot, ...notePart(rec.notes), ...lockPart(rec.locks)]))
+}
+
+// 備註有先計（舊版冇備註嘅指紋唔變），按日子排好先比
+function notePart(notes) {
+  const keys = Object.keys(notes ?? {}).sort()
+  return keys.length ? [keys.map((k) => [k, notes[k]])] : []
 }
 
 // 🔒 鎖有先計（舊版冇鎖嘅指紋唔變），按日子排好先比，唔受儲存次序影響
@@ -1477,6 +1537,7 @@ async function kvUpload(force = false, skipBackup = false) {
         anchor: roster.anchor, // 基準週（week number）要同步，唔係第二部機會自己揀「今週」
         overrides: recentOverrides(roster.overrides, serviceDate(Date.now())),
         ot: recentOt(roster.ot, serviceDate(Date.now())),
+        notes: recentNotes(roster.notes, serviceDate(Date.now())),
         locks: recentLocks(roster.locks, serviceDate(Date.now())),
         version: Number(readPref(KV_VERSION) ?? 0),
         force,
@@ -1533,6 +1594,7 @@ async function kvDownload() {
     : (roster?.overrides ?? {})
   // OT：雲端有欄位就跟雲端；舊記錄（未有 OT 嗰陣上傳）冇就保留呢部機嘅
   const ot = rec.ot && typeof rec.ot === "object" ? rec.ot : (roster?.ot ?? {})
+  const notes = rec.notes && typeof rec.notes === "object" ? rec.notes : (roster?.notes ?? {})
   const locks = rec.locks && typeof rec.locks === "object" ? rec.locks : (roster?.locks ?? {})
   const next = cleanRoster({
     v: 1,
@@ -1542,6 +1604,7 @@ async function kvDownload() {
     anchor: { row: anchorRow ?? 1, monday: anchorMonday },
     overrides,
     ot,
+    notes,
     locks,
   })
   if (!next) return kvMessage(S.syncFail)
@@ -1612,6 +1675,7 @@ function submitSetup(form) {
       next = newRoster(parsed, { row, monday })
       next.overrides = roster?.overrides ?? {}
       next.ot = roster?.ot ?? {}
+      next.notes = roster?.notes ?? {}
       // 鎖住嘅週照舊；本週同之前 8 個星期未鎖嘅自動鎖住，匯入唔會改到已經返咗嘅更
       next = keepLocked(roster, next, Array.from({ length: AUTO_LOCK_WEEKS + 1 }, (_, i) => addDays(monday, -7 * i)))
     }
@@ -1686,7 +1750,11 @@ function onClick(event) {
     state.page = "setup"
     state.message = ""
     state.syncMsg = ""
+  } else if (target.closest(".me-note-clear")) {
+    state.noteOpen = null
+    state.message = saveRoster(setNote(roster, state.date, "")) ? S.noteCleared : S.notStored
   } else if (target.closest(".me-ot-clear")) {
+    state.otOpen = null
     state.message = saveRoster(setOt(roster, state.date, null)) ? S.otCleared : S.notStored
   } else if (target.closest(".me-reset")) {
     state.editing = false
@@ -1819,6 +1887,11 @@ function boot() {
   applyTitle()
   wireTitle()
   view.addEventListener("click", onClick)
+  // OT／備註格開咗定收埋，記住佢（重畫唔好自己收埋）；toggle 唔會 bubble，要用 capture
+  view.addEventListener("toggle", (event) => {
+    if (event.target.matches?.(".me-note")) state.noteOpen = event.target.open ? state.date : null
+    else if (event.target.matches?.(".me-ot")) state.otOpen = event.target.open ? state.date : null
+  }, true)
   wireKeys()
   wireSettings()
   view.addEventListener("input", (event) => {
@@ -1846,6 +1919,7 @@ function boot() {
     else if (event.target.matches(".me-code-form")) submitCode(event.target)
     else if (event.target.matches(".me-title")) submitTitle(event.target)
     else if (event.target.matches(".me-ot-form")) submitOt(event.target)
+    else if (event.target.matches(".me-note-form")) submitNote(event.target)
   })
   document.getElementById("foot").innerHTML =
     `v${BUILD.version} · ${BUILD.commit === "dev" ? "dev" : `commit ${escapeHtml(BUILD.commit)}`} · ` +

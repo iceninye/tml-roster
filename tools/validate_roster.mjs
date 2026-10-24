@@ -1,6 +1,6 @@
 // Checks lib/tml-roster.js on a made-up roster (a real one never goes in the repo):
 //   node tools/validate_roster.mjs
-import { classify, cleanRoster, dayEntry, isLocked, keepLocked, mondayOf, newRoster, recentLocks, toggleLock, parseRoster, recentOverrides, rowLabelFor, setOverride, weekDates, weekdayIndex } from "../lib/tml-roster.js"
+import { classify, cleanNote, cleanRoster, dayEntry, isLocked, keepLocked, mondayOf, newRoster, recentLocks, recentNotes, setNote, toggleLock, parseRoster, recentOverrides, rowLabelFor, setOverride, weekDates, weekdayIndex } from "../lib/tml-roster.js"
 import { shiftOf } from "../lib/tml-shift.js"
 import { reliefOf } from "../lib/tml-duties.js"
 import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
@@ -204,6 +204,17 @@ check(reliefOf(d105, sheet, 2).from?.id === "1101112", `1101105 喺 WKS 接 Run 
 check(reliefOf(d105, sheet, 3).from?.id === "1101126", "1101105 喺錦上路接 Run 22 由 1101126 交")
 const back = reliefOf(sheet.find((d) => d.id === "1101112"), sheet, sheet.find((d) => d.id === "1101112").legs.findIndex((l) => l[1] === 10 && l[5] === 26520))
 check(back.to?.id === "1101105", "反方向：1101112 喺 WKS 將 Run 10 交俾 1101105")
+
+// 每日備註
+{
+  const base = newRoster(parseRoster(",Mon,Tue,Wed,Thu,Fri,Sat,Sun\n1,1101101,RD,RD,AL,AL,SH,RD"), { row: 1, monday: "2026-10-19" })
+  const noted = setNote(base, "2026-10-21", "  同 Ken 換更\r\n帶證件\u0007 ")
+  check(noted.notes["2026-10-21"] === "同 Ken 換更\n帶證件", "a note is trimmed, keeps line breaks and drops control characters")
+  check(!("2026-10-21" in setNote(noted, "2026-10-21", "   ").notes), "a blank note deletes it")
+  check(cleanNote("字".repeat(300)).length === 200, "a note is cut at 200 characters")
+  check(JSON.stringify(cleanRoster(JSON.parse(JSON.stringify({ ...noted, notes: { ...noted.notes, bad: "x", "2026-10-22": "" } }))).notes) === JSON.stringify({ "2026-10-21": "同 Ken 換更\n帶證件" }), "notes survive a save; bad ones are dropped")
+  check(Object.keys(recentNotes({ "2025-01-01": "a", "2026-10-21": "b" }, "2026-10-24")).join() === "2026-10-21", "only notes from the last year are uploaded")
+}
 
 // 🔒 鎖住嘅星期：影低 7 格（包括手動改），換 Standard Roster／行號都唔變
 {
