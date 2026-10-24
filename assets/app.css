@@ -760,13 +760,20 @@ button.cal-day { cursor: pointer; }
 @media (min-width: 900px) { .me-cal { max-width: 720px; } }
 
 /* ---- OT（日詳情） ---- */
-.me-ot { margin: 0 0 12px; }
-.me-ot > summary { display: flex; align-items: baseline; gap: 10px; cursor: pointer; }
-.me-ot-form { display: grid; gap: 10px; margin-top: 12px; }
+.me-ot { margin: 0 0 10px; padding-top: 10px; padding-bottom: 10px; }
+.me-ot > summary { display: flex; align-items: baseline; gap: 10px; cursor: pointer; min-height: 28px; }
+.me-ot > summary .meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Ice 2026-10-24：行距收細少少 */
+.me-ot-form { display: grid; gap: 6px; margin-top: 8px; }
 .ot-check { display: flex; align-items: center; gap: 8px; font-weight: 600; }
 .ot-check input { width: 20px; height: 20px; }
-.ot-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.ot-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
 .ot-row .ot-side { min-width: 2.5em; font-weight: 700; }
-.ot-row input.mini { width: 4.5em; min-height: 44px; font: inherit; font-size: 16px; color: var(--text); background: var(--panel-2); border: 1px solid var(--edge); border-radius: 12px; padding: 0 10px; }
+.ot-row input.mini { width: 4em; min-height: 40px; font: inherit; font-size: 16px; color: var(--text); background: var(--panel-2); border: 1px solid var(--edge); border-radius: 12px; padding: 0 8px; }
 .ot-row input.mini[type="time"] { width: 7.5em; padding: 0 6px; }
+.me-note-form { display: grid; gap: 6px; margin-top: 8px; }
+.me-note-form textarea { width: 100%; box-sizing: border-box; font: inherit; font-size: 16px; color: var(--text); background: var(--panel-2); border: 1px solid var(--edge); border-radius: 12px; padding: 8px 10px; resize: vertical; }
+.day .day-memo { color: var(--text); opacity: 0.85; white-space: pre-line; }
+.today-memo { white-space: pre-line; }
+.cal-memo { position: absolute; right: 4px; bottom: 4px; width: 6px; height: 6px; border-radius: 1px; background: var(--accent); }
 .ot-row .ot-or { color: var(--muted); }

@@ -22,6 +22,7 @@ const MAX_BYTES = { roster: 128 * 1024, plan: 1024 * 1024 }
 const CODE_RE = /^[A-Z0-9-]{1,10}$/i
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const MAX_OVERRIDES = 400
+const MAX_NOTE = 200
 const MAX_OT_MIN = 12 * 60 // 更前／更後 OT 最多 12 小時，同 lib/tml-ot.js 一致
 const MAX_NAME = 40 // 同 lib/tml-roster.js 一致，唔好上傳再下載靜靜變短
 const MAX_DEVICE = 60
@@ -86,11 +87,23 @@ function cleanRecord(input) {
     if (Object.keys(clean).length) ot[date] = clean
   }
 
-  return { schema: 1, title, rows, numbers, names, anchor, overrides, ot }
+  // 每日備註：日期 -> 字（最多 200 字，去走控制字元，換行除外），同 lib/tml-roster.js cleanNote 一樣。
+  const notes = {}
+  for (const [date, text] of Object.entries(input.notes && typeof input.notes === "object" ? input.notes : {})) {
+    const clean = String(text ?? "").replace(/\r\n?/g, "\n").replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, " ").trim().slice(0, MAX_NOTE)
+    if (DATE_RE.test(date) && clean) notes[date] = clean
+  }
+
+  return { schema: 1, title, rows, numbers, names, anchor, overrides, ot, notes }
 }
 
 // 有 OT 先加入比較，冇 OT 嘅記錄同舊版一樣（唔會因為升級而當內容改咗）
 const otPart = (record) => (Object.keys(record.ot ?? {}).length ? [record.ot] : [])
+// 備註同樣有先加，按日子排
+const notePart = (record) => {
+  const keys = Object.keys(record.notes ?? {}).sort()
+  return keys.length ? [keys.map((k) => [k, record.notes[k]])] : []
+}
 
 // 編更：收成份備份（{ app: "tml-plan", plan, roster }，同「下載備份」個檔一樣），
 // 雲端只檢查係唔係編更備份，內容由前端 cleanPlan／cleanRoster 讀返先用。
@@ -104,7 +117,7 @@ function cleanPlanRecord(input) {
 // 兩個版本內容一樣（只係版本號／時間唔同）就唔使寄備份。
 function content(kind, record) {
   if (kind === "plan") return JSON.stringify([record.data?.plan ?? null, record.data?.roster ?? null])
-  return JSON.stringify([record.title ?? "", record.rows, record.numbers, record.names, record.anchor, record.overrides, ...otPart(record)])
+  return JSON.stringify([record.title ?? "", record.rows, record.numbers, record.names, record.anchor, record.overrides, ...otPart(record), ...notePart(record)])
 }
 
 // 用戶自己改嘅裝置名，例如「Ice iPhone」；去走控制字元。
@@ -374,7 +387,7 @@ async function syncRecord(kind, token, request, env) {
   const { body, error } = await readJson(request, MAX_BYTES[kind])
   if (error) return error
   // 手動改動太多就拒絕（以前靜靜截走最新嗰幾個）；前端上傳前會刪走一年前嘅。
-  if (kind !== "plan" && (Object.keys(body?.overrides ?? {}).length > MAX_OVERRIDES || Object.keys(body?.ot ?? {}).length > MAX_OVERRIDES)) return reply({ ok: false, reason: "too_many_overrides" }, 400)
+  if (kind !== "plan" && (Object.keys(body?.overrides ?? {}).length > MAX_OVERRIDES || Object.keys(body?.ot ?? {}).length > MAX_OVERRIDES || Object.keys(body?.notes ?? {}).length > MAX_OVERRIDES)) return reply({ ok: false, reason: "too_many_overrides" }, 400)
   const clean = kind === "plan" ? cleanPlanRecord(body) : cleanRecord(body)
   if (!clean) return reply({ ok: false, reason: "bad_shape" }, 400)
   const device = cleanDevice(body.device)
