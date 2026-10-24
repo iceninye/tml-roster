@@ -16,7 +16,7 @@ import { isoWeek } from "../lib/tml-plan.js"
 import { monthDates, otClock, otFromClock, recentOt, setOt } from "../lib/tml-ot.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson, syncState } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.41", commit: "dev" }
+const BUILD = { version: "0.9.43", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -109,7 +109,7 @@ const S = {
   weekNo: (label, week) => (label ? `${label}（第${week}週）` : `第${week}週`),
   lock: "鎖住呢個星期（唔可以改，貼新 Standard Roster 都唔會變）",
   unlock: "解鎖呢個星期",
-  lockedDay: "🔒 呢個星期鎖住咗，唔可以改更份；返週頁撳 🔒 解鎖",
+  lockedDay: "🔒 呢個星期鎖咗，唔可以改；返主頁撳 🔒 解鎖",
   today: "今日",
   changed: "已手動改",
   settings: "設定／備份",
@@ -239,7 +239,7 @@ const S = {
   otWhole: "成更 OT",
   otBefore: (m) => `更前 OT ${S.workMin(m)}`,
   otAfter: (m) => `更後 OT ${S.workMin(m)}`,
-  otWholeLabel: "OT",
+  otWholeLabel: "整條更份",
   otTitle: "OT",
   otBeforeLabel: "更前",
   otAfterLabel: "更後",
@@ -943,7 +943,8 @@ function otPanelHtml(date, entry) {
     `<input name="${side}H" class="mini" type="number" inputmode="decimal" step="any" value="${hours(mins)}" placeholder="0" aria-label="${label} ${S.otHoursUnit}"><span>${S.otHoursUnit}</span>` +
     `<span class="ot-or">${word}</span><input name="${side}T" class="mini" type="time" value="${mins && ref != null ? otClock(ref, mins, side) : ""}"${ref == null ? " disabled" : ""} aria-label="${label} ${word}"></div>`
   // Ice 2026-10-24：唔要標題同說明，格本身已經講清楚
-  const sum = otText(entry.ot)
+  // 剔咗「整條更份」就唔再喺標題行寫「成更 OT」，只寫更前／更後
+  const sum = otText(entry.ot && { ...entry.ot, whole: false })
   return `<details class="panel me-ot"${state.otOpen === date ? " open" : ""}><summary><b>${S.otTitle}</b>${sum ? `<span class="meta">${escapeHtml(sum)}</span>` : ""}</summary>` +
     `<form class="me-ot-form" autocomplete="off">` +
     `<label class="ot-check"><input type="checkbox" name="whole"${ot.whole ? " checked" : ""}> ${S.otWholeLabel}</label>` +
