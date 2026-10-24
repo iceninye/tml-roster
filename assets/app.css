@@ -795,7 +795,15 @@ button.cal-day { cursor: pointer; }
 .mtable .pcell { min-width: 64px; min-height: 44px; }
 .mate-cell { display: block; width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
 .mates-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 10px 0 0; }
-.mate-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; max-height: 320px; overflow: auto; margin-top: 8px; }
-.mate-opt { display: flex; align-items: center; gap: 6px; min-height: 40px; padding: 4px 8px; border: 1px solid var(--edge); border-radius: 10px; background: var(--panel-2); font-size: 14px; }
-.mate-opt input { width: 18px; height: 18px; flex: none; }
-.mate-opt span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.mtable th.who .mate-name { display: block; width: 100%; box-sizing: border-box; padding: 2px 4px; font: inherit; font-size: 13px; font-weight: 700; color: var(--text); background: transparent; border: 1px solid transparent; border-radius: 6px; }
+.mtable th.who .mate-name:hover, .mtable th.who .mate-name:focus { background: var(--panel); border-color: var(--edge); outline: none; }
+.mtable th.who .mate-name::placeholder { font-weight: 500; color: var(--muted); }
+/* 揀同事：只剩編號同剔格，一行 6 格（窄機 5 格） */
+.mate-pick { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; max-height: 320px; overflow: auto; margin-top: 8px; }
+.mate-opt { display: flex; align-items: center; justify-content: center; gap: 4px; min-height: 40px; padding: 4px 2px; border: 1px solid var(--edge); border-radius: 10px; background: var(--panel-2); font-size: 14px; cursor: pointer; }
+.mate-opt input { width: 16px; height: 16px; flex: none; margin: 0; }
+@media (max-width: 380px) { .mate-pick { grid-template-columns: repeat(5, 1fr); } }
+
+/* 設定頁每格預設收埋；標題行同以前 h3 一樣 */
+.set-fold > summary { display: flex; align-items: center; gap: 10px; font-size: 16px; }
+.set-fold[open] > summary { margin-bottom: 12px; }
