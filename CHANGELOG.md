@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.9.32 — unreleased
+- 學校假期: 第一次嗰條 iCal 回 404（日曆唔公開）。改用 Ice 俾嘅 4 個學校日曆（Google Calendar cid），Worker 一齊讀、合併，同一個活動喺兩個日曆出現只留一個；每個活動帶 `cal`（第幾個日曆），之後要篩選可以用。讀唔到嘅日曆跳過，回應 `tried` 逐個寫 `ok` 或者原因（例如 404）；4 個都讀唔到先回 502。
+- 測試: `validate_worker` 改做 4 個日曆（合併、重複、404、唔係 iCal、全部失敗）。
+- Shell cache 改名 `v62`。
+
 ## v0.9.31 — unreleased
 - 我的更表: 月曆（提示同「我嘅 roster」之間）。一個月一版，‹ › 換月，「本月」返今個月；更份只顯示最後 3 個數字（1101150 → 150），顏色跟更類（死早／早／中／夜／死夜）；RD、AL、SH、HC、後備更等照原樣顯示。今日有框，手動改過有細點，有 OT 嘅日子左上有橙點，撳任何一日睇詳情。
 - 學校假期（Ice 2026-10-24）：Worker 新 `GET /api/school-holidays` 代讀指定嘅 Google Calendar iCal（瀏覽器直接讀會俾 CORS 擋；只讀呢一條，唔係任意 proxy），回前後一年嘅活動，Cloudflare 同瀏覽器快取 6 個鐘。月曆有學校假期嘅日子底部有橙線，月曆下面列出當月學校假期；今日卡加「學校」一行。上次讀到嘅存喺呢部機，離線都睇到。GitHub Pages 版冇 Worker，就唔顯示。新檔 `lib/tml-ics.js`（解析 iCal：長行、全日活動 DTEND、取消咗嘅活動；唔處理 RRULE）。

@@ -304,37 +304,56 @@ async function mailOldVersion(kind, token, stored, request, device, env) {
 
 /* ------------------------------------------------------------ 學校假期 */
 
-// Ice 2026-10-24 俾嘅公開日曆。只讀呢一條（唔係任意 URL 嘅 proxy）。
-export const SCHOOL_ICS = "https://calendar.google.com/calendar/ical/skhsslmc.edu.hk_5k7g1ubf9dqnlvn7fegnkuj3h0%40group.calendar.google.com/public/basic.ics"
+// Ice 2026-10-24 俾嘅學校日曆（4 個，Google Calendar 嘅 cid）。只讀呢幾個（唔係任意 URL 嘅 proxy）。
+// 第一次俾嘅 skhsslmc.edu.hk_5k7g1ubf9dqnlvn7fegnkuj3h0 回 404（唔公開），已換走。
+export const SCHOOL_CALENDARS = [
+  "skhsslmc.edu.hk_01rudpgarigvp0ivcbe83712hk@group.calendar.google.com",
+  "skhsslmc.edu.hk_vk7g1ubf9dqnlvn7fegnkuj3h0@group.calendar.google.com",
+  "skhsslmc.edu.hk_4j27jtnq3nf3difmm0pgh0t11c@group.calendar.google.com",
+  "skhsslmc.edu.hk_2cls6pqrhan0n4uvufp97uhhpk@group.calendar.google.com",
+]
+const icsUrl = (id) => `https://calendar.google.com/calendar/ical/${encodeURIComponent(id)}/public/basic.ics`
 const SCHOOL_TTL = 6 * 3600
 
-// 回前後約一年嘅活動 [{ start, end, title }]；Cloudflare 同瀏覽器都快取 6 個鐘。
-// Google 有時唔睬冇 User-Agent 嘅請求；@ 寫做 %40 定原字都試（兩種 Google 都出過）。
-async function schoolHolidays() {
-  let text = null
-  const tried = []
-  for (const url of [SCHOOL_ICS, SCHOOL_ICS.replace("%40", "@")]) {
-    try {
-      const res = await fetch(url, {
-        headers: { "user-agent": "Mozilla/5.0 (compatible; tml-roster/1.0; +https://tml-roster.iceninye.workers.dev)", accept: "text/calendar, text/plain, */*" },
-        cf: { cacheTtl: SCHOOL_TTL, cacheEverything: true },
-      })
-      const body = await res.text()
-      if (res.ok && body.includes("BEGIN:VCALENDAR")) {
-        text = body
-        break
-      }
-      tried.push(res.ok ? "not_ics" : res.status)
-    } catch (error) {
-      tried.push(String(error?.message ?? error).slice(0, 60))
-    }
+// 讀一個日曆：成功回 iCal 文字，否則回失敗原因（HTTP 狀態、not_ics 或者錯誤訊息）。
+// Google 有時唔睬冇 User-Agent 嘅請求。
+async function readCalendar(id) {
+  try {
+    const res = await fetch(icsUrl(id), {
+      headers: { "user-agent": "Mozilla/5.0 (compatible; tml-roster/1.0; +https://tml-roster.iceninye.workers.dev)", accept: "text/calendar, text/plain, */*" },
+      cf: { cacheTtl: SCHOOL_TTL, cacheEverything: true },
+    })
+    const body = await res.text()
+    if (res.ok && body.includes("BEGIN:VCALENDAR")) return { text: body }
+    return { why: res.ok ? "not_ics" : res.status }
+  } catch (error) {
+    return { why: String(error?.message ?? error).slice(0, 60) }
   }
-  // 讀唔到：回埋每次嘅 HTTP 狀態，方便睇係 404（日曆唔公開）定被擋
-  if (text == null) return reply({ ok: false, reason: "upstream", tried }, 502)
+}
+
+// 4 個日曆一齊讀、合併，回前後約一年嘅活動 [{ start, end, title, cal }]（cal = 第幾個日曆，0 起）。
+// 讀唔到嘅跳過，記喺 tried（同日曆次序一樣，"ok" 或者原因）；全部都讀唔到先回 502。
+// Cloudflare 同瀏覽器都快取 6 個鐘。
+async function schoolHolidays() {
+  const results = await Promise.all(SCHOOL_CALENDARS.map(readCalendar))
+  const tried = results.map((r) => (r.text != null ? "ok" : r.why))
+  if (results.every((r) => r.text == null)) return reply({ ok: false, reason: "upstream", tried }, 502)
   const today = new Date().toISOString().slice(0, 10)
   const year = Number(today.slice(0, 4))
-  const holidays = holidaysBetween(parseIcs(text), `${year - 1}${today.slice(4)}`, `${year + 1}${today.slice(4)}`)
-  return new Response(JSON.stringify({ ok: true, holidays }), {
+  const seen = new Set()
+  const holidays = []
+  results.forEach((r, cal) => {
+    if (r.text == null) return
+    for (const h of holidaysBetween(parseIcs(r.text), `${year - 1}${today.slice(4)}`, `${year + 1}${today.slice(4)}`)) {
+      // 同一個活動出現喺兩個日曆就只留一個
+      const key = `${h.start}|${h.end}|${h.title}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      holidays.push({ ...h, cal })
+    }
+  })
+  holidays.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0))
+  return new Response(JSON.stringify({ ok: true, holidays, tried }), {
     headers: { "content-type": "application/json; charset=utf-8", "cache-control": `public, max-age=${SCHOOL_TTL}` },
   })
 }
