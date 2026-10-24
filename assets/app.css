@@ -813,12 +813,7 @@ button.cal-day { cursor: pointer; }
 .day[data-tone="rest"]::before, .day[data-tone="leave"]::before { background: #e5484d; }
 .cal-day[data-tone="rest"], .cal-day[data-tone="leave"] { background: color-mix(in srgb, #e5484d 16%, var(--panel)); }
 .cal-day[data-tone="rest"] .cal-code, .cal-day[data-tone="leave"] .cal-code { color: #e5484d; }
-/* 假日日卡（RD／AL／SH 等）：字同日期數字一樣大（26px）、白色 */
-.day[data-tone="rest"] .day-title, .day[data-tone="leave"] .day-title { color: #fff; font-size: 26px; font-weight: 800; line-height: 1.1; align-items: baseline; gap: 8px; }
-.day[data-tone="rest"] .day-sub, .day[data-tone="leave"] .day-sub { color: #fff; font-size: 26px; font-weight: 800; opacity: 1; }
+/* 假日日卡（RD／AL／SH 等）：字同日期數字一樣大（26px）、同日期數字一樣嘅顏色 */
+.day[data-tone="rest"] .day-title, .day[data-tone="leave"] .day-title { color: inherit; font-size: 26px; font-weight: 800; line-height: 1.1; align-items: baseline; gap: 8px; }
+.day[data-tone="rest"] .day-sub, .day[data-tone="leave"] .day-sub { color: inherit; font-size: 26px; font-weight: 800; }
 .day[data-tone="rest"] .day-title .badge, .day[data-tone="leave"] .day-title .badge { align-self: center; font-size: 12px; }
-.day[data-tone="rest"] .day-date small, .day[data-tone="leave"] .day-date small,
-.day[data-tone="rest"] .day-date b, .day[data-tone="leave"] .day-date b { color: #fff; }
-.day[data-tone="rest"], .day[data-tone="leave"] { background: linear-gradient(135deg, #b84a4a, #6a2323); }
-.day[data-tone="rest"] .meta, .day[data-tone="leave"] .meta { color: rgba(255,255,255,.85); }
-.today[data-tone="rest"] .today-title .day-sub, .today[data-tone="leave"] .today-title .day-sub { color: #fff; opacity: 1; }
