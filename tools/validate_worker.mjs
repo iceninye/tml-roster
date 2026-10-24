@@ -29,17 +29,11 @@ const SCHOOL_TEXT = [
   "BEGIN:VEVENT", `DTSTART;VALUE=DATE:${year}0901`, "SUMMARY:取消咗", "STATUS:CANCELLED", "END:VEVENT",
   "BEGIN:VEVENT", `DTSTART;VALUE=DATE:${year - 5}0101`, "SUMMARY:好舊", "END:VEVENT", "END:VCALENDAR",
 ].join("\r\n")
-const SCHOOL_TEXT_2 = [
-  "BEGIN:VCALENDAR", "BEGIN:VEVENT", `DTSTART;VALUE=DATE:${year}1001`, `DTEND;VALUE=DATE:${year}1002`, "SUMMARY:國慶日", "END:VEVENT",
-  "BEGIN:VEVENT", `DTSTART;VALUE=DATE:${year}1029`, `DTEND;VALUE=DATE:${year}1031`, "SUMMARY:中期考試後假期", "END:VEVENT", "END:VCALENDAR",
-].join("\r\n")
 globalThis.fetch = async (url, init) => {
   if (String(url).startsWith("https://calendar.google.com/")) {
-    // 4 個日曆：第 1 個係主表；第 2 個有一個重複同一個新活動；第 3 個 404；第 4 個唔係 iCal
-    if (schoolDown || url.includes("4j27jtnq3nf3difmm0pgh0t11c")) return new Response("", { status: 404 })
-    if (url.includes("2cls6pqrhan0n4uvufp97uhhpk")) return new Response("<html>sign in</html>")
-    if (url.includes("vk7g1ubf9dqnlvn7fegnkuj3h0")) return new Response(SCHOOL_TEXT_2)
-    if (!url.includes("skhsslmc.edu.hk_01rudpgarigvp0ivcbe83712hk%40group.calendar.google.com")) throw new Error(`unexpected calendar ${url}`)
+    // 只應該讀 cal 1（vk7g…）；讀其他日曆就係錯
+    if (!url.includes("skhsslmc.edu.hk_vk7g1ubf9dqnlvn7fegnkuj3h0%40group.calendar.google.com")) throw new Error(`unexpected calendar ${url}`)
+    if (schoolDown) return new Response("", { status: 404 })
     return new Response(SCHOOL_TEXT)
   }
   if (!String(url).startsWith("https://api.resend.com/")) throw new Error(`unexpected fetch ${url}`)
@@ -184,13 +178,12 @@ check(r.status === 404, "no listing of plans")
 
 // ---- 學校假期
 r = await call("GET", "/api/school-holidays")
-check(r.status === 200 && r.body.ok && JSON.stringify(r.body.holidays.map((h) => [h.start, h.end, h.title, h.cal])) === JSON.stringify([
-  [`${year}-10-01`, `${year}-10-01`, "國慶日", 0], [`${year}-10-29`, `${year}-10-30`, "中期考試後假期", 1], [`${year}-11-05`, `${year}-11-05`, "家長日", 0], [`${year}-12-21`, `${year + 1}-01-01`, "聖誕及新年假, 全校", 0],
-]), "school holidays: 4 calendars merged, duplicates once, all-day end inclusive, cancelled and old events dropped")
-check(r.body.tried.join() === "ok,ok,404,not_ics", "school holidays: a calendar that fails is skipped and named in tried")
+check(r.status === 200 && r.body.ok && JSON.stringify(r.body.holidays.map((h) => [h.start, h.end, h.title])) === JSON.stringify([
+  [`${year}-10-01`, `${year}-10-01`, "國慶日"], [`${year}-11-05`, `${year}-11-05`, "家長日"], [`${year}-12-21`, `${year + 1}-01-01`, "聖誕及新年假, 全校"],
+]) && r.body.tried.join() === "ok", "school holidays: only cal 1 (vk7g…) is read; all-day end inclusive, cancelled and old events dropped")
 schoolDown = true
 r = await call("GET", "/api/school-holidays")
-check(r.status === 502 && r.body.reason === "upstream" && r.body.tried.join() === "404,404,404,404", "all school calendars down -> 502 upstream with each status")
+check(r.status === 502 && r.body.reason === "upstream" && r.body.tried.join() === "404", "school calendar down -> 502 upstream with its status")
 schoolDown = false
 
 // ---- lib/tml-cloud.js
