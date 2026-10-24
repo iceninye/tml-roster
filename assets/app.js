@@ -5,7 +5,7 @@
 // station names are read from https://github.com/iceninye/TML-traffic (lib/tml-data.js).
 
 import { dutyState, mealMates, reliefOf } from "../lib/tml-duties.js"
-import { addDays, classify, cleanRoster, dayEntry, mateRow, mateWeek, mondayOf, newRoster, normaliseCode, parseRoster, recentOverrides, rowLabelFor, setOverride, toggleMate, weekDates, weekdayIndex } from "../lib/tml-roster.js"
+import { addDays, classify, cleanRoster, dayEntry, isLocked, keepLocked, mateRow, mateWeek, mondayOf, newRoster, normaliseCode, parseRoster, recentLocks, recentOverrides, rowLabelFor, setOverride, toggleLock, toggleMate, weekDates, weekdayIndex } from "../lib/tml-roster.js"
 import { SHIFTS, shiftOf } from "../lib/tml-shift.js"
 import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
 import { OFF_CODES, workOf } from "../lib/tml-extra.js"
@@ -106,6 +106,10 @@ const S = {
   prev: "‹ 上週",
   next: "下週 ›",
   thisWeek: "本週",
+  weekNo: (label, week) => (label ? `${label}（第${week}週）` : `第${week}週`),
+  lock: "鎖住呢個星期（唔可以改，貼新 Standard Roster 都唔會變）",
+  unlock: "解鎖呢個星期",
+  lockedDay: "🔒 呢個星期鎖住咗，唔可以改更份；返週頁撳 🔒 解鎖",
   today: "今日",
   changed: "已手動改",
   settings: "設定／備份",
@@ -891,7 +895,7 @@ function weekCardHtml(dates, short) {
 // 一句話講本週：行號 + 開工日數 + 工時（頁首副標用）
 // 本月：睇緊本週就跟今日嘅月份，其他週跟嗰週週一嘅月份（1 號至月尾，Ice 2026-10-24）。
 function subLine(monday) {
-  const row = rowLabelFor(roster, monday)
+  const row = dayEntry(roster, monday)?.row ?? rowLabelFor(roster, monday)
   const s = weekSummary(weekDates(monday))
   if (row == null) return S.title
   const today = serviceDate(Date.now())
@@ -1143,17 +1147,18 @@ function renderPage() {
   if (state.page === "detail") {
     const entry = dayEntry(roster, state.date)
     const changed = entry.source === "override"
-    const head = state.editing
+    const head = state.editing && !entry.locked
       ? `<form class="me-code-form" autocomplete="off"><input name="code" value="${escapeHtml(entry.code)}" maxlength="10" ` +
         `autocapitalize="characters" spellcheck="false" aria-label="${S.editCode}">` +
         `<button type="submit" class="btn icon" title="${S.save}" aria-label="${S.save}">✓</button>` +
         `<button type="button" class="btn icon me-code-cancel" title="${S.cancel}" aria-label="${S.cancel}">✕</button></form>`
       : `<h2 class="me-code">${escapeHtml(entry.code)}</h2>` +
-        `<button type="button" class="btn icon me-code-edit" title="${S.editCode}" aria-label="${S.editCode}">✏️</button>` +
-        (changed ? `<button type="button" class="btn icon me-reset" title="${S.reset}" aria-label="${S.reset}">↺</button>` : "")
+        (entry.locked ? "" : `<button type="button" class="btn icon me-code-edit" title="${S.editCode}" aria-label="${S.editCode}">✏️</button>` +
+          (changed ? `<button type="button" class="btn icon me-reset" title="${S.reset}" aria-label="${S.reset}">↺</button>` : ""))
     view.innerHTML =
       `<div class="duty-head"><button type="button" class="btn me-back">${S.back}</button>${head}</div>` +
       `<p class="me-msg" role="status">${escapeHtml(state.message)}</p>` +
+      (entry.locked ? `<p class="fine me-locked">${S.lockedDay}</p>` : "") +
       otPanelHtml(state.date, entry) +
       `<div id="me-data"></div>`
     setSub(`${S.weekdays[weekdayIndex(state.date)]} ${meDate(state.date)} · ${S.stdRow(entry.row)}`)
@@ -1184,10 +1189,12 @@ function renderPage() {
   const current = mondayOf(serviceDate(Date.now()))
   const curRow = rowLabelFor(roster, state.monday)
   const near = state.rosterAll ? null : nearRows(roster, curRow)
+  const locked = isLocked(roster, state.monday)
   view.innerHTML =
     `<div class="me-nav"><button type="button" class="btn me-prev" aria-label="${S.prev}">‹</button>` +
     `<div class="weeklabel"><b>${weekLabel(dates)}</b>` +
-    `<span>${state.monday === current ? S.thisWeek : `<button type="button" class="link me-this">${S.backThis}</button>`}</span></div>` +
+    `<span>${state.monday === current ? S.weekNo(S.thisWeek, isoWeek(state.monday).week) : `${S.weekNo("", isoWeek(state.monday).week)} · <button type="button" class="link me-this">${S.backThis}</button>`}` +
+    `<button type="button" class="lock me-lock" aria-pressed="${locked}" title="${locked ? S.unlock : S.lock}" aria-label="${locked ? S.unlock : S.lock}">${locked ? "🔒" : "🔓"}</button></span></div>` +
     `<button type="button" class="btn me-next" aria-label="${S.next}">›</button></div>` +
     `<div id="me-bell" class="me-bell-slot">${bellHtml(true)}</div>` +
     `<div id="me-data"></div>` +
@@ -1438,7 +1445,7 @@ function kvPrint() {
   if (!roster) return ""
   // OT 有先計（同 Worker content() 一樣），舊版冇 OT 嘅指紋唔會因為升級而變
   const ot = Object.keys(roster.ot ?? {}).length ? [roster.ot] : []
-  return fingerprint(JSON.stringify([title, roster.rows, roster.numbers, roster.names, roster.anchor, roster.overrides, ...ot, ...(roster.mates?.length ? [roster.mates] : [])]))
+  return fingerprint(JSON.stringify([title, roster.rows, roster.numbers, roster.names, roster.anchor, roster.overrides, ...ot, ...(roster.mates?.length ? [roster.mates] : []), ...lockPart(roster.locks)]))
 }
 
 // 有 token、網址支援同步，而且更表同上次同步唔同
@@ -1457,7 +1464,13 @@ function paintDirty() {
 // 雲端記錄嘅指紋，同 kvPrint() 一樣計法：內容一樣就唔使響 🔔
 function cloudPrint(rec) {
   const ot = Object.keys(rec.ot ?? {}).length ? [rec.ot] : []
-  return fingerprint(JSON.stringify([rec.title ?? "", rec.rows, rec.numbers, rec.names, rec.anchor, rec.overrides, ...ot, ...(rec.mates?.length ? [rec.mates] : [])]))
+  return fingerprint(JSON.stringify([rec.title ?? "", rec.rows, rec.numbers, rec.names, rec.anchor, rec.overrides, ...ot, ...(rec.mates?.length ? [rec.mates] : []), ...lockPart(rec.locks)]))
+}
+
+// 🔒 鎖有先計（舊版冇鎖嘅指紋唔變），按日子排好先比，唔受儲存次序影響
+function lockPart(locks) {
+  const keys = Object.keys(locks ?? {}).sort()
+  return keys.length ? [keys.map((k) => [k, locks[k].row, locks[k].codes, locks[k].own])] : []
 }
 
 // 🔔：雲端最新版本嘅 { version, updatedAt, device, print }；null = 未問到／冇記錄。
@@ -1564,6 +1577,7 @@ async function kvUpload(force = false, skipBackup = false) {
         overrides: recentOverrides(roster.overrides, serviceDate(Date.now())),
         ot: recentOt(roster.ot, serviceDate(Date.now())),
         mates: roster.mates ?? [],
+        locks: recentLocks(roster.locks, serviceDate(Date.now())),
         version: Number(readPref(KV_VERSION) ?? 0),
         force,
         skipBackup,
@@ -1620,6 +1634,7 @@ async function kvDownload() {
   // OT：雲端有欄位就跟雲端；舊記錄（未有 OT 嗰陣上傳）冇就保留呢部機嘅
   const ot = rec.ot && typeof rec.ot === "object" ? rec.ot : (roster?.ot ?? {})
   const mates = Array.isArray(rec.mates) ? rec.mates : (roster?.mates ?? [])
+  const locks = rec.locks && typeof rec.locks === "object" ? rec.locks : (roster?.locks ?? {})
   const next = cleanRoster({
     v: 1,
     rows,
@@ -1629,6 +1644,7 @@ async function kvDownload() {
     overrides,
     ot,
     mates,
+    locks,
   })
   if (!next) return kvMessage(S.syncFail)
   const when = hkStamp(rec.updatedAt)
@@ -1672,6 +1688,9 @@ function submitTitle(form) {
   render()
 }
 
+// 貼新 Standard Roster 時，本週之前幾多個星期自動鎖住（Ice 2026-10-24）
+const AUTO_LOCK_WEEKS = 8
+
 function submitSetup(form) {
   const text = form.elements.text.value.trim()
   const row = Number(form.elements.row.value)
@@ -1696,6 +1715,8 @@ function submitSetup(form) {
       next.overrides = roster?.overrides ?? {}
       next.ot = roster?.ot ?? {}
       next.mates = roster?.mates ?? []
+      // 鎖住嘅週照舊；本週同之前 8 個星期未鎖嘅自動鎖住，匯入唔會改到已經返咗嘅更
+      next = keepLocked(roster, next, Array.from({ length: AUTO_LOCK_WEEKS + 1 }, (_, i) => addDays(monday, -7 * i)))
     }
   } else if (roster) {
     if (!roster.numbers.includes(row)) state.message = S.rowBad(range(roster))
@@ -1713,6 +1734,7 @@ function submitSetup(form) {
 
 // 日詳情嘅更份編號：喺原位改，Enter 或 ✓ 儲存
 function submitCode(form) {
+  if (dayEntry(roster, state.date)?.locked) return render()
   const code = normaliseCode(form.elements.code.value.trim())
   state.editing = false
   if (!code) {
@@ -1735,6 +1757,9 @@ function onClick(event) {
     state.date = target.closest(".me-day").dataset.date
     state.message = ""
     state.editing = false
+  } else if (target.closest(".me-lock")) {
+    const next = toggleLock(roster, state.monday)
+    if (next !== roster) saveRoster(next)
   } else if (target.closest(".me-code-edit")) {
     state.editing = true
     state.message = ""
@@ -1769,6 +1794,7 @@ function onClick(event) {
     state.message = saveRoster(setOt(roster, state.date, null)) ? S.otCleared : S.notStored
   } else if (target.closest(".me-reset")) {
     state.editing = false
+    if (dayEntry(roster, state.date)?.locked) return render()
     state.message = saveRoster(setOverride(roster, state.date, null)) ? S.saved : S.notStored
   } else if (target.closest(".me-kv-new")) {
     kvNewToken()
