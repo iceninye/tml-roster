@@ -100,6 +100,7 @@ a.btn { display: inline-flex; align-items: center; text-decoration: none; }
 }
 .badge.now { background: var(--accent); color: #fff; }
 .badge.plain { background: var(--panel-2); color: var(--muted); }
+.badge.ot { background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--warn); }
 .badge.shift { background: transparent; box-shadow: inset 0 0 0 1px currentColor; }
 [data-shift="dawn"] .badge.shift { color: var(--dawn); }
 [data-shift="early"] .badge.shift { color: var(--early); }
@@ -696,3 +697,15 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .today-facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 10px 0 0; padding: 10px 12px; font-size: 14px; line-height: 1.45; background: rgba(0, 0, 0, 0.18); border-radius: 12px; }
 .today-facts > b { font-weight: 700; opacity: 0.75; white-space: nowrap; }
 .today-facts > span { margin: 0; min-width: 0; font-variant-numeric: tabular-nums; }
+
+/* ---- OT（日詳情） ---- */
+.me-ot { margin: 0 0 12px; }
+.me-ot > summary { display: flex; align-items: baseline; gap: 10px; cursor: pointer; }
+.me-ot-form { display: grid; gap: 10px; margin-top: 12px; }
+.ot-check { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.ot-check input { width: 20px; height: 20px; }
+.ot-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.ot-row .ot-side { min-width: 2.5em; font-weight: 700; }
+.ot-row input.mini { width: 4.5em; min-height: 44px; font: inherit; font-size: 16px; color: var(--text); background: var(--panel-2); border: 1px solid var(--edge); border-radius: 12px; padding: 0 10px; }
+.ot-row input.mini[type="time"] { width: 7.5em; padding: 0 6px; }
+.ot-row .ot-or { color: var(--muted); }

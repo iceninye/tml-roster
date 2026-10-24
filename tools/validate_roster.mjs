@@ -5,6 +5,7 @@ import { shiftOf } from "../lib/tml-shift.js"
 import { reliefOf } from "../lib/tml-duties.js"
 import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
 import { placeNames, sheetForDate } from "../lib/tml-data.js"
+import { cleanOt, monthDates, otClock, otFromClock, recentOt, setOt } from "../lib/tml-ot.js"
 
 let failed = 0
 const check = (ok, what) => {
@@ -164,6 +165,24 @@ check(fixed.minutes === 480, `1101131 用修正後 8 小時（實際 ${fixed.min
   const days = []
   summariseWeek(["2026-11-01"], (date) => ({ code: "7091123" }), (code, date) => { days.push(date); return { on: 31080, duty: { work: 480 } } })
   check(days.join() === "2026-11-01", "週概況問更份時間時帶埋日期")
+}
+
+// OT（lib/tml-ot.js）
+{
+  check(JSON.stringify(cleanOt({ "2026-10-25": { whole: true, after: 210.4 }, "2026-02-30": { whole: true }, "2026-10-26": { before: 0 } })) === '{"2026-10-25":{"whole":true,"after":210}}', "cleanOt 只留有效日子同分鐘")
+  const base = newRoster(parseRoster("75,1101105,1101144,RD,1101150,1101179,RD,AL"), { row: 75, monday: "2026-10-19" })
+  const withOt = setOt(setOt(base, "2026-10-21", { whole: true }), "2026-10-20", { after: 210 })
+  check(dayEntry(withOt, "2026-10-21").ot?.whole === true && dayEntry(withOt, "2026-10-22").ot === null, "dayEntry 帶埋 OT")
+  check(!("2026-10-20" in setOt(withOt, "2026-10-20", { after: 0 }).ot), "OT 改做 0 就刪走")
+  check(JSON.stringify(cleanRoster(JSON.parse(JSON.stringify(withOt))).ot) === JSON.stringify(withOt.ot), "OT 匯出再匯入唔會冇咗")
+  check(Object.keys(recentOt({ "2025-01-01": { after: 60 }, "2026-10-01": { after: 60 } }, "2026-10-24")).join() === "2026-10-01", "上傳前刪走一年前嘅 OT")
+  check(otFromClock(12 * 3600 + 20 * 60, "15:50", "after") === 210 && otFromClock(23 * 3600, "01:30", "after") === 150, "揀鐘數計 OT（包過午夜）")
+  check(otFromClock(4 * 3600 + 50 * 60, "03:50", "before") === 60 && otClock(4 * 3600 + 50 * 60, 60, "before") === "03:50" && otClock(23 * 3600, 150, "after") === "01:30", "更前 OT 鐘數互換")
+  check(monthDates("2026-02-14").length === 28 && monthDates("2026-10-24")[0] === "2026-10-01" && monthDates("2026-10-24").at(-1) === "2026-10-31", "monthDates 由 1 號到月尾")
+  // RD 日返 1101150 成更 OT（7 小時）、1101105 放工後 OT 3.5 小時：開工日照計，工時唔包 OT
+  const entries = { "2026-10-20": { code: "1101105", ot: { after: 210 } }, "2026-10-21": { code: "1101150", ot: { whole: true } }, "2026-10-22": { code: "1101144", ot: null } }
+  const w = summariseWeek(Object.keys(entries), (date) => entries[date], (code) => ({ on: 30000, basic: { hours: code === "1101105" ? 7.5 : 7 } }))
+  check(w.days === 3 && w.minutes === 870 && w.ot === 630, `OT 日計開工日，OT 同工時分開計（實際 ${w.days} 日 ${w.minutes} 分 OT ${w.ot}）`)
 }
 
 // 接車／交車：用真 duty sheet（公開資料）DS1101，由 TML-traffic 讀。釘死一個 commit，

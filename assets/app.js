@@ -11,9 +11,10 @@ import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
 import { OFF_CODES, workOf } from "../lib/tml-extra.js"
 import { serviceDate, serviceSeconds } from "../lib/tml-time.js"
 import { fetchData, placeNames, sheetForDate, stationNames } from "../lib/tml-data.js"
+import { monthDates, otClock, otFromClock, recentOt, setOt } from "../lib/tml-ot.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.27", commit: "dev" }
+const BUILD = { version: "0.9.29", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -199,6 +200,27 @@ const S = {
   noRoster: "未有 roster，請先貼上",
   badBackup: "備份內容讀唔到，請確認複製完整",
   dutyData: (issued) => `更份資料 ${issued} 發佈`,
+  // OT（lib/tml-ot.js）
+  ot: "OT",
+  otSum: (m) => `OT ${S.workMin(m)}`,
+  otMonth: (m) => `本月 OT ${S.workMin(m)}`,
+  otWhole: "成更 OT",
+  otBefore: (m) => `更前 OT ${S.workMin(m)}`,
+  otAfter: (m) => `更後 OT ${S.workMin(m)}`,
+  otTitle: "OT（加班）",
+  otNone: "未有 OT",
+  otWholeLabel: "成更 OT（呢更嘅工時全部計 OT）",
+  otBeforeLabel: "更前",
+  otAfterLabel: "更後",
+  otHoursUnit: "小時",
+  otFrom: "或由",
+  otTo: "或至",
+  otSave: "儲存 OT",
+  otClear: "清除 OT",
+  otSaved: "已儲存 OT",
+  otCleared: "已清除 OT",
+  otBad: "OT 時數唔啱：請輸入 0 至 12 小時（例如 3.5）",
+  otHelp: "成更 OT：例如休息日返 1101150，成更 7 小時計 OT（先用 ✏️ 改做嗰個更份）。更前／更後：打時數（例如 3.5）或者揀鐘數，兩格會自動對返。OT 計開工日，時數同正常工時分開計；上下班時間同休息檢查會計埋 OT。",
 }
 
 // Depot and siding codes as the sheets print them (read from the sheets' own
@@ -382,7 +404,32 @@ const clockHtml = (sec) => `${hhmm(sec)}${sec >= 86400 ? `<small class="nd">${S.
 // 死早 / 早 / 中 / 夜 / 死夜：定義喺 lib/tml-shift.js（同編更頁一致）。
 // 一個 cell 嘅下班秒數，未載入到資料時係 null。
 function offOf(cell) {
-  return cell?.duty?.off?.[0] ?? cell?.basic?.off ?? null
+  return cell?.otOff ?? cell?.duty?.off?.[0] ?? cell?.basic?.off ?? null
+}
+
+// 更類（死早／早…）跟原本更份嘅時間，唔跟 OT 延長咗嘅
+const shiftOfCell = (cell) => shiftOf(cell.baseOn !== undefined ? cell.baseOn : cell.on, cell.baseOff !== undefined ? cell.baseOff : offOf(cell))
+
+// 當日 OT 加落 cell：返工提早 before、放工延遲 after（分鐘）；原本時間留喺 baseOn／baseOff。
+function withOt(cell, ot) {
+  if (!ot) return cell
+  const off = offOf(cell)
+  const out = { ...cell, ot, baseOn: cell.on ?? null, baseOff: off }
+  if (cell.on != null) out.on = cell.on - (ot.before ?? 0) * 60
+  if (off != null) out.otOff = off + (ot.after ?? 0) * 60
+  return out
+}
+
+// 一日嘅 { entry, cell }，cell 已經計埋 OT
+function dayCell(date) {
+  const entry = dayEntry(roster, date)
+  return { entry, cell: withOt(cellInfo(entry.code, date), entry.ot) }
+}
+
+// 「成更 OT · 更後 OT 3 小時 30 分」
+function otText(ot) {
+  if (!ot) return ""
+  return [ot.whole ? S.otWhole : "", ot.before ? S.otBefore(ot.before) : "", ot.after ? S.otAfter(ot.after) : ""].filter(Boolean).join(" · ")
 }
 
 // 休息唔夠鐘：前一日下班到下一個開工唔夠 12 小時就標；同編更頁預設（plan.rest）一致，唔好兩頁一紅一唔紅。
@@ -399,9 +446,9 @@ function restTooShort(prevCell, cell) {
 function shortRestDates(dates) {
   const out = new Set()
   // 由前一日（上週日）開始比較，唔會漏咗「上週日夜更 → 週一早更」。
-  let prev = cellInfo(dayEntry(roster, addDays(dates[0], -1)).code, addDays(dates[0], -1))
+  let prev = dayCell(addDays(dates[0], -1)).cell
   for (const date of dates) {
-    const cur = cellInfo(dayEntry(roster, date).code, date)
+    const cur = dayCell(date).cell
     if (restTooShort(prev, cur)) out.add(date)
     prev = cur
   }
@@ -524,18 +571,20 @@ const isOffTone = (cell) => cell.tone === "rest" || cell.tone === "tbd" || cell.
 // The week list's lines for one day: times and a quiet note.
 function dayLines(cell) {
   const d = cell.duty
+  // OT 延長咗嘅返工／放工（冇 OT 就係原本時間）
+  const ot = otText(cell.ot)
   if (cell.status === "ok") {
     return {
-      span: [d.on[0], d.off[0]],
-      times: `${clockHtml(d.on[0])} – ${clockHtml(d.off[0])}`,
-      note: routeText(d.on[1], d.off[1]) + (d.meal ? ` · ${S.meal} ${hhmm(d.meal[0])}` : ""),
+      span: [cell.on, offOf(cell)],
+      times: `${clockHtml(cell.on)} – ${clockHtml(offOf(cell))}`,
+      note: [routeText(d.on[1], d.off[1]) + (d.meal ? ` · ${S.meal} ${hhmm(d.meal[0])}` : ""), ot].filter(Boolean).join(" · "),
     }
   }
   if (cell.status === "basic") {
     const b = cell.basic
-    return { span: [b.on, b.off], times: `${clockHtml(b.on)} – ${clockHtml(b.off)}`, note: [b.onAt && b.offAt ? routeText(b.onAt, b.offAt) : "", S.hours(b.hours)].filter(Boolean).join(" · ") }
+    return { span: [cell.on, offOf(cell)], times: `${clockHtml(cell.on)} – ${clockHtml(offOf(cell))}`, note: [b.onAt && b.offAt ? routeText(b.onAt, b.offAt) : "", S.hours(b.hours), ot].filter(Boolean).join(" · ") }
   }
-  return { times: "", note: summary(cell) }
+  return { times: "", note: [summary(cell), ot].filter(Boolean).join(" · ") }
 }
 
 function summary(cell) {
@@ -672,7 +721,7 @@ function todayFactsHtml(date, cell, live) {
   if (off == null || tau >= off) {
     for (let k = 1; k <= 14; k += 1) {
       const day = addDays(date, k)
-      const next = cellInfo(dayEntry(roster, day).code, day)
+      const next = dayCell(day).cell
       if (next.on == null) continue
       const gap = off != null ? ` · ${S.restGap(S.dur(k * 86400 + next.on - off))}` : ""
       rows.push([S.factNextDuty, `${S.weekdays[weekdayIndex(day)]} ${meDate(day)} · ${next.label} ${hhmm(next.on)}${gap}`])
@@ -687,11 +736,12 @@ function todayFactsHtml(date, cell, live) {
 // Today, big, with what the duty is doing right now.
 function todayHtml(date, entry, cell, short = false) {
   const lines = dayLines(cell)
-  const shift = shiftOf(cell.on, offOf(cell))
+  const shift = shiftOfCell(cell)
   const live = cell.status === "ok" ? dutyState(cell.duty, serviceSeconds(Date.now())) : null
   const tags = (cell.group ? `<span class="badge plain">${cell.group}</span>` : "") + (cell.tag ? `<span class="badge plain">${cell.tag}</span>` : "") +
     (cell.sheet ? `<span class="badge plain">${cell.sheet}</span>` : "") +
     (shift ? `<span class="badge shift">${S.shift[shift]}</span>` : "") +
+    (cell.ot ? `<span class="badge ot">${S.ot}</span>` : "") +
     (entry.source === "override" ? `<span class="badge plain">${S.changed}</span>` : "")
   return `<button type="button" class="today me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}"${short ? ' data-short="1"' : ""}>` +
     `<span class="today-label">${S.today} · ${S.weekdays[weekdayIndex(date)]} ${meDate(date)}</span>` +
@@ -730,13 +780,13 @@ function weekCardHtml(dates, short) {
   const s = weekSummary(dates)
   const shifts = new Map()
   for (const date of dates) {
-    const cell = cellInfo(dayEntry(roster, date).code, date)
-    const shift = shiftOf(cell.on, offOf(cell))
+    const shift = shiftOfCell(dayCell(date).cell)
     if (shift) shifts.set(shift, (shifts.get(shift) ?? 0) + 1)
   }
   const parts = [
     s.days ? `<li><b>${S.sumDays(s.days)}</b></li>` : "",
     s.days ? `<li>${S.sumWork} <b>${S.workMin(s.minutes)}</b></li>` : "",
+    `<li>${S.ot} <b>${S.workMin(s.ot)}</b></li>`,
     s.rest ? `<li>${S.sumRest(s.rest)}</li>` : "",
     s.leave ? `<li>${S.sumLeave(s.leave)}</li>` : "",
     short.size ? `<li class="bad">${S.sumShort(short.size)}</li>` : "",
@@ -748,11 +798,73 @@ function weekCardHtml(dates, short) {
 }
 
 // 一句話講本週：行號 + 開工日數 + 工時（頁首副標用）
+// 本月：睇緊本週就跟今日嘅月份，其他週跟嗰週週一嘅月份（1 號至月尾，Ice 2026-10-24）。
 function subLine(monday) {
   const row = rowLabelFor(roster, monday)
   const s = weekSummary(weekDates(monday))
   if (row == null) return S.title
-  return `${S.stdRow(row)}${s.days ? ` · ${S.sumDays(s.days)} · ${S.sumWork} ${S.workMin(s.minutes)}` : ""}`
+  const today = serviceDate(Date.now())
+  const month = weekSummary(monthDates(weekDates(monday).includes(today) ? today : monday))
+  return `${S.stdRow(row)}${s.days ? ` · ${S.sumDays(s.days)} · ${S.sumWork} ${S.workMin(s.minutes)}` : ""} · ${S.otMonth(month.ot)}`
+}
+
+/* ------------------------------------------------------------------ OT */
+
+// 日詳情頁嘅 OT 表格。喺 me-data 外面（me-data 每 15 秒重畫，會洗走輸入）。
+function otPanelHtml(date, entry) {
+  const ot = entry.ot ?? {}
+  const base = cellInfo(entry.code, date)
+  const on = base.on ?? null
+  const off = offOf(base)
+  const hours = (m) => (m ? String(Math.round((m / 60) * 100) / 100) : "")
+  const row = (side, label, word, mins, ref) =>
+    `<div class="ot-row"><span class="ot-side">${label}</span>` +
+    `<input name="${side}H" class="mini" type="number" inputmode="decimal" step="any" value="${hours(mins)}" placeholder="0" aria-label="${label} ${S.otHoursUnit}"><span>${S.otHoursUnit}</span>` +
+    `<span class="ot-or">${word}</span><input name="${side}T" class="mini" type="time" value="${mins && ref != null ? otClock(ref, mins, side) : ""}"${ref == null ? " disabled" : ""} aria-label="${label} ${word}"></div>`
+  return `<details class="panel me-ot"${entry.ot ? " open" : ""}><summary><b>${S.otTitle}</b><span class="meta">${escapeHtml(otText(entry.ot) || S.otNone)}</span></summary>` +
+    `<form class="me-ot-form" autocomplete="off">` +
+    `<label class="ot-check"><input type="checkbox" name="whole"${ot.whole ? " checked" : ""}> ${S.otWholeLabel}</label>` +
+    row("before", S.otBeforeLabel, S.otFrom, ot.before, on) +
+    row("after", S.otAfterLabel, S.otTo, ot.after, off) +
+    `<div class="row"><button type="submit" class="btn primary">${S.otSave}</button>` +
+    (entry.ot ? ` <button type="button" class="btn me-ot-clear">${S.otClear}</button>` : "") + `</div>` +
+    `<p class="fine">${S.otHelp}</p></form></details>`
+}
+
+// 時數同鐘數兩格互相對返：改時數就計鐘數，揀鐘數就計時數。
+function syncOtInputs(form, input) {
+  const m = /^(before|after)([HT])$/.exec(input.name ?? "")
+  if (!m) return
+  const [, side, kind] = m
+  const entry = dayEntry(roster, state.date)
+  const base = cellInfo(entry.code, state.date)
+  const ref = side === "before" ? base.on ?? null : offOf(base)
+  if (ref == null) return
+  if (kind === "H") {
+    const mins = Math.round(Number(input.value) * 60)
+    form.elements[`${side}T`].value = Number.isFinite(mins) && mins > 0 ? otClock(ref, mins, side) : ""
+  } else {
+    const mins = otFromClock(ref, input.value, side)
+    form.elements[`${side}H`].value = mins ? String(Math.round((mins / 60) * 100) / 100) : ""
+  }
+}
+
+function submitOt(form) {
+  const read = (name) => {
+    const text = String(form.elements[name].value ?? "").trim()
+    if (!text) return 0
+    const h = Number(text)
+    return Number.isFinite(h) && h >= 0 && h <= 12 ? Math.round(h * 60) : null
+  }
+  const before = read("beforeH")
+  const after = read("afterH")
+  if (before === null || after === null) {
+    state.message = S.otBad
+    return render()
+  }
+  const next = setOt(roster, state.date, { whole: form.elements.whole.checked, before, after })
+  state.message = saveRoster(next) ? (next.ot[state.date] ? S.otSaved : S.otCleared) : S.notStored
+  render()
 }
 
 /* ------------------------------------------------------- roster table */
@@ -870,6 +982,7 @@ function renderPage() {
     view.innerHTML =
       `<div class="duty-head"><button type="button" class="btn me-back">${S.back}</button>${head}</div>` +
       `<p class="me-msg" role="status">${escapeHtml(state.message)}</p>` +
+      otPanelHtml(state.date, entry) +
       `<div id="me-data"></div>`
     setSub(`${S.weekdays[weekdayIndex(state.date)]} ${meDate(state.date)} · ${S.stdRow(entry.row)}`)
     paintData()
@@ -925,21 +1038,21 @@ function paintData() {
     const today = serviceDate(Date.now())
     const week = weekDates(state.monday)
     const short = shortRestDates(week)
-    const heroHtml = week.includes(today) ? todayHtml(today, dayEntry(roster, today), cellInfo(dayEntry(roster, today).code, today), short.has(today)) + sheetHint(dayEntry(roster, today).code, today) : ""
+    const heroHtml = week.includes(today) ? todayHtml(today, dayEntry(roster, today), dayCell(today).cell, short.has(today)) + sheetHint(dayEntry(roster, today).code, today) : ""
     // 今日已經有 hero，列表唔再重複
     const listDays = week.includes(today) ? week.filter((date) => date !== today) : week
     // 本週最常見嘅組別（例如 KSR）唔使每張卡都寫，唔同先顯示
     const usual = usualGroup(week)
     const listHtml = `<ul class="day-list">${listDays.map((date) => {
-      const entry = dayEntry(roster, date)
-      const cell = cellInfo(entry.code, date)
+      const { entry, cell } = dayCell(date)
       const lines = dayLines(cell)
       const badges = (date === today ? `<span class="badge now">${S.today}</span>` : "") +
         (entry.source === "override" ? `<span class="badge plain">${S.changed}</span>` : "")
-      const shift = shiftOf(cell.on, offOf(cell))
+      const shift = shiftOfCell(cell)
       const tags = (cell.group && cell.group !== usual ? `<span class="badge plain">${cell.group}</span>` : "") + (cell.tag ? `<span class="badge plain">${cell.tag}</span>` : "") +
         (cell.sheet ? `<span class="badge plain">${cell.sheet}</span>` : "") +
-        (shift ? `<span class="badge shift">${S.shift[shift]}</span>` : "")
+        (shift ? `<span class="badge shift">${S.shift[shift]}</span>` : "") +
+        (cell.ot ? `<span class="badge ot">${S.ot}</span>` : "")
       return `<li><button type="button" class="day me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}" data-today="${date === today ? 1 : 0}"${short.has(date) ? ' data-short="1"' : ""}>` +
         `<span class="day-date"><small>${S.weekdays[weekdayIndex(date)]}</small><b>${Number(date.slice(8))}</b></span>` +
         `<span class="day-main"><span class="day-title">${isOffTone(cell) ? offTitleHtml(entry.code, cell) : escapeHtml(cell.label)}${tags}${badges}${short.has(date) ? `<span class="badge rest-short">${S.restShort}</span>` : ""}</span>` +
@@ -1053,7 +1166,9 @@ function kvToken() {
 // 會上傳嘅內容嘅指紋（FNV-1a），用嚟知道上次同步之後有冇改過。
 function kvPrint() {
   if (!roster) return ""
-  return fingerprint(JSON.stringify([title, roster.rows, roster.numbers, roster.names, roster.anchor, roster.overrides]))
+  // OT 有先計（同 Worker content() 一樣），舊版冇 OT 嘅指紋唔會因為升級而變
+  const ot = Object.keys(roster.ot ?? {}).length ? [roster.ot] : []
+  return fingerprint(JSON.stringify([title, roster.rows, roster.numbers, roster.names, roster.anchor, roster.overrides, ...ot]))
 }
 
 // 有 token、網址支援同步，而且更表同上次同步唔同
@@ -1137,6 +1252,7 @@ async function kvUpload(force = false, skipBackup = false) {
         names: roster.names,
         anchor: roster.anchor, // 基準週（week number）要同步，唔係第二部機會自己揀「今週」
         overrides: recentOverrides(roster.overrides, serviceDate(Date.now())),
+        ot: recentOt(roster.ot, serviceDate(Date.now())),
         version: Number(readPref(KV_VERSION) ?? 0),
         force,
         skipBackup,
@@ -1189,6 +1305,8 @@ async function kvDownload() {
   const overrides = rec.overrides && typeof rec.overrides === "object"
     ? rec.overrides
     : (roster?.overrides ?? {})
+  // OT：雲端有欄位就跟雲端；舊記錄（未有 OT 嗰陣上傳）冇就保留呢部機嘅
+  const ot = rec.ot && typeof rec.ot === "object" ? rec.ot : (roster?.ot ?? {})
   const next = cleanRoster({
     v: 1,
     rows,
@@ -1196,6 +1314,7 @@ async function kvDownload() {
     names,
     anchor: { row: anchorRow ?? 1, monday: anchorMonday },
     overrides,
+    ot,
   })
   if (!next) return kvMessage(S.syncFail)
   const when = hkStamp(rec.updatedAt)
@@ -1316,6 +1435,8 @@ function onClick(event) {
     state.page = "setup"
     state.message = ""
     state.syncMsg = ""
+  } else if (target.closest(".me-ot-clear")) {
+    state.message = saveRoster(setOt(roster, state.date, null)) ? S.otCleared : S.notStored
   } else if (target.closest(".me-reset")) {
     state.editing = false
     state.message = saveRoster(setOverride(roster, state.date, null)) ? S.saved : S.notStored
@@ -1451,6 +1572,8 @@ function boot() {
   view.addEventListener("input", (event) => {
     const form = event.target.closest?.(".me-setup")
     if (form) refreshPreview(form)
+    const otForm = event.target.closest?.(".me-ot-form")
+    if (otForm) syncOtInputs(otForm, event.target)
   })
   view.addEventListener("change", (event) => {
     if (!event.target.matches(".me-file")) return
@@ -1470,6 +1593,7 @@ function boot() {
     if (event.target.matches(".me-setup")) submitSetup(event.target)
     else if (event.target.matches(".me-code-form")) submitCode(event.target)
     else if (event.target.matches(".me-title")) submitTitle(event.target)
+    else if (event.target.matches(".me-ot-form")) submitOt(event.target)
   })
   document.getElementById("foot").innerHTML =
     `v${BUILD.version} · ${BUILD.commit === "dev" ? "dev" : `commit ${escapeHtml(BUILD.commit)}`} · ` +
