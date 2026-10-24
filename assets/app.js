@@ -7,7 +7,7 @@
 import { dutyState, mealMates, reliefOf } from "../lib/tml-duties.js"
 import { MAX_NOTE, addDays, classify, cleanRoster, dayEntry, isLocked, keepLocked, mateRow, mateWeek, mondayOf, newRoster, normaliseCode, parseRoster, recentLocks, recentNotes, recentOverrides, rowLabelFor, setNote, setOverride, toggleLock, toggleMate, weekDates, weekdayIndex } from "../lib/tml-roster.js"
 import { SHIFTS, shiftOf } from "../lib/tml-shift.js"
-import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
+import { summariseWeek, weekLabel } from "../lib/tml-week.js"
 import { OFF_CODES, workOf } from "../lib/tml-extra.js"
 import { serviceDate, serviceSeconds } from "../lib/tml-time.js"
 import { fetchData, placeNames, sheetForDate, stationNames } from "../lib/tml-data.js"
@@ -16,7 +16,7 @@ import { isoWeek } from "../lib/tml-plan.js"
 import { monthDates, otClock, otFromClock, recentOt, setOt } from "../lib/tml-ot.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson, syncState } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.38", commit: "dev" }
+const BUILD = { version: "0.9.39", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -121,8 +121,6 @@ const S = {
   weekHint: "撳任何一日睇全日行程；特別日子（例如 8022、8023）可以喺該日入面手動改。",
   sumDays: (n) => `開工 ${n} 日`,
   sumWork: "工時",
-  rosterNear: "只睇附近",
-  rosterAll: (n) => `全部 ${n} 行`,
   swipeHint: "左右滑動可換週",
   hintTitle: "提示",
   restShort: "休息唔夠 12 小時",
@@ -200,8 +198,6 @@ const S = {
   previewKeep: (n) => `而家用緊嘅 roster：${n} 行`,
   previewHint: "貼上之後，呢度會即時顯示讀到嘅 roster。",
   previewRowMiss: (row, a, b) => `你填嘅第 ${row} 行喺呢份 roster 入面冇（有 ${a}–${b}），請修改第 2 步。`,
-  rosterTitle: (n) => `我嘅 roster（${n} 行）`,
-  rosterHelp: "紅色係今個星期，紅框係今日。",
   rowHead: "行",
   pasteLabel: "Standard Roster 內容",
   pastePlaceholder: "喺度貼上，每行一個星期",
@@ -289,7 +285,6 @@ const state = {
   duty: null, // { sheet, id } of a duty opened from 飯腳
   from: "week",
   message: "",
-  rosterAll: false,
   editing: false,
   syncMsg: "",
   calMonth: null, // 月曆睇緊邊個月 "YYYY-MM"（null = 今個月）
@@ -810,7 +805,8 @@ function todayFactsHtml(date, cell, live) {
   const hol = holidaysOn(school, date)
   if (hol.length) rows.push([S.factSchool, hol.join("、")])
 
-  // 明天（Ice 2026-10-24）：返工就寫更份同上落班時間，放假就寫 RD／AL 等；有休息唔夠、OT、備註都寫埋
+  // 明天（Ice 2026-10-24）：返工就寫更份同上落班時間，放假就寫 RD／AL 等；有休息唔夠、OT、備註都寫埋。
+  // 自己一個框，同上面（飯腳、工時、下一更等）分開。
   const tomorrow = addDays(date, 1)
   const { entry: entry1, cell: next1 } = dayCell(tomorrow)
   const works = next1.on != null
@@ -825,6 +821,7 @@ function todayFactsHtml(date, cell, live) {
       break
     }
   }
+  let tomorrowRow
   {
     const gap = works && off != null ? 86400 + next1.on - off : null
     const parts = [
@@ -835,11 +832,11 @@ function todayFactsHtml(date, cell, live) {
       otText(next1.ot),
       noteOf(tomorrow) ? `📝 ${noteOf(tomorrow)}` : "",
     ]
-    rows.push([S.factTomorrow, parts.filter(Boolean).join(" · ")])
+    tomorrowRow = [S.factTomorrow, parts.filter(Boolean).join(" · ")]
   }
-  if (!rows.length) return ""
   // 卡本身係 <button>，入面只可以用 span
-  return `<span class="today-facts">${rows.map(([k, v]) => `<b>${k}</b><span>${escapeHtml(v)}</span>`).join("")}</span>`
+  const box = (list, extra = "") => `<span class="today-facts${extra}">${list.map(([k, v]) => `<b>${k}</b><span>${escapeHtml(v)}</span>`).join("")}</span>`
+  return (rows.length ? box(rows) : "") + box([tomorrowRow], " today-tomorrow")
 }
 
 // 今日卡大時間下面：上班地點（左）同下班地點（右），唔再擠埋一行細字。
@@ -1069,17 +1066,16 @@ function calendarHtml(month) {
 /* ------------------------------------------------------- roster table */
 
 // Every row of a roster as a table. cur = label of the row to mark (this
-// week), today = a date whose cell gets a frame. Pass a parsed { rows, numbers }.
-function rosterTableHtml({ rows, numbers }, cur = null, todayIndex = -1, only = null) {
+// week). Pass a parsed { rows, numbers }.
+function rosterTableHtml({ rows, numbers }, cur = null) {
   const head = `<tr><th>${S.rowHead}</th>${S.weekdays.map((d) => `<th>${d.replace("週", "")}</th>`).join("")}</tr>`
-  const picks = only ?? rows.map((_, i) => i)
-  const body = picks.map((i) => {
+  const body = rows.map((_, i) => {
     const row = rows[i]
     const now = numbers[i] === cur
     return `<tr${now ? ' class="cur"' : ""}><th>${numbers[i]}</th>` +
-      row.map((code, d) => {
+      row.map((code) => {
         const kind = classify(code).kind
-        return `<td data-kind="${kind}"${now && d === todayIndex ? ' class="todaycell"' : ""}>${escapeHtml(code)}</td>`
+        return `<td data-kind="${kind}">${escapeHtml(code)}</td>`
       }).join("") + "</tr>"
   }).join("")
   return `<div class="rtable"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>`
@@ -1241,8 +1237,6 @@ function renderPage() {
   }
   const dates = weekDates(state.monday)
   const current = mondayOf(serviceDate(Date.now()))
-  const curRow = rowLabelFor(roster, state.monday)
-  const near = state.rosterAll ? null : nearRows(roster, curRow)
   const locked = isLocked(roster, state.monday)
   view.innerHTML =
     `<div class="me-nav"><button type="button" class="btn me-prev" aria-label="${S.prev}">‹</button>` +
@@ -1253,17 +1247,9 @@ function renderPage() {
     `<div id="me-bell" class="me-bell-slot">${bellHtml(true)}</div>` +
     `<div id="me-data"></div>` +
     `<details class="fine-box hints"><summary>${S.hintTitle}</summary><p class="fine">${S.weekHint} · ${S.swipeHint} · ${S.restHelp}</p></details>` +
-    `<section class="panel me-cal" id="me-cal"></section>` +
-    `<details class="panel roster-box"><summary>${S.rosterTitle(roster.rows.length)}</summary>` +
-    `<div class="roster-tools"><p class="fine">${S.rosterHelp}</p>` +
-    `<button type="button" class="link me-roster-toggle">${state.rosterAll ? S.rosterNear : S.rosterAll(roster.rows.length)}</button></div>` +
-    rosterTableHtml(roster, curRow, dates.indexOf(serviceDate(Date.now())), near) + `</details>`
+    `<section class="panel me-cal" id="me-cal"></section>`
   setSub(subLine(state.monday))
   paintData()
-  // Show this week's row inside the table without moving the page.
-  const table = view.querySelector(".rtable")
-  const cur = table?.querySelector("tr.cur")
-  if (cur) table.scrollTop = Math.max(0, cur.offsetTop - table.clientHeight / 2)
 }
 
 // The part that depends on loaded duty data or the clock: repainted when a
@@ -1419,14 +1405,14 @@ function setupHtml() {
   const codes = S.howCodes.map(([code, what]) => `<li><code>${code}</code><span>${what}</span></li>`).join("")
   return `<div class="duty-head">${roster ? `<button type="button" class="btn me-back">${S.back}</button>` : `<h2>${S.setupTitle}</h2>`}</div>` +
     (roster ? "" : `<p class="lead">${S.setupIntro}</p>`) +
-    `<form class="me-setup" autocomplete="off">` +
-    foldPanel("paste", `<span class="step">1</span>${S.step1}`,
+    `<form class="me-setup set-form" autocomplete="off">` +
+    foldPanel("paste", S.step1,
     `<details class="how"><summary>${S.howTitle}</summary><p class="fine">${S.howBody}</p><ul class="how-codes">${codes}</ul>` +
     `<pre>${escapeHtml(S.howExample).replace(/\n/g, "<br>")}</pre></details>` +
     `<label><span class="sr">${S.pasteLabel}</span><textarea name="text" rows="6" spellcheck="false" placeholder="${roster ? S.pasteKeep : S.pastePlaceholder}"></textarea></label>` +
     `<div class="me-edit-row"><label class="btn filebtn">${S.fileBtn}<input type="file" class="me-file" accept=".csv,.tsv,.txt,text/plain,text/csv" hidden></label><span class="meta">${S.fileHelp}</span></div>` +
     `<h4 class="prev-title">${S.previewTitle}</h4><div id="setup-preview">${previewHtml("", row)}</div>`) +
-    foldPanel("row", `<span class="step">2</span>${S.step2}`,
+    foldPanel("row", S.step2,
     `<div class="field-line"><label for="me-row">${S.rowLabel(monday)}</label>` +
     `<input id="me-row" name="row" class="mini" type="number" inputmode="numeric" min="1" value="${row}" required>` +
     `<button type="submit" class="btn primary">${S.ok}</button></div>`) +
@@ -1850,7 +1836,6 @@ function onClick(event) {
   } else if (target.closest(".me-prev")) state.monday = addDays(state.monday, -7)
   else if (target.closest(".me-next")) state.monday = addDays(state.monday, 7)
   else if (target.closest(".me-this")) state.monday = mondayOf(serviceDate(Date.now()))
-  else if (target.closest(".me-roster-toggle")) state.rosterAll = !state.rosterAll
   else if (target.closest(".me-mates-csv")) return copyMatesCsv()
   else if (target.closest(".me-cal-prev") || target.closest(".me-cal-next")) {
     // 只換月曆，唔重畫成頁、唔捲返頂
