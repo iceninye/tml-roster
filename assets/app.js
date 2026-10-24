@@ -801,10 +801,6 @@ function todayFactsHtml(date, cell, live) {
   // 工時：返工前同返緊工都顯示（放咗工就唔使）
   const hours = cardHours(cell)
   if (hours && off != null && tau < off) rows.push([S.factWork, hours])
-  // 學校假期
-  const hol = holidaysOn(school, date)
-  if (hol.length) rows.push([S.factSchool, hol.join("、")])
-
   // 明天（Ice 2026-10-24）：返工就寫更份同上落班時間，放假就寫 RD／AL 等；有休息唔夠、OT、備註都寫埋。
   // 自己一個框，同上面（飯腳、工時、下一更等）分開。
   const tomorrow = addDays(date, 1)
@@ -863,10 +859,11 @@ function todayHtml(date, entry, cell, short = false) {
     (cell.sheet ? `<span class="badge plain">${cell.sheet}</span>` : "") +
     (shift ? `<span class="badge shift">${S.shift[shift]}</span>` : "") +
     (cell.ot ? `<span class="badge ot">${S.ot}</span>` : "") +
-    (entry.source === "override" ? `<span class="badge plain">${S.changed}</span>` : "")
+    (entry.source === "override" ? `<span class="badge plain">${S.changed}</span>` : "") +
+    holidaysOn(school, date).map((h) => `<span class="badge school">${S.factSchool}假期 · ${escapeHtml(h)}</span>`).join("")
   return `<button type="button" class="today me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}"${short ? ' data-short="1"' : ""}>` +
     `<span class="today-label">${S.today} · ${S.weekdays[weekdayIndex(date)]} ${meDate(date)}</span>` +
-    `<span class="today-title">${isOffTone(cell) ? offTitleHtml(entry.code, cell) : escapeHtml(cell.label)}${tags}${short ? `<span class="badge rest-short">${S.restShort}</span>` : ""}</span>` +
+    `<span class="today-title">${tags}${isOffTone(cell) ? offTitleHtml(entry.code, cell) : escapeHtml(cell.label)}${short ? `<span class="badge rest-short">${S.restShort}</span>` : ""}</span>` +
     (lines.times ? `<span class="today-times">${lines.times}</span>${todayPlacesHtml(cell)}${barHtml(lines.span, serviceSeconds(Date.now()))}${progressHtml(lines.span)}` : "") +
     (lines.note && !lines.times ? `<span class="today-note">${escapeHtml(lines.note)}</span>` : "") +
     // OT badge 已經講咗有 OT，呢度只寫更前／更後幾耐（唔再寫「成更 OT」）

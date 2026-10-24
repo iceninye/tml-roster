@@ -805,3 +805,4 @@ button.cal-day { cursor: pointer; }
 .set-form { gap: 0; margin: 0; }
 .set-form > .me-msg { margin: 0 0 14px; }
 .set-form > .me-msg:empty { display: none; }
+.badge.school { background: color-mix(in srgb, var(--ok, #2e9e6b) 20%, transparent); color: var(--ok, #2e9e6b); }
