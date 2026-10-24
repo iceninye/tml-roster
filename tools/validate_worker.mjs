@@ -19,7 +19,18 @@ const env = { ROSTER_KV, RESEND_API_KEY: "test", BACKUP_TO: "owner@example.com" 
 // Resend stand-in: records each mail; `resendDown` makes it fail.
 const mails = []
 let resendDown = false
+// 學校假期 iCal stand-in（schoolDown 令佢失敗）
+let schoolDown = false
+const year = Number(new Date().toISOString().slice(0, 4))
+const SCHOOL_TEXT = [
+  "BEGIN:VCALENDAR", "BEGIN:VEVENT", `DTSTART;VALUE=DATE:${year}1001`, `DTEND;VALUE=DATE:${year}1002`, "SUMMARY:國慶日", "END:VEVENT",
+  "BEGIN:VEVENT", `DTSTART;VALUE=DATE:${year}1221`, `DTEND;VALUE=DATE:${year + 1}0102`, "SUMMARY:聖誕及新年假\, 全校", "END:VEVENT",
+  "BEGIN:VEVENT", `DTSTART:${year}1105T013000Z`, `DTEND:${year}1105T090000Z`, "SUMMARY:家長日", "END:VEVENT",
+  "BEGIN:VEVENT", `DTSTART;VALUE=DATE:${year}0901`, "SUMMARY:取消咗", "STATUS:CANCELLED", "END:VEVENT",
+  "BEGIN:VEVENT", `DTSTART;VALUE=DATE:${year - 5}0101`, "SUMMARY:好舊", "END:VEVENT", "END:VCALENDAR",
+].join("\r\n")
 globalThis.fetch = async (url, init) => {
+  if (String(url).startsWith("https://calendar.google.com/")) return schoolDown ? new Response("", { status: 404 }) : new Response(SCHOOL_TEXT)
   if (!String(url).startsWith("https://api.resend.com/")) throw new Error(`unexpected fetch ${url}`)
   if (resendDown) return new Response("{}", { status: 500 })
   mails.push(JSON.parse(init.body))
@@ -159,6 +170,16 @@ r = await call("GET", "/api/ping")
 check(r.body.ok && r.body.mail === true, "ping says mail is set up")
 r = await call("GET", "/api/plan/")
 check(r.status === 404, "no listing of plans")
+
+// ---- 學校假期
+r = await call("GET", "/api/school-holidays")
+check(r.status === 200 && r.body.ok && JSON.stringify(r.body.holidays.map((h) => [h.start, h.end, h.title])) === JSON.stringify([
+  [`${year}-10-01`, `${year}-10-01`, "國慶日"], [`${year}-11-05`, `${year}-11-05`, "家長日"], [`${year}-12-21`, `${year + 1}-01-01`, "聖誕及新年假, 全校"],
+]), "school holidays: all-day end is inclusive, cancelled and old events dropped")
+schoolDown = true
+r = await call("GET", "/api/school-holidays")
+check(r.status === 502 && r.body.reason === "upstream" && r.body.tried.join() === "404,404", "school calendar down -> 502 upstream with both statuses")
+schoolDown = false
 
 // ---- lib/tml-cloud.js
 check(TOKEN_RE.test(newToken()) && newToken() !== newToken(), "newToken makes a fresh 32-char token")

@@ -11,10 +11,11 @@ import { nearRows, summariseWeek, weekLabel } from "../lib/tml-week.js"
 import { OFF_CODES, workOf } from "../lib/tml-extra.js"
 import { serviceDate, serviceSeconds } from "../lib/tml-time.js"
 import { fetchData, placeNames, sheetForDate, stationNames } from "../lib/tml-data.js"
+import { holidaysOn } from "../lib/tml-ics.js"
 import { monthDates, otClock, otFromClock, recentOt, setOt } from "../lib/tml-ot.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson, syncState } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.30", commit: "dev" }
+const BUILD = { version: "0.9.31", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -28,6 +29,8 @@ const KV_VERSION = "tml-roster-kv-version"
 const KV_SYNCED = "tml-roster-kv-synced"
 // 呢部機最後一次改更表（或者標題）嘅時間，🔔 提示用嚟講「呢部機幾時改」
 const KV_LOCAL_AT = "tml-roster-local-at"
+// 學校假期（Worker 代讀 iCal）：上次讀到嘅，離線都有得睇
+const SCHOOL_KEY = "tml-roster-school"
 
 const S = {
   weekdays: ["週一", "週二", "週三", "週四", "週五", "週六", "週日"],
@@ -214,6 +217,19 @@ const S = {
   noRoster: "未有 roster，請先貼上",
   badBackup: "備份內容讀唔到，請確認複製完整",
   dutyData: (issued) => `更份資料 ${issued} 發佈`,
+  // 今日卡
+  factPlaces: "地點",
+  factWork: "工時",
+  factMates: "飯腳",
+  factSchool: "學校",
+  doneLeft: (done, left) => `已做 ${done} · 剩 ${left}`,
+  // 月曆
+  calTitle: (y, m) => `${y} 年 ${m} 月`,
+  calPrev: "上個月",
+  calNext: "下個月",
+  calThis: "本月",
+  calSchool: "學校假期",
+  calHelp: "更份只顯示最後 3 個數字（1101150 → 150），顏色跟更類；撳任何一日睇詳情。橙線係學校假期，左上橙點係有 OT，右上細點係手動改過。",
   // OT（lib/tml-ot.js）
   ot: "OT",
   otSum: (m) => `OT ${S.workMin(m)}`,
@@ -252,6 +268,7 @@ const state = {
   rosterAll: false,
   editing: false,
   syncMsg: "",
+  calMonth: null, // 月曆睇緊邊個月 "YYYY-MM"（null = 今個月）
 }
 
 let roster = null
@@ -267,6 +284,8 @@ let indexFailed = false
 let networkFailed = false
 const dutyBooks = new Map()
 let shown = ""
+let shownCal = ""
+let school = null // 學校假期 [{ start, end, title }]
 let openedWeek = ""
 
 /* ------------------------------------------------------------- storage */
@@ -346,6 +365,26 @@ function loadNetwork() {
     .catch(() => {
       networkFailed = true
     })
+}
+
+// 學校假期：先用上次存低嘅，再問 Worker（GitHub Pages 冇 Worker 就一直冇）。
+const isHoliday = (h) => h && typeof h.start === "string" && typeof h.end === "string" && typeof h.title === "string"
+function loadSchool() {
+  try {
+    const saved = JSON.parse(readPref(SCHOOL_KEY) ?? "null")
+    if (Array.isArray(saved?.holidays)) school = saved.holidays.filter(isHoliday)
+  } catch {
+    // 壞咗嘅記錄當冇
+  }
+  fetch("/api/school-holidays", { headers: { accept: "application/json" } })
+    .then((res) => (res.ok ? res.json() : null))
+    .then((body) => {
+      if (!body?.ok || !Array.isArray(body.holidays)) return
+      school = body.holidays.filter(isHoliday)
+      writePref(SCHOOL_KEY, JSON.stringify({ at: new Date().toISOString(), holidays: school }))
+      paintData()
+    })
+    .catch(() => {})
 }
 
 function dutyIndexPromise() {
@@ -727,10 +766,19 @@ function todayFactsHtml(date, cell, live) {
     }
     if (duty.meal && duty.meal[1] != null && tau < duty.meal[0]) {
       events.push([duty.meal[0], S.factMeal, `${hhmm(duty.meal[0])}–${hhmm(duty.meal[1])} ${placeName(duty.meal[2])} · ${S.inTime(S.dur(duty.meal[0] - tau))}`])
+      // 飯腳：頭 3 個（全部喺詳情頁）
+      const mates = mealMates(duty, all).slice(0, 3).map((m) => m.duty.id)
+      if (mates.length) events.push([duty.meal[0] + 0.5, S.factMates, mates.join("、")])
     }
   }
 
   for (const [, k, v] of events.sort((a, b) => a[0] - b[0])) rows.push([k, v])
+  // 工時：返工前同返緊工都顯示（放咗工就唔使）
+  const hours = cardHours(cell)
+  if (hours && off != null && tau < off) rows.push([S.factWork, hours])
+  // 學校假期
+  const hol = holidaysOn(school, date)
+  if (hol.length) rows.push([S.factSchool, hol.join("、")])
 
   // 下一更：今日放咗工，或者今日唔使返工
   if (off == null || tau >= off) {
@@ -748,6 +796,21 @@ function todayFactsHtml(date, cell, live) {
   return `<span class="today-facts">${rows.map(([k, v]) => `<b>${k}</b><span>${escapeHtml(v)}</span>`).join("")}</span>`
 }
 
+// 今日卡大時間下面：上班地點（左）同下班地點（右），唔再擠埋一行細字。
+function todayPlacesHtml(cell) {
+  const onAt = cell.duty?.on?.[1] ?? cell.basic?.onAt
+  const offAt = cell.duty?.off?.[1] ?? cell.basic?.offAt
+  if (!onAt && !offAt) return ""
+  return `<span class="today-places"><span><small>${S.on}</small>${escapeHtml(placeName(onAt))}</span><span><small>${S.off}</small>${escapeHtml(placeName(offAt))}</span></span>`
+}
+
+// 返緊工：進度條下面「已做 3 小時 10 分 · 剩 4 小時 20 分」
+function progressHtml(span) {
+  const tau = serviceSeconds(Date.now())
+  if (!span || span[0] == null || span[1] == null || tau < span[0] || tau >= span[1]) return ""
+  return `<span class="today-progress">${S.doneLeft(S.dur(tau - span[0]), S.dur(span[1] - tau))}</span>`
+}
+
 // Today, big, with what the duty is doing right now.
 function todayHtml(date, entry, cell, short = false) {
   const lines = dayLines(cell)
@@ -761,8 +824,9 @@ function todayHtml(date, entry, cell, short = false) {
   return `<button type="button" class="today me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}"${short ? ' data-short="1"' : ""}>` +
     `<span class="today-label">${S.today} · ${S.weekdays[weekdayIndex(date)]} ${meDate(date)}</span>` +
     `<span class="today-title">${isOffTone(cell) ? offTitleHtml(entry.code, cell) : escapeHtml(cell.label)}${tags}${short ? `<span class="badge rest-short">${S.restShort}</span>` : ""}</span>` +
-    (lines.times ? `<span class="today-times">${lines.times}</span>${barHtml(lines.span, serviceSeconds(Date.now()))}` : "") +
-    (lines.note ? `<span class="today-note">${escapeHtml(lines.note)}</span>` : "") +
+    (lines.times ? `<span class="today-times">${lines.times}</span>${todayPlacesHtml(cell)}${barHtml(lines.span, serviceSeconds(Date.now()))}${progressHtml(lines.span)}` : "") +
+    (lines.note && !lines.times ? `<span class="today-note">${escapeHtml(lines.note)}</span>` : "") +
+    (lines.times && cell.ot ? `<span class="today-note">${escapeHtml(otText(cell.ot))}</span>` : "") +
     (live ? `<span class="today-live"><i class="pulse"></i><span>${S.now}：${escapeHtml(dutyPhaseText(live))} <small>${S.until(hhmm(live.until))}</small></span></span>` : "") +
     todayFactsHtml(date, cell, live) +
     `</button>`
@@ -880,6 +944,51 @@ function submitOt(form) {
   const next = setOt(roster, state.date, { whole: form.elements.whole.checked, before, after })
   state.message = saveRoster(next) ? (next.ot[state.date] ? S.otSaved : S.otCleared) : S.notStored
   render()
+}
+
+/* ------------------------------------------------------------ 月曆 */
+
+const shiftMonth = (month, delta) => {
+  const [y, m] = month.split("-").map(Number)
+  const t = y * 12 + (m - 1) + delta
+  return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, "0")}`
+}
+
+// 提示同「我嘅 roster」之間嘅月曆：更份只顯示最後 3 位，顏色跟更類；RD、AL 等照原樣。
+function calendarHtml(month) {
+  const today = serviceDate(Date.now())
+  const days = monthDates(`${month}-01`)
+  const [y, m] = month.split("-").map(Number)
+  const blanks = Array.from({ length: weekdayIndex(days[0]) }, () => `<span class="cal-blank" aria-hidden="true"></span>`).join("")
+  const cells = days.map((date) => {
+    const entry = dayEntry(roster, date)
+    const n = Number(date.slice(8))
+    const hol = holidaysOn(school, date)
+    const schoolMark = hol.length ? `<i class="cal-school" aria-hidden="true"></i>` : ""
+    if (!entry) return `<span class="cal-day" data-today="${date === today ? 1 : 0}"><b>${n}</b>${schoolMark}</span>`
+    const { cell } = dayCell(date)
+    const c = classify(entry.code)
+    const label = c.kind === "duty" ? entry.code.slice(-3) : entry.code
+    const shift = shiftOfCell(cell)
+    const title = [`${meDate(date)} ${entry.code}`, otText(cell.ot), ...hol].filter(Boolean).join(" · ")
+    return `<button type="button" class="cal-day me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}" data-today="${date === today ? 1 : 0}"` +
+      `${hol.length ? ' data-school="1"' : ""} title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">` +
+      `<b>${n}</b><span class="cal-code">${escapeHtml(label)}</span>${schoolMark}` +
+      (entry.source === "override" ? `<i class="cal-changed" aria-hidden="true"></i>` : "") +
+      (cell.ot ? `<i class="cal-ot" aria-hidden="true"></i>` : "") + `</button>`
+  }).join("")
+  // 呢個月嘅學校假期一覽
+  const first = days[0]
+  const last = days[days.length - 1]
+  const list = (school ?? []).filter((h) => h.end >= first && h.start <= last)
+    .map((h) => `<li><i aria-hidden="true"></i>${meDate(h.start)}${h.end !== h.start ? `–${meDate(h.end)}` : ""} ${escapeHtml(h.title)}</li>`).join("")
+  const thisMonth = today.slice(0, 7)
+  return `<div class="cal-head"><button type="button" class="btn icon me-cal-prev" aria-label="${S.calPrev}">‹</button>` +
+    `<div class="cal-title"><b>${S.calTitle(y, m)}</b>${month === thisMonth ? "" : ` <button type="button" class="link me-cal-this">${S.calThis}</button>`}</div>` +
+    `<button type="button" class="btn icon me-cal-next" aria-label="${S.calNext}">›</button></div>` +
+    `<div class="cal-grid">${S.weekdays.map((d) => `<span class="cal-wd">${d.replace("週", "")}</span>`).join("")}${blanks}${cells}</div>` +
+    (list ? `<div class="cal-school-box"><b>${S.calSchool}</b><ul class="cal-school-list">${list}</ul></div>` : "") +
+    `<p class="fine">${S.calHelp}</p>`
 }
 
 /* ------------------------------------------------------- roster table */
@@ -1001,6 +1110,7 @@ function paintBell() {
 
 function renderPage() {
   shown = ""
+  shownCal = ""
   if (state.page === "setup") {
     view.innerHTML = setupHtml()
     setSub(roster ? S.settingsTitle : S.setupTitle)
@@ -1049,6 +1159,7 @@ function renderPage() {
     `<div id="me-bell" class="me-bell-slot">${bellHtml(true)}</div>` +
     `<div id="me-data"></div>` +
     `<details class="fine-box hints"><summary>${S.hintTitle}</summary><p class="fine">${S.weekHint} · ${S.swipeHint} · ${S.restHelp}</p></details>` +
+    `<section class="panel me-cal" id="me-cal"></section>` +
     `<details class="panel roster-box"><summary>${S.rosterTitle(roster.rows.length)}</summary>` +
     `<div class="roster-tools"><p class="fine">${S.rosterHelp}</p>` +
     `<button type="button" class="link me-roster-toggle">${state.rosterAll ? S.rosterNear : S.rosterAll(roster.rows.length)}</button></div>` +
@@ -1109,6 +1220,13 @@ function paintData() {
       `<div class="me-col-b">${listHtml}</div></div>`
     // 更份資料載入後工時先算得出：每次重畫順手更新副標
     setSub(subLine(state.monday))
+    // 月曆：更類顏色要等更份資料，所以同 me-data 一齊重畫（唔同先換）
+    const cal = document.getElementById("me-cal")
+    const calHtml = calendarHtml(state.calMonth ?? today.slice(0, 7))
+    if (cal && calHtml !== shownCal) {
+      shownCal = calHtml
+      cal.innerHTML = calHtml
+    }
   } else {
     return
   }
@@ -1521,6 +1639,17 @@ function onClick(event) {
   else if (target.closest(".me-next")) state.monday = addDays(state.monday, 7)
   else if (target.closest(".me-this")) state.monday = mondayOf(serviceDate(Date.now()))
   else if (target.closest(".me-roster-toggle")) state.rosterAll = !state.rosterAll
+  else if (target.closest(".me-cal-prev") || target.closest(".me-cal-next")) {
+    // 只換月曆，唔重畫成頁、唔捲返頂
+    const from = state.calMonth ?? serviceDate(Date.now()).slice(0, 7)
+    state.calMonth = shiftMonth(from, target.closest(".me-cal-prev") ? -1 : 1)
+    paintData()
+    return
+  } else if (target.closest(".me-cal-this")) {
+    state.calMonth = null
+    paintData()
+    return
+  }
   else if (target.closest(".me-settings") || target.closest("button.me-bell")) {
     state.page = "setup"
     state.message = ""
@@ -1689,6 +1818,7 @@ function boot() {
     `v${BUILD.version} · ${BUILD.commit === "dev" ? "dev" : `commit ${escapeHtml(BUILD.commit)}`} · ` +
     `更份資料來自 <a href="https://github.com/iceninye/TML-traffic">TML-traffic</a>`
   loadBasic()
+  loadSchool()
   probeSync()
   open()
   dutyIndexPromise().then((index) => {

@@ -706,6 +706,53 @@ button.me-bell { cursor: pointer; }
 .today-facts > b { font-weight: 700; opacity: 0.75; white-space: nowrap; }
 .today-facts > span { margin: 0; min-width: 0; font-variant-numeric: tabular-nums; }
 
+/* ---- 今日卡：地點、進度、字大啲（Ice 2026-10-24「更清晰、留意可讀性」） ---- */
+.today-label { font-size: 14px; opacity: 0.9; }
+.today-places { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 15px; font-weight: 600; line-height: 1.35; }
+.today-places > span:last-child { text-align: right; }
+.today-places small { display: block; font-size: 12px; font-weight: 600; opacity: 0.75; letter-spacing: 0.04em; }
+.today-progress { font-size: 14px; font-weight: 600; opacity: 0.92; font-variant-numeric: tabular-nums; }
+.today-note { font-size: 15px; opacity: 0.95; }
+.today-live { font-size: 15px; line-height: 1.45; }
+.today-facts { font-size: 16px; line-height: 1.5; gap: 6px 14px; background: rgba(0, 0, 0, 0.26); }
+.today-facts > b { opacity: 0.85; }
+
+/* ---- 月曆（提示同我嘅 roster 之間） ---- */
+.me-cal { margin: 12px 0; }
+.cal-head { display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; gap: 8px; margin-bottom: 10px; }
+.cal-head .btn { width: 44px; height: 44px; padding: 0; font-size: 22px; }
+.cal-title { text-align: center; font-size: 17px; }
+.cal-title .link { font-size: 13px; margin-left: 6px; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.cal-wd { text-align: center; font-size: 12px; font-weight: 700; color: var(--muted); padding-bottom: 2px; }
+.cal-day { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 1px; min-height: 52px; padding: 5px 2px 6px; font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid transparent; border-radius: 10px; text-align: center; }
+button.cal-day { cursor: pointer; }
+.cal-day b { font-size: 12px; font-weight: 600; color: var(--muted); line-height: 1.2; }
+.cal-code { font-size: 15px; font-weight: 800; line-height: 1.2; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-day[data-shift="dawn"] { background: color-mix(in srgb, var(--dawn) 26%, var(--panel)); }
+.cal-day[data-shift="early"] { background: color-mix(in srgb, var(--early) 26%, var(--panel)); }
+.cal-day[data-shift="mid"] { background: color-mix(in srgb, var(--mid) 26%, var(--panel)); }
+.cal-day[data-shift="late"] { background: color-mix(in srgb, var(--late) 26%, var(--panel)); }
+.cal-day[data-shift="night"] { background: color-mix(in srgb, var(--night) 40%, var(--panel)); }
+.cal-day[data-tone="rest"] { background: color-mix(in srgb, var(--ok) 14%, var(--panel)); }
+.cal-day[data-tone="rest"] .cal-code { color: var(--ok); }
+.cal-day[data-tone="leave"] { background: color-mix(in srgb, var(--mid) 12%, var(--panel)); }
+.cal-day[data-tone="leave"] .cal-code { color: var(--mid); }
+.cal-day[data-tone="tbd"] .cal-code { color: var(--warn); }
+.cal-day[data-tone="spare"] .cal-code { color: var(--muted); }
+.cal-day[data-today="1"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.cal-day[data-today="1"] b { color: var(--accent); }
+.cal-school { position: absolute; left: 50%; bottom: 3px; width: 18px; height: 3px; margin-left: -9px; border-radius: 2px; background: var(--warn); }
+.cal-changed { position: absolute; top: 4px; right: 4px; width: 5px; height: 5px; border-radius: 50%; background: var(--muted); }
+.cal-ot { position: absolute; top: 4px; left: 4px; width: 6px; height: 6px; border-radius: 50%; font-size: 0; background: var(--warn); }
+.cal-blank { min-height: 52px; }
+.cal-school-box { margin-top: 10px; font-size: 14px; }
+.cal-school-list { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 2px; }
+.cal-school-list li { display: flex; align-items: center; gap: 8px; }
+.cal-school-list i { flex: none; width: 14px; height: 3px; border-radius: 2px; background: var(--warn); }
+@media (max-width: 380px) { .cal-code { font-size: 13px; } .cal-day { min-height: 46px; } }
+@media (min-width: 900px) { .me-cal { max-width: 720px; } }
+
 /* ---- OT（日詳情） ---- */
 .me-ot { margin: 0 0 12px; }
 .me-ot > summary { display: flex; align-items: baseline; gap: 10px; cursor: pointer; }
