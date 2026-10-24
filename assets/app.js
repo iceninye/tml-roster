@@ -15,7 +15,7 @@ import { holidaysOn } from "../lib/tml-ics.js"
 import { monthDates, otClock, otFromClock, recentOt, setOt } from "../lib/tml-ot.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson, syncState } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.32", commit: "dev" }
+const BUILD = { version: "0.9.33", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -229,7 +229,6 @@ const S = {
   calNext: "下個月",
   calThis: "本月",
   calSchool: "學校假期",
-  calHelp: "更份只顯示最後 3 個數字（1101150 → 150），顏色跟更類；撳任何一日睇詳情。橙線係學校假期，左上橙點係有 OT，右上細點係手動改過。",
   // OT（lib/tml-ot.js）
   ot: "OT",
   otSum: (m) => `OT ${S.workMin(m)}`,
@@ -237,9 +236,7 @@ const S = {
   otWhole: "成更 OT",
   otBefore: (m) => `更前 OT ${S.workMin(m)}`,
   otAfter: (m) => `更後 OT ${S.workMin(m)}`,
-  otTitle: "OT（加班）",
-  otNone: "未有 OT",
-  otWholeLabel: "成更 OT（呢更嘅工時全部計 OT）",
+  otWholeLabel: "成更 OT",
   otBeforeLabel: "更前",
   otAfterLabel: "更後",
   otHoursUnit: "小時",
@@ -250,7 +247,6 @@ const S = {
   otSaved: "已儲存 OT",
   otCleared: "已清除 OT",
   otBad: "OT 時數唔啱：請輸入 0 至 12 小時（例如 3.5）",
-  otHelp: "成更 OT：例如休息日返 1101150，成更 7 小時計 OT（先用 ✏️ 改做嗰個更份）。更前／更後：打時數（例如 3.5）或者揀鐘數，兩格會自動對返。OT 計開工日，時數同正常工時分開計；上下班時間同休息檢查會計埋 OT。",
 }
 
 // Depot and siding codes as the sheets print them (read from the sheets' own
@@ -826,7 +822,8 @@ function todayHtml(date, entry, cell, short = false) {
     `<span class="today-title">${isOffTone(cell) ? offTitleHtml(entry.code, cell) : escapeHtml(cell.label)}${tags}${short ? `<span class="badge rest-short">${S.restShort}</span>` : ""}</span>` +
     (lines.times ? `<span class="today-times">${lines.times}</span>${todayPlacesHtml(cell)}${barHtml(lines.span, serviceSeconds(Date.now()))}${progressHtml(lines.span)}` : "") +
     (lines.note && !lines.times ? `<span class="today-note">${escapeHtml(lines.note)}</span>` : "") +
-    (lines.times && cell.ot ? `<span class="today-note">${escapeHtml(otText(cell.ot))}</span>` : "") +
+    // OT badge 已經講咗有 OT，呢度只寫更前／更後幾耐（唔再寫「成更 OT」）
+    (lines.times && otText({ ...cell.ot, whole: false }) ? `<span class="today-note">${escapeHtml(otText({ ...cell.ot, whole: false }))}</span>` : "") +
     (live ? `<span class="today-live"><i class="pulse"></i><span>${S.now}：${escapeHtml(dutyPhaseText(live))} <small>${S.until(hhmm(live.until))}</small></span></span>` : "") +
     todayFactsHtml(date, cell, live) +
     `</button>`
@@ -900,14 +897,14 @@ function otPanelHtml(date, entry) {
     `<div class="ot-row"><span class="ot-side">${label}</span>` +
     `<input name="${side}H" class="mini" type="number" inputmode="decimal" step="any" value="${hours(mins)}" placeholder="0" aria-label="${label} ${S.otHoursUnit}"><span>${S.otHoursUnit}</span>` +
     `<span class="ot-or">${word}</span><input name="${side}T" class="mini" type="time" value="${mins && ref != null ? otClock(ref, mins, side) : ""}"${ref == null ? " disabled" : ""} aria-label="${label} ${word}"></div>`
-  return `<details class="panel me-ot"${entry.ot ? " open" : ""}><summary><b>${S.otTitle}</b><span class="meta">${escapeHtml(otText(entry.ot) || S.otNone)}</span></summary>` +
-    `<form class="me-ot-form" autocomplete="off">` +
+  // Ice 2026-10-24：唔要標題同說明，格本身已經講清楚
+  return `<section class="panel me-ot"><form class="me-ot-form" autocomplete="off">` +
     `<label class="ot-check"><input type="checkbox" name="whole"${ot.whole ? " checked" : ""}> ${S.otWholeLabel}</label>` +
     row("before", S.otBeforeLabel, S.otFrom, ot.before, on) +
     row("after", S.otAfterLabel, S.otTo, ot.after, off) +
     `<div class="row"><button type="submit" class="btn primary">${S.otSave}</button>` +
     (entry.ot ? ` <button type="button" class="btn me-ot-clear">${S.otClear}</button>` : "") + `</div>` +
-    `<p class="fine">${S.otHelp}</p></form></details>`
+    `</form></section>`
 }
 
 // 時數同鐘數兩格互相對返：改時數就計鐘數，揀鐘數就計時數。
@@ -973,7 +970,7 @@ function calendarHtml(month) {
     const title = [`${meDate(date)} ${entry.code}`, otText(cell.ot), ...hol].filter(Boolean).join(" · ")
     return `<button type="button" class="cal-day me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}" data-today="${date === today ? 1 : 0}"` +
       `${hol.length ? ' data-school="1"' : ""} title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">` +
-      `<b>${n}</b><span class="cal-code">${escapeHtml(label)}</span>${schoolMark}` +
+      `<b>${n}</b><span class="cal-code" data-len="${Math.min(label.length, 6)}">${escapeHtml(label)}</span>${schoolMark}` +
       (entry.source === "override" ? `<i class="cal-changed" aria-hidden="true"></i>` : "") +
       (cell.ot ? `<i class="cal-ot" aria-hidden="true"></i>` : "") + `</button>`
   }).join("")
@@ -987,8 +984,7 @@ function calendarHtml(month) {
     `<div class="cal-title"><b>${S.calTitle(y, m)}</b>${month === thisMonth ? "" : ` <button type="button" class="link me-cal-this">${S.calThis}</button>`}</div>` +
     `<button type="button" class="btn icon me-cal-next" aria-label="${S.calNext}">›</button></div>` +
     `<div class="cal-grid">${S.weekdays.map((d) => `<span class="cal-wd">${d.replace("週", "")}</span>`).join("")}${blanks}${cells}</div>` +
-    (list ? `<div class="cal-school-box"><b>${S.calSchool}</b><ul class="cal-school-list">${list}</ul></div>` : "") +
-    `<p class="fine">${S.calHelp}</p>`
+    (list ? `<div class="cal-school-box"><b>${S.calSchool}</b><ul class="cal-school-list">${list}</ul></div>` : "")
 }
 
 /* ------------------------------------------------------- roster table */

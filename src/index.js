@@ -304,13 +304,11 @@ async function mailOldVersion(kind, token, stored, request, device, env) {
 
 /* ------------------------------------------------------------ 學校假期 */
 
-// Ice 2026-10-24 俾嘅學校日曆（4 個，Google Calendar 嘅 cid）。只讀呢幾個（唔係任意 URL 嘅 proxy）。
+// 學校日曆（Google Calendar 嘅 cid）。只讀呢度列出嘅（唔係任意 URL 嘅 proxy）。
 // 第一次俾嘅 skhsslmc.edu.hk_5k7g1ubf9dqnlvn7fegnkuj3h0 回 404（唔公開），已換走。
+// Ice 2026-10-24 再定：只用 cal 1（vk7g…，學校假期），其餘 3 個（01rud…、4j27…、2cls…）係其他活動，唔讀。
 export const SCHOOL_CALENDARS = [
-  "skhsslmc.edu.hk_01rudpgarigvp0ivcbe83712hk@group.calendar.google.com",
   "skhsslmc.edu.hk_vk7g1ubf9dqnlvn7fegnkuj3h0@group.calendar.google.com",
-  "skhsslmc.edu.hk_4j27jtnq3nf3difmm0pgh0t11c@group.calendar.google.com",
-  "skhsslmc.edu.hk_2cls6pqrhan0n4uvufp97uhhpk@group.calendar.google.com",
 ]
 const icsUrl = (id) => `https://calendar.google.com/calendar/ical/${encodeURIComponent(id)}/public/basic.ics`
 const SCHOOL_TTL = 6 * 3600
@@ -331,7 +329,7 @@ async function readCalendar(id) {
   }
 }
 
-// 4 個日曆一齊讀、合併，回前後約一年嘅活動 [{ start, end, title, cal }]（cal = 第幾個日曆，0 起）。
+// 日曆一齊讀、合併，回前後約一年嘅活動 [{ start, end, title, cal }]（cal = 第幾個日曆，0 起）。
 // 讀唔到嘅跳過，記喺 tried（同日曆次序一樣，"ok" 或者原因）；全部都讀唔到先回 502。
 // Cloudflare 同瀏覽器都快取 6 個鐘。
 async function schoolHolidays() {
