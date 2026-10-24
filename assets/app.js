@@ -15,7 +15,7 @@ import { holidaysOn } from "../lib/tml-ics.js"
 import { monthDates, otClock, otFromClock, recentOt, setOt } from "../lib/tml-ot.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson, syncState } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.31", commit: "dev" }
+const BUILD = { version: "0.9.32", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
