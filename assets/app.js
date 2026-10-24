@@ -12,10 +12,11 @@ import { OFF_CODES, workOf } from "../lib/tml-extra.js"
 import { serviceDate, serviceSeconds } from "../lib/tml-time.js"
 import { fetchData, placeNames, sheetForDate, stationNames } from "../lib/tml-data.js"
 import { holidaysOn } from "../lib/tml-ics.js"
+import { isoWeek } from "../lib/tml-plan.js"
 import { monthDates, otClock, otFromClock, recentOt, setOt } from "../lib/tml-ot.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson, syncState } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.33", commit: "dev" }
+const BUILD = { version: "0.9.34", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -229,6 +230,8 @@ const S = {
   calNext: "下個月",
   calThis: "本月",
   calSchool: "學校假期",
+  calWeekHead: "週",
+  calWeek: (n) => `第 ${n} 週`,
   // OT（lib/tml-ot.js）
   ot: "OT",
   otSum: (m) => `OT ${S.workMin(m)}`,
@@ -956,7 +959,7 @@ function calendarHtml(month) {
   const today = serviceDate(Date.now())
   const days = monthDates(`${month}-01`)
   const [y, m] = month.split("-").map(Number)
-  const blanks = Array.from({ length: weekdayIndex(days[0]) }, () => `<span class="cal-blank" aria-hidden="true"></span>`).join("")
+  const blanks = Array.from({ length: weekdayIndex(days[0]) }, () => `<span class="cal-blank" aria-hidden="true"></span>`)
   const cells = days.map((date) => {
     const entry = dayEntry(roster, date)
     const n = Number(date.slice(8))
@@ -973,7 +976,14 @@ function calendarHtml(month) {
       `<b>${n}</b><span class="cal-code" data-len="${Math.min(label.length, 6)}">${escapeHtml(label)}</span>${schoolMark}` +
       (entry.source === "override" ? `<i class="cal-changed" aria-hidden="true"></i>` : "") +
       (cell.ot ? `<i class="cal-ot" aria-hidden="true"></i>` : "") + `</button>`
-  }).join("")
+  })
+  // 每行頭加週數（ISO，星期一開始；Ice 2026-10-24）
+  const slots = [...blanks, ...cells]
+  const rows = []
+  for (let i = 0; i < slots.length; i += 7) {
+    const monday = addDays(days[0], i - blanks.length)
+    rows.push(`<span class="cal-wk" title="${S.calWeek(isoWeek(monday).week)}">${isoWeek(monday).week}</span>${slots.slice(i, i + 7).join("")}`)
+  }
   // 呢個月嘅學校假期一覽
   const first = days[0]
   const last = days[days.length - 1]
@@ -983,7 +993,7 @@ function calendarHtml(month) {
   return `<div class="cal-head"><button type="button" class="btn icon me-cal-prev" aria-label="${S.calPrev}">‹</button>` +
     `<div class="cal-title"><b>${S.calTitle(y, m)}</b>${month === thisMonth ? "" : ` <button type="button" class="link me-cal-this">${S.calThis}</button>`}</div>` +
     `<button type="button" class="btn icon me-cal-next" aria-label="${S.calNext}">›</button></div>` +
-    `<div class="cal-grid">${S.weekdays.map((d) => `<span class="cal-wd">${d.replace("週", "")}</span>`).join("")}${blanks}${cells}</div>` +
+    `<div class="cal-grid"><span class="cal-wd cal-wk-head">${S.calWeekHead}</span>${S.weekdays.map((d) => `<span class="cal-wd">${d.replace("週", "")}</span>`).join("")}${rows.join("")}</div>` +
     (list ? `<div class="cal-school-box"><b>${S.calSchool}</b><ul class="cal-school-list">${list}</ul></div>` : "")
 }
 
