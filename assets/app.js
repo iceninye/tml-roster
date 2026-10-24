@@ -12,9 +12,9 @@ import { OFF_CODES, workOf } from "../lib/tml-extra.js"
 import { serviceDate, serviceSeconds } from "../lib/tml-time.js"
 import { fetchData, placeNames, sheetForDate, stationNames } from "../lib/tml-data.js"
 import { monthDates, otClock, otFromClock, recentOt, setOt } from "../lib/tml-ot.js"
-import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson } from "../lib/tml-cloud.js"
+import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson, syncState } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.29", commit: "dev" }
+const BUILD = { version: "0.9.30", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -26,6 +26,8 @@ const KV_KEY = "tml-roster-kv-token"
 const KV_VERSION = "tml-roster-kv-version"
 // 最後一次上傳／下載時嘅更表指紋：同而家唔同就喺齒輪旁加一粒「未上傳」點
 const KV_SYNCED = "tml-roster-kv-synced"
+// 呢部機最後一次改更表（或者標題）嘅時間，🔔 提示用嚟講「呢部機幾時改」
+const KV_LOCAL_AT = "tml-roster-local-at"
 
 const S = {
   weekdays: ["週一", "週二", "週三", "週四", "週五", "週六", "週日"],
@@ -144,6 +146,18 @@ const S = {
   syncKeptLocal: "冇覆蓋：雲端版本保持不變。",
   syncKeptDown: "冇下載：呢部機嘅更表保持不變。",
   syncDirty: "呢部機有改動未上傳到雲端。",
+  // 🔔 雲端同呢部機邊個新啲（開頁、返到前景時問一次雲端）
+  bell: {
+    cloud: (at, device) => `🔔 雲端較新：${at}${device ? ` 由「${device}」上傳` : ""}，撳「由雲端下載」攞返。`,
+    local: (at) => `🔔 呢部機較新${at ? `：${at} 改咗` : ""}，未上傳到雲端，撳「上傳到雲端」。`,
+    both: (cloudAt, device, at) => `🔔 兩邊都改過：雲端 ${cloudAt}${device ? `（${device}）` : ""}，呢部機 ${at || "未知時間"}。上傳會覆蓋雲端，下載會覆蓋呢部機，請揀一個。`,
+  },
+  bellShort: {
+    cloud: (at, device) => `🔔 雲端較新（${at}${device ? ` · ${device}` : ""}）`,
+    local: (at) => `🔔 呢部機較新${at ? `（${at}）` : ""}，未上傳`,
+    both: (cloudAt, device, at) => `🔔 兩邊都改過（雲端 ${cloudAt} · 呢部機 ${at || "未知"}）`,
+  },
+  bellGo: "去同步 ›",
   sumTitle: "本週概況",
   sumShort: (n) => `休息唔夠 ${n} 日`,
   sumRest: (n) => `休息 ${n} 日`,
@@ -291,6 +305,7 @@ function saveRoster(next) {
   roster = next
   const json = JSON.stringify(next)
   writePref(ROSTER_KEY, json)
+  writePref(KV_LOCAL_AT, new Date().toISOString())
   return readPref(ROSTER_KEY) === json
 }
 
@@ -955,6 +970,35 @@ function render() {
   paintDirty()
 }
 
+// 🔔 而家係邊個新啲（冇問到雲端就 none）
+function bellState() {
+  if (!cloud || !roster || !kvToken() || syncSupported === false) return "none"
+  return syncState({ cloudVersion: cloud.version, localVersion: readPref(KV_VERSION), dirty: kvDirty(), same: cloud.print === kvPrint() })
+}
+
+// short：週頁頂一行（撳去設定）；否則設定頁同步面板入面嘅長句。
+function bellHtml(short) {
+  const kind = bellState()
+  if (kind === "none") return ""
+  const cloudAt = hkStamp(cloud.updatedAt)
+  const localAt = hkStamp(readPref(KV_LOCAL_AT))
+  const args = kind === "local" ? [localAt] : [cloudAt, cloud.device, localAt]
+  const line = escapeHtml((short ? S.bellShort : S.bell)[kind](...args))
+  return short
+    ? `<button type="button" class="me-bell" data-kind="${kind}"><span>${line}</span><b>${S.bellGo}</b></button>`
+    : `<p class="me-bell" data-kind="${kind}" role="status">${line}</p>`
+}
+
+// 唔重畫成頁（設定頁有輸入框），只換 🔔 嗰格同齒輪點
+function paintBell() {
+  const slot = document.getElementById("me-bell")
+  if (slot) {
+    const html = bellHtml(state.page !== "setup")
+    if (slot.innerHTML !== html) slot.innerHTML = html
+  }
+  paintDirty()
+}
+
 function renderPage() {
   shown = ""
   if (state.page === "setup") {
@@ -1002,6 +1046,7 @@ function renderPage() {
     `<div class="weeklabel"><b>${weekLabel(dates)}</b>` +
     `<span>${state.monday === current ? S.thisWeek : `<button type="button" class="link me-this">${S.backThis}</button>`}</span></div>` +
     `<button type="button" class="btn me-next" aria-label="${S.next}">›</button></div>` +
+    `<div id="me-bell" class="me-bell-slot">${bellHtml(true)}</div>` +
     `<div id="me-data"></div>` +
     `<details class="fine-box hints"><summary>${S.hintTitle}</summary><p class="fine">${S.weekHint} · ${S.swipeHint} · ${S.restHelp}</p></details>` +
     `<details class="panel roster-box"><summary>${S.rosterTitle(roster.rows.length)}</summary>` +
@@ -1113,7 +1158,8 @@ function setupHtml() {
         `<div class="row me-foot">` +
         (roster ? `<button type="button" class="btn me-kv-up">${S.syncUpload}</button>` : "") +
         `<button type="button" class="btn ${roster ? "" : "primary "}me-kv-down">${S.syncDownload}</button></div>` +
-        (kvDirty() ? `<p class="fine me-sync-dirty">${S.syncDirty}</p>` : "") +
+        (bellState() === "none" && kvDirty() ? `<p class="fine me-sync-dirty">${S.syncDirty}</p>` : "") +
+        `<div id="me-bell" class="me-bell-slot">${bellHtml(false)}</div>` +
         `<p class="me-msg me-sync-msg" role="status">${escapeHtml(state.syncMsg)}</p></section>`)
 }
 
@@ -1148,6 +1194,7 @@ function adoptToken() {
   if (value && value !== kvToken()) {
     writePref(KV_KEY, value)
     writePref(KV_VERSION, "0") // 換咗 token：手上版本號唔再適用
+    cloud = null
     sendLog("join", value)
   }
   return kvToken()
@@ -1184,6 +1231,44 @@ function paintDirty() {
   button.setAttribute("aria-label", dirty ? `${S.settings}（${S.syncDirty}）` : S.settings)
 }
 
+// 雲端記錄嘅指紋，同 kvPrint() 一樣計法：內容一樣就唔使響 🔔
+function cloudPrint(rec) {
+  const ot = Object.keys(rec.ot ?? {}).length ? [rec.ot] : []
+  return fingerprint(JSON.stringify([rec.title ?? "", rec.rows, rec.numbers, rec.names, rec.anchor, rec.overrides, ...ot]))
+}
+
+// 🔔：雲端最新版本嘅 { version, updatedAt, device, print }；null = 未問到／冇記錄。
+let cloud = null
+let cloudAsked = 0
+
+// 開頁、返到前景（最多一分鐘一次）時讀一次雲端，睇下邊個新啲。唔會改更表。
+async function kvCheck(force = false) {
+  if (!roster || !kvToken() || syncSupported === false) return
+  if (!force && Date.now() - cloudAsked < 60000) return
+  cloudAsked = Date.now()
+  const token = kvToken()
+  let res
+  try {
+    res = await fetch(kvEndpoint(), { headers: { accept: "application/json" }, cache: "no-store" })
+  } catch {
+    return // 離線：唔知，唔響
+  }
+  if (token !== kvToken()) return // 問緊嗰陣換咗 token
+  const body = await res.json().catch(() => null)
+  if (res.status === 404 && body?.reason === "empty") cloud = null
+  else if (!res.ok || !body?.ok || !body.record) return
+  else {
+    const rec = body.record
+    cloud = { version: Number(rec.version ?? 0), updatedAt: rec.updatedAt ?? "", device: rec.device ?? "", print: cloudPrint(rec) }
+    // 另一部機上傳咗同一份內容：靜靜跟上版本號，唔使響，下次上傳都唔會撞版本
+    if (cloud.print === kvPrint()) {
+      writePref(KV_VERSION, String(cloud.version))
+      writePref(KV_SYNCED, kvPrint())
+    }
+  }
+  paintBell()
+}
+
 function kvEndpoint() {
   return `/api/roster/${encodeURIComponent(kvToken())}`
 }
@@ -1195,6 +1280,7 @@ async function probeSync() {
     const res = await fetch("/api/ping", { headers: { accept: "application/json" }, cache: "no-store" })
     const body = await res.json().catch(() => null)
     syncSupported = !!(res.ok && body?.ok)
+    if (syncSupported) kvCheck(true)
   } catch {
     // 離線或者網絡出錯：唔知支唔支援，照舊顯示同步面板（唔好誤報「唔支援」）
     return
@@ -1220,6 +1306,7 @@ function kvNewToken() {
   const token = newToken()
   writePref(KV_KEY, token)
   writePref(KV_VERSION, "0") // 新記錄由第 0 版開始
+  cloud = null
   kvMessage(S.syncNewDone)
   sendLog("new", token)
 }
@@ -1276,6 +1363,7 @@ async function kvUpload(force = false, skipBackup = false) {
   if (!res.ok || !body?.ok) return kvMessage(S.syncFail)
   writePref(KV_VERSION, String(body.version))
   writePref(KV_SYNCED, kvPrint())
+  cloud = { version: Number(body.version), updatedAt: body.updatedAt ?? "", device: thisDevice(), print: kvPrint() }
   kvMessage(S.syncUp(body.version, hkStamp(body.updatedAt)) + (body.backedUp ? S.syncBackedUp : ""))
 }
 
@@ -1329,6 +1417,7 @@ async function kvDownload() {
   }
   writePref(KV_VERSION, String(rec.version ?? 0))
   writePref(KV_SYNCED, kvPrint())
+  cloud = { version: Number(rec.version ?? 0), updatedAt: rec.updatedAt ?? "", device: rec.device ?? "", print: kvPrint() }
   if (fresh) {
     state.page = "week"
     state.monday = mondayOf(serviceDate(Date.now()))
@@ -1351,6 +1440,7 @@ async function backupLocal() {
 function submitTitle(form) {
   title = String(form.elements.title.value ?? "").trim().slice(0, 24)
   writePref(TITLE_KEY, title)
+  writePref(KV_LOCAL_AT, new Date().toISOString())
   applyTitle()
   state.message = S.saved
   render()
@@ -1431,7 +1521,7 @@ function onClick(event) {
   else if (target.closest(".me-next")) state.monday = addDays(state.monday, 7)
   else if (target.closest(".me-this")) state.monday = mondayOf(serviceDate(Date.now()))
   else if (target.closest(".me-roster-toggle")) state.rosterAll = !state.rosterAll
-  else if (target.closest(".me-settings")) {
+  else if (target.closest(".me-settings") || target.closest("button.me-bell")) {
     state.page = "setup"
     state.message = ""
     state.syncMsg = ""
@@ -1611,6 +1701,7 @@ function boot() {
     if (document.visibilityState !== "visible") return
     rollWeek()
     retryData()
+    kvCheck()
   })
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {})
 }
