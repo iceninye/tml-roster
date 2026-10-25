@@ -2,7 +2,7 @@
 // cached; a file is revalidated every time the network is up, so a release never
 // pairs a new app.js with old libs, and a new Duty Sheet shows up on next open.
 
-const CACHE = "tml-roster-shell-v74"
+const CACHE = "tml-roster-shell-v75"
 const SHELL = [
   "./",
   "index.html",
