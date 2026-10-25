@@ -817,3 +817,17 @@ button.cal-day { cursor: pointer; }
 .day[data-tone="rest"] .day-title, .day[data-tone="leave"] .day-title { color: inherit; font-size: 24px; font-weight: 800; line-height: 1.1; align-items: baseline; gap: 8px; }
 .day[data-tone="rest"] .day-sub, .day[data-tone="leave"] .day-sub { color: inherit; font-size: 22px; font-weight: 800; }
 .day[data-tone="rest"] .day-title .badge, .day[data-tone="leave"] .day-title .badge { align-self: center; font-size: 12px; }
+/* 本週已過嘅日子（Ice 2026-10-25）：淡色、縮一半、只顯示頭兩行；撳一下還原 full size，仍然淡色 */
+.day[data-past="1"] { opacity: 0.45; }
+.day[data-past="1"]:not([data-open]) { min-height: 48px; grid-template-columns: 46px 1fr; gap: 8px; padding: 4px 10px 4px 12px; }
+.day[data-past="1"]:not([data-open]) .day-date { grid-auto-flow: column; gap: 3px; align-items: baseline; }
+.day[data-past="1"]:not([data-open]) .day-date small { font-size: 10px; white-space: nowrap; }
+.day[data-past="1"]:not([data-open]) .day-date b { font-size: 14px; }
+.day[data-past="1"]:not([data-open]) .day-main { gap: 0; }
+.day[data-past="1"]:not([data-open]) .day-title { flex-wrap: nowrap; overflow: hidden; white-space: nowrap; font-size: 12px; line-height: 1.25; gap: 4px; }
+.day[data-past="1"]:not([data-open]) .day-title .badge { font-size: 10px; padding-block: 0; }
+.day[data-past="1"]:not([data-open]) .day-sub { font-size: 11px; }
+.day[data-past="1"]:not([data-open]) .day-times { font-size: 13px; line-height: 1.25; }
+.day[data-past="1"]:not([data-open]) :is(.bar, .meta) { display: none; }
+.day[data-past="1"]:is([data-tone="rest"], [data-tone="leave"]):not([data-open]) .day-title { font-size: 13px; }
+.day[data-past="1"]:is([data-tone="rest"], [data-tone="leave"]):not([data-open]) .day-sub { font-size: 12px; }

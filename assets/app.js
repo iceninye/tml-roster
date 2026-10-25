@@ -16,7 +16,7 @@ import { isoWeek } from "../lib/tml-plan.js"
 import { monthDates, otClock, otFromClock, recentOt, setOt } from "../lib/tml-ot.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson, syncState } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.44", commit: "dev" }
+const BUILD = { version: "0.9.45", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -291,6 +291,7 @@ const state = {
   otOpen: null, // 日詳情：OT 格打開咗嘅日子（預設收埋，儲存後收埋）
   noteOpen: null, // 日詳情：備註格打開咗嘅日子
   setupOpen: new Set(), // 設定頁：打開咗邊幾格（預設全部收埋，Ice 2026-10-24）
+  pastOpen: new Set(), // 本週已過嘅日卡：撳過還原 full size 嘅日子（只記喺記憶）
 }
 
 // 每日備註（冇就 ""）
@@ -1304,7 +1305,9 @@ function paintData() {
         (cell.sheet ? `<span class="badge plain">${cell.sheet}</span>` : "") +
         (shift ? `<span class="badge shift">${S.shift[shift]}</span>` : "") +
         (cell.ot ? `<span class="badge ot">${S.ot}</span>` : "")
-      return `<li><button type="button" class="day me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}" data-today="${date === today ? 1 : 0}"${short.has(date) ? ' data-short="1"' : ""}>` +
+      return `<li><button type="button" class="day me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}" data-today="${date === today ? 1 : 0}"${short.has(date) ? ' data-short="1"' : ""}` +
+        // 本週已過嘅日子：淡色、縮細、只顯示頭兩行；撳一下還原 full size（仍然淡色）
+        `${date < today ? ` data-past="1"${state.pastOpen.has(date) ? ' data-open="1"' : ""}` : ""}>` +
         `<span class="day-date"><small>${S.weekdays[weekdayIndex(date)]}</small><b>${Number(date.slice(8))}</b></span>` +
         `<span class="day-main"><span class="day-title">${isOffTone(cell) ? offTitleHtml(entry.code, cell) : escapeHtml(cell.label)}${tags}${badges}${short.has(date) ? `<span class="badge rest-short">${S.restShort}</span>` : ""}</span>` +
         (lines.times ? `<span class="day-times">${lines.times}</span>${barHtml(lines.span)}` : "") +
@@ -1826,6 +1829,9 @@ function onClick(event) {
     state.from = state.page
     state.page = "duty"
     state.duty = { sheet: mate.dataset.sheet, id: mate.dataset.duty }
+  } else if (target.closest('.me-day[data-past="1"]:not([data-open])')) {
+    state.pastOpen.add(target.closest(".me-day").dataset.date)
+    return render()
   } else if (target.closest(".me-day")) {
     state.page = "detail"
     state.date = target.closest(".me-day").dataset.date
