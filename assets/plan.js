@@ -37,13 +37,15 @@ const S = {
   csvBtn: "揀 CSV 檔匯入",
   csvBtnTitle: "匯入 Standard Roster",
   csvTitle: "匯入同備份",
-  weekIs: { past: "本週或之前，唔可以匯入", next: "下星期", later: "下星期之後" },
+  weekIs: { past: "之前嘅星期，唔可以匯入", this: "本週，匯入前要撳確定（鎖住 🔒 要先解鎖）", next: "下星期", later: "下星期之後" },
   csvFor: (week) => `匯入後用於 ${week}`,
   csvHelp: "格式：標題行 `,Name,Mon,Tue,Wed,Thu,Fri,Sat,Sun`，之後每行係 行號、名稱、七日更份。",
   csvEmpty: "讀唔到任何一行，請確認係 CSV",
   csvDone: (rows, named, week, kept) => `已匯入 ${rows} 行${named ? `：${named} 位組員，用於 ${week}${kept ? `，${kept} 位沿用之前嘅喜好` : ""}；所有積木已放入待定區，設好假期同喜好後按「自動」` : ""}`,
   importWeek: "週數",
-  importPast: (week) => `唔可以匯入 ${week}：呢個係本週或者之前嘅星期，會覆蓋本週嘅編更。請揀下星期。`,
+  importPast: (week) => `唔可以匯入 ${week}：呢個係之前嘅星期。請揀本週或者之後。`,
+  importThis: (week, later) => `${week}係本週：匯入會覆蓋本週嘅編更${later ? `（${later} 都會重新開始）` : ""}，之前會自動下載備份。確定？`,
+  importThisLocked: (week) => `${week}係本週，已經鎖住 🔒，唔可以匯入。請先撳標題旁邊個鎖解鎖。`,
   importNotNext: (week, next) => `你揀咗 ${week}，唔係下星期 ${next}。確定用呢個星期？`,
   importOver: (weeks) => `${weeks} 已經有手動編排，匯入後會重新開始。確定？`,
   importMissing: (names, n) => `新 CSV 冇咗 ${n} 位組員：${names}。\n佢哋之前幾星期嘅編排唔會再顯示（資料仍然保留喺備份）。確定匯入？`,
@@ -401,7 +403,8 @@ function weekFields(monday, label) {
 
 // e.g. 第 44 週：2026/10/26 至 2026/11/01 · 下星期
 function spanText(monday) {
-  const kind = monday <= mondayOf(serviceDate(Date.now())) ? "past" : monday === nextMonday() ? "next" : "later"
+  const current = mondayOf(serviceDate(Date.now()))
+  const kind = monday < current ? "past" : monday === current ? "this" : monday === nextMonday() ? "next" : "later"
   return `${S.weekSpanLabel(isoWeek(monday).week, weekSpan(monday))} · ${S.weekIs[kind]}`
 }
 
@@ -415,18 +418,27 @@ function csvImportHtml() {
     (plan ? backupHtml() : "") + `</details>`
 }
 
-// Whether a CSV may be imported for that Monday: never this week or before; ask when it is
-// not next week, and when a week from then on already has hand-made changes.
+// Whether a CSV may be imported for that Monday: never before this week; this week only
+// when it is not locked 🔒, after one 確定; ask when it is not next week, and when a week
+// from then on already has hand-made changes.
 function importAllowed(anchor) {
   const current = mondayOf(serviceDate(Date.now()))
-  if (anchor <= current) {
+  if (anchor < current) {
     alert(S.importPast(weekNo(anchor)))
     return false
   }
-  if (anchor !== nextMonday() && !window.confirm(S.importNotNext(weekNo(anchor), weekNo(nextMonday())))) return false
   const touched = Object.entries(plan?.weeks ?? {})
     .filter(([monday, week]) => monday >= anchor && !isLocked(plan, monday) && Object.values(week).some((cell) => cell.pins?.some(Boolean)))
     .map(([monday]) => monday).sort()
+  if (anchor === current) {
+    if (isLocked(plan, current)) {
+      alert(S.importThisLocked(weekNo(anchor)))
+      return false
+    }
+    const later = touched.filter((m) => m > current).map((m) => `第 ${isoWeek(m).week} 週`).join("、")
+    return window.confirm(S.importThis(weekNo(anchor), later))
+  }
+  if (anchor !== nextMonday() && !window.confirm(S.importNotNext(weekNo(anchor), weekNo(nextMonday())))) return false
   if (touched.length && !window.confirm(S.importOver(touched.map((m) => `第 ${isoWeek(m).week} 週`).join("、")))) return false
   return true
 }
