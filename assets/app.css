@@ -831,3 +831,18 @@ button.cal-day { cursor: pointer; }
 .day[data-past="1"]:not([data-open]) :is(.bar, .meta) { display: none; }
 .day[data-past="1"]:is([data-tone="rest"], [data-tone="leave"]):not([data-open]) .day-title { font-size: 13px; }
 .day[data-past="1"]:is([data-tone="rest"], [data-tone="leave"]):not([data-open]) .day-sub { font-size: 12px; }
+
+/* 編更：貼上匯入、剔選組員、Remarks、複製 */
+.me-setup .p-paste-text, .p-copy-text { width: 100%; box-sizing: border-box; padding: 8px 10px; font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; color: var(--text); background: var(--panel-2); border: 1px solid var(--edge); border-radius: 10px; resize: vertical; }
+.p-paste-card { display: grid; gap: 8px; }
+.p-ticks { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 2px 12px; max-height: 340px; overflow: auto; padding: 6px 8px; background: var(--panel-2); border: 1px solid var(--edge); border-radius: 10px; }
+.me-setup .p-tickrow, .p-tickrow { display: flex; align-items: center; gap: 6px; min-height: 32px; font-size: 13px; color: var(--text); }
+.p-tickrow[hidden] { display: none; }
+.me-setup .p-tickrow input { width: 18px; height: 18px; padding: 0; flex: none; }
+.p-rota { min-width: 2.4em; color: var(--muted); font-variant-numeric: tabular-nums; }
+.p-tickrow small { color: var(--muted); }
+.p-tickrow .p-new { padding: 0 6px; color: var(--accent); border: 1px solid var(--accent); border-radius: 8px; }
+.me-setup .p-tick-filter { min-width: 0; width: 9em; padding: 7px 9px; font: inherit; font-size: 14px; color: var(--text); background: var(--panel-2); border: 1px solid var(--edge); border-radius: 10px; }
+.ptable th.who .p-rem { color: var(--text); font-weight: 700; }
+.p-copy-sort { padding: 7px 8px; font: inherit; font-size: 13px; color: var(--text); background: var(--panel-2); border: 1px solid var(--edge); border-radius: 10px; }
+.p-copy-text { margin: 0 0 8px; }

@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.9.47 — unreleased
+- 編更（Ice 2026-10-27）: 匯入改為由 Excel 複製貼上「Staff Roster - Train Crew Unit」，取代 CSV（範本檔、揀檔都拎走）。
+  `lib/tml-paste.js` 唔靠固定位置：由有「Rota No.」同「Name」嘅標題行開始，Name 之後每日兩格（更份編號、時數）到「Remarks」止，
+  每行見到 TRA 就停（TRA 同事唔要），Zvacant 保留行號但冇名。讀完先出確認卡：週數同年份由「WK : 39 /26」同標題日期推出，
+  對唔上會警告，你確認（可以改）先匯入。
+- 組員：確認卡列出貼入嘅同事（按英文全名配對，好似 VLOOKUP），第一次匯入自己剔，之後自動剔返上次組員、新名唔剔，
+  上次組員今次冇嘅會列出；剔錯同名要揀一個。只有剔咗嘅人先存名同 Remarks，其他同事嘅名唔存。
+- 時數：貼入嘅時數永遠優先（重複代碼、純數字更號都係）；冇時數／上下班嘅特別代碼先用 duty no. 表
+  （TML-traffic `data/duty-codes.json`）補；NIL 只係冇固定時間，開工日／假期照舊分；SPT11／SPT12 係 10 小時。
+- 組員格顯示 Remarks（`E · 第 3 行`）；排序加 Remarks：預設 E、L、HC、AL，撳一次 A–Z，再撳 Z–A，再撳還原。
+  Remarks 每次匯入都用最新嘅。
+- 匯出：「匯出本週 CSV」改為「複製」，Tab 分隔、冇標題、已剔組員一人一行（Rota No.、英文名、Remarks、一至日、七日總工時：
+  RD 0、AL／SH 7），預設按英文名 A–Z，可以改按 Rota No.；仲有未編嘅格會先問，確認後空格留白。
+- 代碼格式放寬（S、OJTEPIC、HC/AL ...，最多 10 個字）；`tools/validate_paste.mjs` 加入 CI。
+- Shell cache 改名 `v77`。需要 TML-traffic v0.8.22（`data/duty-codes.json`）；未合併前時數照用貼入嘅數。
+
 ## v0.9.46 — unreleased
 - 編更（Ice 2026-10-26）: 匯入 Standard Roster CSV 而家可以揀本週，撳一次「確定」就匯入（會覆蓋本週編更，
   之前照樣自動下載備份）。本週如果鎖住 🔒 就唔可以匯入，要先撳標題旁邊個鎖解鎖。之前嘅星期仍然唔可以匯入；

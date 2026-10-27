@@ -19,6 +19,7 @@ jobs:
         run: |
           node tools/validate_roster.mjs
           node tools/validate_plan.mjs
+          node tools/validate_paste.mjs
           node tools/validate_worker.mjs
           node tools/validate_version.mjs
       - name: lib/tml-duties.js same as TML-traffic
