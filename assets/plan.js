@@ -96,7 +96,7 @@ const S = {
   member: "組員",
   rowNow: (r) => `第 ${r} 行`,
   fit: "配中",
-  fitLine: (hit, all, std, stdAll, short) => `全組配中喜好 ${hit}/${all} 更（Standard 係 ${std}/${stdAll}）${short ? ` · ${short} 格休息唔夠鐘` : ""}`,
+  fitLine: (hit, all, std, stdAll, short) => `全組配中喜好 ${hit}/${all} 格（每人 7 格，假期都計；Standard 係 ${std}/${stdAll}）${short ? ` · ${short} 格休息唔夠鐘` : ""}`,
   hours: "工時",
   pinned: "手動改",
   tooShort: (h) => `休息只有 ${h} 小時`,
@@ -358,7 +358,7 @@ function settle(next, row, message = S.saved) {
   // Only when this change put the AL there, so later changes to the week are kept.
   const had = weekOf(plan).codes.slice(0, 3).includes("AL")
   if (!had && weekOf(out).codes.slice(0, 3).includes("AL")) ANNUAL.forEach((code, d) => { out = setCell(roster, out, state.monday, row, d, code) })
-  if (out.auto === false) return store(out, message)
+  if (!out.auto) return store(out, message)
   const missing = !weekOf(out).codes.includes("RD")
   store(fillMember(roster, out, state.monday, row, timeOf), missing ? S.needRd : message)
 }
@@ -553,13 +553,13 @@ function weekHtml() {
       `<small>${line.member.remark ? `<b class="p-rem">${escapeHtml(line.member.remark)}</b> · ` : ""}${S.rowNow(line.row)}</small><span class="pchips">${chips}</span></th>${cells}` +
       `<td class="sum">${work ? `${hits}/${work}` : "—"}</td><td class="sum">${hours ? hours.toFixed(1) : "—"}</td></tr>`
   }).join("")
-  // How many duty days match a preference, now and in the Standard Roster.
+  // Every member counts all 7 days: duty days that match a preference, plus RD and leave (nothing to
+  // mismatch); an empty cell is a day not matched yet.
   const fitOf = (pick) => lines.reduce((acc, line) => {
     for (const [d, code] of pick(line).entries()) {
       const t = timeOf(code, dates[d])
-      if (!t) continue
       acc.all += 1
-      if (!prefDistance(line.member.prefs, shiftOf(t.on, t.off), code)) acc.hit += 1
+      if (t ? !prefDistance(line.member.prefs, shiftOf(t.on, t.off), code) : code !== EMPTY) acc.hit += 1
     }
     return acc
   }, { hit: 0, all: 0 })
@@ -574,7 +574,7 @@ function weekHtml() {
     `<button type="button" class="btn p-next" aria-label="${S.next}">›</button></div>` +
     `<div class="plan-actions"><button type="button" class="btn primary p-arrange"${locked ? " disabled" : ""}>${state.pick.rows.length ? S.arrangeScope(state.pick.rows.length) : S.arrange}</button>` +
     (state.pick.rows.length ? `<button type="button" class="link p-pick-clear">${S.pickClear}</button>` : "") +
-    `<button type="button" class="btn p-auto" aria-pressed="${plan.auto !== false}">${plan.auto !== false ? S.autoOn : S.autoOff}</button>` +
+    `<button type="button" class="btn p-auto" aria-pressed="${plan.auto === true}">${plan.auto === true ? S.autoOn : S.autoOff}</button>` +
     `<button type="button" class="btn p-undo"${history.length ? "" : " disabled"}>↶ ${S.undo}</button>` +
     `<span class="plan-actions-end"><select class="p-copy-sort" aria-label="${S.copySort}">${Object.entries(S.copySorts).map(([k, label]) => `<option value="${k}"${state.tray.copyOrder === k ? " selected" : ""}>${label}</option>`).join("")}</select><button type="button" class="btn p-copy">${S.copy}</button><button type="button" class="btn danger p-reset"${locked ? " disabled" : ""}>${S.reset}</button></span></div>` +
     `<p class="me-msg" role="status">${escapeHtml(state.message)}</p>` +
@@ -1313,7 +1313,7 @@ function onClick(event) {
   } else if (t.closest(".p-arrange")) return autoFill()
   else if (t.closest(".p-undo")) return undo()
   else if (t.closest(".p-auto")) {
-    const on = plan.auto === false
+    const on = plan.auto !== true
     store({ ...plan, auto: on }, S.autoTurned(on))
   } else if (t.closest(".p-pick-clear")) state.pick = { rows: [] }
   else if (t.closest(".p-clear-cell")) {
