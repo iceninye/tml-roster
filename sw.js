@@ -2,7 +2,7 @@
 // cached; a file is revalidated every time the network is up, so a release never
 // pairs a new app.js with old libs, and a new Duty Sheet shows up on next open.
 
-const CACHE = "tml-roster-shell-v76"
+const CACHE = "tml-roster-shell-v77"
 const SHELL = [
   "./",
   "index.html",
@@ -21,6 +21,7 @@ const SHELL = [
   "lib/tml-extra.js",
   "lib/tml-ics.js",
   "lib/tml-ot.js",
+  "lib/tml-paste.js",
   "lib/tml-plan.js",
   "lib/tml-roster.js",
   "lib/tml-shift.js",
@@ -51,6 +52,7 @@ async function cacheData(cache) {
       const index = await (await get("data/duties/index.json")).json()
       await Promise.all([
         get("data/duty-basic.json"),
+        get("data/duty-codes.json"),
         get("data/tml-network.json"),
         ...index.sheets.map((sheet) => get(`data/duties/${sheet.file}`)),
       ])

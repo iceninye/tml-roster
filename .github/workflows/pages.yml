@@ -28,7 +28,7 @@ jobs:
         with:
           node-version: 22
       - name: Check roster logic
-        run: node tools/validate_roster.mjs && node tools/validate_plan.mjs && node tools/validate_worker.mjs && node tools/validate_version.mjs
+        run: node tools/validate_roster.mjs && node tools/validate_plan.mjs && node tools/validate_paste.mjs && node tools/validate_worker.mjs && node tools/validate_version.mjs
       - name: Collect site files
         run: |
           mkdir _site

@@ -8,7 +8,8 @@
 
 import { extraHours, isOffCode, workOf } from "../lib/tml-extra.js"
 import { EMPTY, EXTRA, HHS, LEAVE, PENDING, PREFS, SHIFTS, allToTray, canRemove, cleanPlan, clearWeek, combosView, fillMember, fillTeam, formatRanges, fromTray, importWeek, isHeld, isHhs, isLocked, isoWeek, missingMembers, mondayOfIsoWeek, namedRows, newPlan, parseRanges, prefDistance, pruneWeeks, removeBlock, renameBlock, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, toggleLock, trayView, useCombo, weekContent, weekView } from "../lib/tml-plan.js"
-import { addDays, classify, cleanRoster, mondayOf, newRoster, normaliseCode, parseRoster, weekDates } from "../lib/tml-roster.js"
+import { addDays, classify, mondayOf, normaliseCode, weekDates } from "../lib/tml-roster.js"
+import { buildRoster, byRemark, cellHours, cleanPlanRoster, dupNames, emptyCount, exportText, isLeaveCode, leftNames, nameKey, nextRemarkMode, parsePaste, pasteWeek, preTicked, tableTime } from "../lib/tml-paste.js"
 import { serviceDate } from "../lib/tml-time.js"
 import { weekLabel } from "../lib/tml-week.js"
 import { fetchData, sheetForDate } from "../lib/tml-data.js"
@@ -33,14 +34,35 @@ const S = {
   hhsHelp: "紅磡上班或者落班（更份編號 xxxx5xx）",
   shiftHelp: { dawn: "06:30 前上班", early: "10:00 前上班", mid: "10:00–15:00 上班", late: "15:00 後上班", night: "00:30 後下班" },
   status: { RD: "休息", AL: "年假", SH: "法定假", HC: "HC" },
-  noRoster: "未有 Standard Roster。請匯入下星期嘅 CSV（有 Name 欄嗰份）。",
-  csvBtn: "揀 CSV 檔匯入",
-  csvBtnTitle: "匯入 Standard Roster",
+  noRoster: "未有 Standard Roster。請喺下面貼上 Excel 嘅 Staff Roster 匯入。",
+  csvBtnTitle: "貼上 Standard Roster",
+  pasteLabel: "由 Excel 複製成份 Staff Roster 貼落呢度",
+  pastePh: "由「Rota No.」標題行開始，連 WK 嗰行都得",
+  pasteRead: "讀取",
+  pasteClear: "清除",
+  pasteHelp: "揀 Excel 入面成個 Staff Roster 複製（有 Rota No. 標題行就得），貼上後按「讀取」。每日嘅更份編號同時數、Remarks 都會讀；到 TRA 就停，Zvacant 唔計。",
+  pasteConfirm: "確認匯入",
+  pasteSummary: (rows, vacant, stop) => `讀到 ${rows} 行（Zvacant ${vacant} 行${stop ? `，行號 ${stop} 起係 TRA，唔要` : ""}）`,
+  pasteWk: (agree, wk, week, year) => agree === true ? `貼入嘅 WK ${wk.week}${wk.year ? ` /${String(wk.year).slice(2)}` : ""} 同日期一致（${year} 年第 ${week} 週）。` : agree === false ? `⚠ 貼入嘅 WK 寫第 ${wk.week} 週${wk.year ? `（${wk.year}）` : ""}，但日期係 ${year} 年第 ${week} 週。請確認下面週數同年份。` : `冇搵到 WK 行，用日期 ${year} 年第 ${week} 週。請確認。`,
+  pasteMixed: (list) => `⚠ 同一個代碼有唔同時數：${list.join("、")}（用最多嗰個）`,
+  pasteTeam: "剔選組員（按英文全名對，之後會記住）",
+  pasteFilter: "搵名",
+  pasteAll: "全部剔",
+  pasteNone: "全部唔剔",
+  pasteNew: "新",
+  pasteCount: (n, total) => `已剔 ${n} / ${total} 位`,
+  pasteLeft: (names) => `上次組員今次貼入冇：${names}（佢哋之前幾星期嘅編排唔會再顯示，資料仍然保留喺備份）。`,
+  pasteNoneTicked: "最少要剔一位組員",
+  pasteDup: (names) => `同名出現多次，只可以剔一個：${names}`,
+  pasteBack: "取消",
+  copy: "複製",
+  copySort: "匯出次序",
+  copySorts: { name: "按英文名", rota: "按 Rota No." },
+  copyEmpty: (n) => `仍然有 ${n} 格未編（空格），複製出去會留白。繼續複製？`,
+  copied: (n) => `已複製 ${n} 位組員，去 Excel 貼上`,
+  copyManual: "瀏覽器唔俾自動複製，請喺下面成段文字全選再複製",
   csvTitle: "匯入同備份",
   weekIs: { past: "之前嘅星期，唔可以匯入", this: "本週，匯入前要撳確定（鎖住 🔒 要先解鎖）", next: "下星期", later: "下星期之後" },
-  csvFor: (week) => `匯入後用於 ${week}`,
-  csvHelp: "格式：標題行 `,Name,Mon,Tue,Wed,Thu,Fri,Sat,Sun`，之後每行係 行號、名稱、七日更份。",
-  csvEmpty: "讀唔到任何一行，請確認係 CSV",
   csvDone: (rows, named, week, kept) => `已匯入 ${rows} 行${named ? `：${named} 位組員，用於 ${week}${kept ? `，${kept} 位沿用之前嘅喜好` : ""}；所有積木已放入待定區，設好假期同喜好後按「自動」` : ""}`,
   importWeek: "週數",
   importPast: (week) => `唔可以匯入 ${week}：呢個係之前嘅星期。請揀本週或者之後。`,
@@ -48,13 +70,9 @@ const S = {
   importThisLocked: (week) => `${week}係本週，已經鎖住 🔒，唔可以匯入。請先撳標題旁邊個鎖解鎖。`,
   importNotNext: (week, next) => `你揀咗 ${week}，唔係下星期 ${next}。確定用呢個星期？`,
   importOver: (weeks) => `${weeks} 已經有手動編排，匯入後會重新開始。確定？`,
-  importMissing: (names, n) => `新 CSV 冇咗 ${n} 位組員：${names}。\n佢哋之前幾星期嘅編排唔會再顯示（資料仍然保留喺備份）。確定匯入？`,
-  importStopped: "已取消匯入，冇改動",
   csvSheets: (days) => `；週${days}用特別 Duty Sheet`,
   csvBackup: (done) => `${done}。`,
   importedWeek: (week) => `而家嘅 Standard Roster：${week}`,
-  templateBtn: "下載匯入範本",
-  csvFail: "讀取檔案失敗",
   useNamed: "用有名稱嘅行",
   namedHint: (n) => `Standard Roster 有 ${n} 行有名稱。`,
   setupTitle: "設定組員",
@@ -84,7 +102,6 @@ const S = {
   reset: "本週重新開始",
   resetAsk: "本週所有格會清空，全部積木放返待定區，確定？",
   resetDone: "本週已重新開始，所有積木喺待定區",
-  csv: "匯出本週 CSV",
   member: "組員",
   rowNow: (r) => `第 ${r} 行`,
   fit: "配中",
@@ -97,6 +114,7 @@ const S = {
   editLabel: "更份編號",
   editSave: "改",
   cancel: "取消",
+  badWeek: "請填啱年份同週數",
   badCode: "格式唔啱：請輸入 7 位更份編號，或者 RD、AL、SH、HC、HSP1 呢類代號",
   quickLeave: "加假期/其他",
   quickOther: "其他",
@@ -128,7 +146,7 @@ const S = {
   autoTurned: (on) => (on ? "已開自動填入：改組員喜好或者假期，會即刻編嗰行" : "已關自動填入：改動唔會自動填格，要編就撳「自動」"),
   arrangeScope: (rows) => `自動（${rows} 位）`,
   pickRow: "剔選：自動只編呢位",
-  orderBy: { row: "行數", name: "姓名" },
+  orderBy: { row: "行數", name: "姓名", remark: "Remarks" },
   orderLabel: "排序",
   pickClear: "清除揀選",
   clearCell: "清空",
@@ -140,7 +158,6 @@ const S = {
   noteMissing: (who, day, code) => `${who} · 週${day}：Duty Sheet 冇 ${code}`,
   notePending: (day, n) => `週${day}：待定區仲有 ${n} 粒 HC／TBC 未填編號`,
   noteLeft: (day, n) => `週${day}：待定區仲有 ${n} 個更份未分配`,
-  csvSaved: (name) => `已下載 ${name}`,
   tabCombos: (n) => `組合（${n}）`,
   comboHelp: "組合係 Standard Roster 一整行：撳一個組合，再撳一位組員嘅任何一格，成行放入去（手動設定咗嘅日子唔郁）。用咗其中一粒積木，組合就會拆散。",
   comboSel: (row) => `組合：Standard 第 ${row} 行`,
@@ -220,7 +237,7 @@ const S = {
 }
 
 const view = document.getElementById("view")
-const state = { monday: null, sel: null, message: "", syncMsg: "", syncOpen: false, tray: { tab: "blocks", filter: [], sort: "on", order: "row", fold: false }, pick: { rows: [] }, notesOpen: false, importOpen: false, leaveOpen: false }
+const state = { monday: null, sel: null, message: "", syncMsg: "", syncOpen: false, tray: { tab: "blocks", filter: [], sort: "on", order: "row", remark: "default", copyOrder: "name", fold: false }, pick: { rows: [] }, notesOpen: false, importOpen: false, leaveOpen: false, paste: null, pasteMsg: "", copyText: "" }
 // How the tray and the members are shown (tab, filter, sort, member order) is this viewer's own; kept in the browser.
 const TRAY_KEY = "tml-plan-tray-view"
 // Earlier { plan, roster } pairs, for 還原上一步; kept for this visit only.
@@ -229,6 +246,7 @@ const history = []
 let roster = null
 let plan = null
 let basic = {}
+let dutyCodes = {} // data/duty-codes.json (duty no. table): hours and book-on/off of special codes
 let cards = {} // book-on/off of the duties on the special sheets (8022, 8023 ...), from data/duties
 // The same per special sheet, for a dated sheet that shares its numbers with another
 // (7091M on 1 Nov 2026 is 7091xxx too): { "7091M": { "7091123": { on, off, hours } } }
@@ -271,7 +289,9 @@ function loadTrayView() {
   if (["blocks", "combos", "other"].includes(saved.tab)) state.tray.tab = saved.tab
   if (Array.isArray(saved.filter)) state.tray.filter = saved.filter.filter((k) => kinds.includes(k))
   if (["on", "off", "code"].includes(saved.sort)) state.tray.sort = saved.sort
-  if (["row", "name"].includes(saved.order)) state.tray.order = saved.order
+  if (["row", "name", "remark"].includes(saved.order)) state.tray.order = saved.order
+  if (["default", "asc", "desc"].includes(saved.remark)) state.tray.remark = saved.remark
+  if (["name", "rota"].includes(saved.copyOrder)) state.tray.copyOrder = saved.copyOrder
   if (saved.fold === true) state.tray.fold = true
 }
 
@@ -288,10 +308,24 @@ const hhmm = (sec) => {
 }
 const meDate = (date) => `${Number(date.slice(5, 7))}/${Number(date.slice(8))}`
 
+// { on, off, hours } of a code, or null (RD, AL, unknown duty). Hours pasted in the
+// Standard Roster always win (lib/tml-paste.js); a code without book-on/off (OJT, S, OF ...)
+// takes its times from the duty no. table (data/duty-codes.json).
+function timeOf(code, date) {
+  const key = code ? String(code).toUpperCase() : ""
+  // 貼入嘅時數永遠優先；冇上下班嘅更份（OJT、S、OF ...）先用 duty no. 表嘅時間。
+  const t = baseTime(code, date) ?? (isOffCode(key) ? null : tableTime(key, dutyCodes))
+  const pasted = roster?.hours?.[key]
+  return t && pasted != null ? { ...t, hours: pasted } : t
+}
+
+// 一格嘅工時：貼入 > 更份本身 > 其他代碼表 > duty no. 表；RD 係 0。
+const hoursOf = (code, date) => cellHours(code, { time: timeOf(code, date), pasted: roster?.hours, extra: extraHours, table: dutyCodes })
+
 // Book-on/off of a code from data/duty-basic.json, or null (RD, AL, unknown duty).
 // With a date, a dated sheet sharing the code's numbers (7091M on 1 Nov) gives its own
 // card's times, and a number not on it has none that day.
-function timeOf(code, date) {
+function baseTime(code, date) {
   const key = code ? String(code).toUpperCase() : ""
   // Days off (CL, SL ...) have no book-on/off, whatever the duty list holds for them.
   if (isOffCode(key)) return null
@@ -408,17 +442,44 @@ function spanText(monday) {
   return `${S.weekSpanLabel(isoWeek(monday).week, weekSpan(monday))} · ${S.weekIs[kind]}`
 }
 
-// 匯入同備份 (below the tray): the week defaults to next week; the import itself checks the week.
+// 匯入同備份 (below the tray): paste the Excel Staff Roster, read it, confirm the week and the
+// team, then import. The week defaults to what the paste says; the import itself checks the week.
 function csvImportHtml() {
   const next = nextMonday()
   return `<details class="panel csv-import"${!plan || plan.anchor < next || state.importOpen ? " open" : ""}><summary>${S.csvTitle}<span class="meta">${plan?.anchor ? S.importedWeek(weekNo(plan.anchor)) : weekNo(next)}</span></summary><div class="me-setup">` +
-    `<h4>${S.csvBtnTitle}</h4>` + weekFields(next, S.importWeek) +
-    `<div class="me-edit-row"><label class="btn primary filebtn">${S.csvBtn}<input type="file" class="p-csv-file" accept=".csv,.tsv,.txt,text/csv,text/plain" hidden></label>` +
-    `<a class="btn" href="data/roster-template.csv" download="roster-template.csv">${S.templateBtn}</a></div><p class="fine">${S.csvHelp}</p></div>` +
+    `<h4>${S.csvBtnTitle}</h4>` +
+    (state.paste ? pasteCardHtml() : `<label>${S.pasteLabel}<textarea class="p-paste-text" rows="5" spellcheck="false" placeholder="${S.pastePh}"></textarea></label>` +
+      `<div class="me-edit-row"><button type="button" class="btn primary p-paste-read">${S.pasteRead}</button><button type="button" class="btn p-paste-clear">${S.pasteClear}</button></div>` +
+      `<p class="fine">${S.pasteHelp}</p>`) +
+    `<p class="me-msg" role="status">${escapeHtml(state.pasteMsg)}</p></div>` +
     (plan ? backupHtml() : "") + `</details>`
 }
 
-// Whether a CSV may be imported for that Monday: never before this week; this week only
+// The confirm card of a pasted roster: week and year (from the paste, editable), the team to tick.
+function pasteCardHtml() {
+  const { parsed, ticked } = state.paste
+  const info = pasteWeek(parsed)
+  const previous = (plan?.members ?? []).map((m) => m.name).filter(Boolean)
+  const before = new Set(previous.map(nameKey))
+  const left = leftNames(parsed, previous)
+  const named = parsed.rows.flatMap((row, i) => (row.vacant ? [] : [{ row, i }]))
+  const mixed = parsed.mixed.map((m) => `${m.code}（${m.hours.join(" / ")}）`)
+  const ticks = named.map(({ row, i }) => `<label class="p-tickrow" data-find="${escapeHtml(`${row.rota} ${row.name} ${row.remark}`.toLowerCase())}">` +
+    `<input type="checkbox" class="p-tick" data-i="${i}"${ticked.has(i) ? " checked" : ""}> <span class="p-rota">${row.rota}</span> <b>${escapeHtml(row.name)}</b>` +
+    `${row.remark ? ` <small>· ${escapeHtml(row.remark)}</small>` : ""}${previous.length && !before.has(nameKey(row.name)) ? ` <small class="p-new">${S.pasteNew}</small>` : ""}</label>`).join("")
+  return `<form class="p-paste-card" autocomplete="off">${weekFields(parsed.monday, S.importWeek)}` +
+    `<p class="fine">${escapeHtml(S.pasteWk(info.agree, info.wk, info.week, info.year))}</p>` +
+    `<p class="fine">${S.pasteSummary(parsed.rows.length, parsed.vacant, parsed.stoppedAt)}</p>` +
+    (mixed.length ? `<p class="fine">${escapeHtml(S.pasteMixed(mixed))}</p>` : "") +
+    `<h4>${S.pasteTeam}</h4><div class="me-edit-row"><input class="p-tick-filter" type="search" placeholder="${S.pasteFilter}" aria-label="${S.pasteFilter}">` +
+    `<button type="button" class="btn p-tick-all">${S.pasteAll}</button><button type="button" class="btn p-tick-none">${S.pasteNone}</button>` +
+    `<span class="fine p-tick-count">${S.pasteCount(ticked.size, named.length)}</span></div>` +
+    `<div class="p-ticks">${ticks}</div>` +
+    (left.length ? `<p class="fine">${escapeHtml(S.pasteLeft(left.join("、")))}</p>` : "") +
+    `<div class="me-edit-row"><button type="submit" class="btn primary">${S.pasteConfirm}</button><button type="button" class="btn p-paste-cancel">${S.pasteBack}</button></div></form>`
+}
+
+// Whether a roster may be imported for that Monday: never before this week; this week only
 // when it is not locked 🔒, after one 確定; ask when it is not next week, and when a week
 // from then on already has hand-made changes.
 function importAllowed(anchor) {
@@ -470,13 +531,15 @@ function weekHtml() {
   const issues = new Map(restIssues(roster, plan, state.monday, timeOf).map((x) => [`${x.row}:${x.day}`, x.rest]))
   const { week } = isoWeek(state.monday)
   const locked = isLocked(plan, state.monday)
-  const order = Object.entries(S.orderBy).map(([k, label]) => `<button type="button" class="pchip p-order" data-order="${k}" data-shift="" aria-pressed="${state.tray.order === k}">${label}</button>`).join("")
+  const order = Object.entries(S.orderBy).map(([k, label]) => `<button type="button" class="pchip p-order" data-order="${k}" data-shift="" aria-pressed="${state.tray.order === k}">${label}${k === "remark" && state.tray.order === "remark" ? { default: "", asc: " ↑", desc: " ↓" }[state.tray.remark] : ""}</button>`).join("")
   const head = `<tr><th class="who"><span class="who-head">${S.member}<span class="pchips" role="group" aria-label="${S.orderLabel}">${order}</span></span></th>` +
     `${dates.map((d, i) => `<th>${S.weekdays[i]}<small>${meDate(d)}</small>${empties[i] ? `<small class="p-empties">${S.emptyCount(empties[i])}</small>` : ""}</th>`).join("")}<th>${S.fit}</th><th>${S.hours}</th></tr>`
   // 姓名 sorts by name (members without a name last), 行數 by this week's row.
   const shown = state.tray.order === "name"
     ? [...lines].sort((a, b) => (!a.member.name) - (!b.member.name) || a.member.name.localeCompare(b.member.name, "zh-Hant") || a.row - b.row)
-    : [...lines].sort((a, b) => a.row - b.row)
+    : state.tray.order === "remark"
+      ? [...lines].sort(byRemark(state.tray.remark))
+      : [...lines].sort((a, b) => a.row - b.row)
   const body = shown.map((line) => {
     let hits = 0
     let work = 0
@@ -491,8 +554,9 @@ function weekHtml() {
         if (!miss) hits += 1
       } else {
         // 其他代碼：開工日（冇固定時間）計開工同工時，假期只計有薪工時。
-        if (workOf(code)) work += 1
-        hours += extraHours(code)
+        const h = hoursOf(code, dates[d])
+        if (workOf(code) || (h > 0 && !isLeaveCode(code) && !PENDING.includes(code))) work += 1
+        hours += h
       }
       const c = classify(code)
       const short = issues.get(`${line.member.row}:${d}`)
@@ -508,7 +572,7 @@ function weekHtml() {
     }).join("")
     const chips = PREFS.map((sh) => `<button type="button" class="pchip" data-row="${line.member.row}" data-shift="${sh}" aria-pressed="${line.member.prefs.includes(sh)}"${sh === HHS ? ` title="${S.hhsHelp}"` : ""}>${sh === HHS ? S.hhs : S.shift[sh]}</button>`).join("")
     return `<tr${state.pick.rows.includes(line.member.row) ? ' data-picked="1"' : ""}><th class="who">${pickBox("p-pick-row", line.member.row, state.pick.rows.includes(line.member.row), S.pickRow)}<input class="p-name" data-row="${line.member.row}" value="${escapeHtml(line.member.name)}" placeholder="#${line.member.row}" maxlength="40" aria-label="${S.member}">` +
-      `<small>${S.rowNow(line.row)}</small><span class="pchips">${chips}</span></th>${cells}` +
+      `<small>${line.member.remark ? `<b class="p-rem">${escapeHtml(line.member.remark)}</b> · ` : ""}${S.rowNow(line.row)}</small><span class="pchips">${chips}</span></th>${cells}` +
       `<td class="sum">${work ? `${hits}/${work}` : "—"}</td><td class="sum">${hours ? hours.toFixed(1) : "—"}</td></tr>`
   }).join("")
   // How many duty days match a preference, now and in the Standard Roster.
@@ -534,8 +598,9 @@ function weekHtml() {
     (state.pick.rows.length ? `<button type="button" class="link p-pick-clear">${S.pickClear}</button>` : "") +
     `<button type="button" class="btn p-auto" aria-pressed="${plan.auto !== false}">${plan.auto !== false ? S.autoOn : S.autoOff}</button>` +
     `<button type="button" class="btn p-undo"${history.length ? "" : " disabled"}>↶ ${S.undo}</button>` +
-    `<span class="plan-actions-end"><button type="button" class="btn p-csv">${S.csv}</button><button type="button" class="btn danger p-reset"${locked ? " disabled" : ""}>${S.reset}</button></span></div>` +
+    `<span class="plan-actions-end"><select class="p-copy-sort" aria-label="${S.copySort}">${Object.entries(S.copySorts).map(([k, label]) => `<option value="${k}"${state.tray.copyOrder === k ? " selected" : ""}>${label}</option>`).join("")}</select><button type="button" class="btn p-copy">${S.copy}</button><button type="button" class="btn danger p-reset"${locked ? " disabled" : ""}>${S.reset}</button></span></div>` +
     `<p class="me-msg" role="status">${escapeHtml(state.message)}</p>` +
+    (state.copyText ? `<textarea class="p-copy-text" readonly rows="6" spellcheck="false" aria-label="${S.copy}">${escapeHtml(state.copyText)}</textarea>` : "") +
     `<p class="fine plan-fit">${S.fitLine(fitNow.hit, fitNow.all, fitStd.hit, fitStd.all, issues.size)}</p>` +
     notesHtml(lines, issues) +
     selHtml(lines) +
@@ -891,7 +956,7 @@ async function kvDownload() {
   if (!response.ok || !body?.ok) return kvMessage(S.syncFail)
   const rec = body.record ?? {}
   const next = cleanPlan(rec.data?.plan)
-  const nextRoster = rec.data?.roster ? cleanRoster(rec.data.roster) : null
+  const nextRoster = rec.data?.roster ? cleanPlanRoster(rec.data.roster) : null
   if (!next) return kvMessage(S.syncFail)
   const when = hkStamp(rec.updatedAt)
   const fresh = !plan && !roster
@@ -988,37 +1053,55 @@ function submitSetup(form) {
 // 匯入新一週之後，plan 只保留匯入週之前 8 週（舊週唔會再睇，省上傳同備份嘅大小）。
 const KEEP_WEEKS = 8
 
-// Read a CSV (or pasted rows) as the Standard Roster; rows with a name become the team.
-function importRoster(text, anchor) {
-  const parsed = parseRoster(text)
-  if (parsed.issues.length || !parsed.rows.length) {
-    state.message = parsed.issues.slice(0, 4).join("；") || S.csvEmpty
+// Read the pasted Staff Roster and open the confirm card (nothing is stored yet).
+function readPaste(text) {
+  const parsed = parsePaste(text)
+  state.paste = null
+  state.pasteMsg = parsed.issues.slice(0, 4).join(" ")
+  if (!parsed.issues.length) {
+    const previous = (plan?.members ?? []).map((m) => m.name).filter(Boolean)
+    state.paste = { parsed, ticked: preTicked(parsed, previous) }
+  }
+  state.importOpen = true
+  render()
+}
+
+// The card's 確定: check the week and the team, then import. Only the ticked people keep their
+// name and Remarks in the stored Standard Roster; every row stays (the rows rotate each week).
+function submitPaste(form) {
+  const { parsed, ticked } = state.paste
+  const anchor = typedMonday(form)
+  if (!anchor) {
+    state.pasteMsg = S.badWeek
     return render()
   }
-  // The CSV is the Standard Roster of the week it is imported for.
-  const next = newRoster(parsed, { row: parsed.numbers[0], monday: anchor })
-  const gone = missingMembers(next, plan)
-  if (gone.length && !window.confirm(S.importMissing(gone.slice(0, 10).join("、") + (gone.length > 10 ? " 等" : ""), gone.length))) {
-    state.message = S.importStopped
+  if (!ticked.size) {
+    state.pasteMsg = S.pasteNoneTicked
     return render()
   }
-  // A backup first, in case the wrong week or file was picked.
+  const dup = dupNames(parsed, ticked)
+  if (dup.length) {
+    state.pasteMsg = S.pasteDup([...new Set(dup)].join("、"))
+    return render()
+  }
+  if (!importAllowed(anchor)) return
+  // A backup first, in case the wrong week or paste was used.
   const backup = plan ? S.csvBackup(saveBackup()) : ""
+  const next = buildRoster(parsed, ticked)
   remember()
   saveRoster(next)
-  const named = namedRows(next)
-  if (named.length) {
-    // Members are matched by name, so their preferences carry over; weeks before this
-    // one stay as they were, this week and later start over with all blocks in the tray.
-    const made = importWeek(next, plan, anchor, dutySheets)
-    const kept = made.members.filter((m) => m.prefs.length).length
-    state.monday = anchor
-    state.sel = null
-    state.pick = { rows: [] }
-    state.importOpen = false
-    const special = Object.keys(made.sheets).filter((date) => date >= anchor).map((date) => S.weekdays[weekDates(anchor).indexOf(date)]).join("、")
-    state.message = savePlan(opened(pruneWeeks(made, addDays(anchor, -KEEP_WEEKS * 7)), anchor)) ? backup + S.csvDone(parsed.rows.length, named.length, weekNo(anchor), kept) + (special ? S.csvSheets(special) : "") : S.notStored
-  } else state.message = S.csvDone(parsed.rows.length, 0)
+  // Members are matched by name, so their preferences carry over; weeks before this
+  // one stay as they were, this week and later start over with all blocks in the tray.
+  const made = importWeek(next, plan, anchor, dutySheets)
+  const kept = made.members.filter((m) => m.prefs.length).length
+  state.monday = anchor
+  state.sel = null
+  state.pick = { rows: [] }
+  state.importOpen = false
+  state.paste = null
+  state.pasteMsg = ""
+  const special = Object.keys(made.sheets).filter((date) => date >= anchor).map((date) => S.weekdays[weekDates(anchor).indexOf(date)]).join("、")
+  state.message = savePlan(opened(pruneWeeks(made, addDays(anchor, -KEEP_WEEKS * 7)), anchor)) ? backup + S.csvDone(parsed.rows.length, ticked.size, weekNo(anchor), kept) + (special ? S.csvSheets(special) : "") : S.notStored
   render()
 }
 
@@ -1120,27 +1203,25 @@ function act(source, target) {
   render()
 }
 
-// The week as a CSV file (with a BOM so Excel reads the Chinese), downloaded.
-function downloadCsv() {
-  const dates = weekDates(state.monday)
+// 複製：本週已剔組員，一人一行（Rota No.、英文名、Remarks、一至日、總工時），Tab 分隔，貼落 Excel。
+function copyWeek() {
   const lines = weekView(roster, plan, state.monday)
-  const { year, week } = isoWeek(state.monday)
-  const quote = (v) => `"${String(v).replace(/"/g, '""')}"`
-  const out = [["行", "組員", ...dates.map((d, i) => `${S.weekdays[i]} ${d}`), S.hours].map(quote).join(",")]
-  for (const line of lines) {
-    const hours = line.codes.reduce((sum, code, d) => sum + (timeOf(code, dates[d])?.hours || extraHours(code)), 0)
-    out.push([line.row, who(line.member), ...line.codes.map((code) => (code === EMPTY ? "" : code)), hours ? hours.toFixed(1) : ""].map(quote).join(","))
+  const dates = weekDates(state.monday)
+  const empty = emptyCount(lines)
+  if (empty && !window.confirm(S.copyEmpty(empty))) return
+  const text = exportText(lines, (code, d) => hoursOf(code, dates[d]), state.tray.copyOrder)
+  const done = () => {
+    state.copyText = ""
+    state.message = S.copied(lines.length)
+    render()
   }
-  const name = `tml-plan-${year}-W${String(week).padStart(2, "0")}.csv`
-  const url = URL.createObjectURL(new Blob(["\ufeff" + out.join("\r\n")], { type: "text/csv;charset=utf-8" }))
-  const a = document.createElement("a")
-  a.href = url
-  a.download = name
-  document.body.append(a)
-  a.click()
-  a.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
-  state.message = S.csvSaved(name)
+  const manual = () => {
+    state.copyText = text
+    state.message = S.copyManual
+    render()
+  }
+  if (!navigator.clipboard?.writeText) return manual()
+  navigator.clipboard.writeText(text).then(done, manual)
 }
 
 let suppressClick = false
@@ -1246,6 +1327,7 @@ function onClick(event) {
   }
   const orderChip = t.closest(".p-order")
   if (orderChip) {
+    if (orderChip.dataset.order === "remark") state.tray.remark = state.tray.order === "remark" ? nextRemarkMode(state.tray.remark) : "default"
     state.tray.order = orderChip.dataset.order
     saveTrayView()
     return render()
@@ -1292,7 +1374,21 @@ function onClick(event) {
     if (!window.confirm(S.resetAsk)) return
     state.sel = null
     store(opened(clearWeek(plan, state.monday), state.monday), S.resetDone)
-  } else if (t.closest(".p-csv")) downloadCsv()
+  } else if (t.closest(".p-copy")) copyWeek()
+  else if (t.closest(".p-paste-read")) readPaste(t.closest(".csv-import").querySelector(".p-paste-text").value)
+  else if (t.closest(".p-paste-clear")) {
+    t.closest(".csv-import").querySelector(".p-paste-text").value = ""
+    state.pasteMsg = ""
+    render()
+  } else if (t.closest(".p-paste-cancel")) {
+    state.paste = null
+    state.pasteMsg = ""
+    render()
+  } else if (t.closest(".p-tick-all") || t.closest(".p-tick-none")) {
+    const { parsed } = state.paste
+    state.paste.ticked = t.closest(".p-tick-all") ? new Set(parsed.rows.flatMap((row, i) => (row.vacant ? [] : [i]))) : new Set()
+    render()
+  }
   else if (t.closest(".p-note")) {
     const note = t.closest(".p-note")
     if (note.dataset.row == null) {
@@ -1332,6 +1428,7 @@ function onSubmit(event) {
   event.preventDefault()
   const form = event.target
   if (form.matches(".plan-setup")) return submitSetup(form)
+  if (form.matches(".p-paste-card")) return submitPaste(form)
   if (form.matches(".p-custom")) {
     const code = normaliseCode(form.elements.code.value)
     if (!code || PENDING.includes(code)) {
@@ -1376,7 +1473,7 @@ function onSubmit(event) {
     }
     // New backups hold { app, version, plan, roster }; older ones are the plan alone.
     const next = raw ? cleanPlan(raw.plan ?? raw) : null
-    const nextRoster = raw?.roster ? cleanRoster(raw.roster) : null
+    const nextRoster = raw?.roster ? cleanPlanRoster(raw.roster) : null
     if (!next) state.message = S.importBad
     else {
       if (nextRoster) saveRoster(nextRoster)
@@ -1506,6 +1603,14 @@ async function loadBasic() {
   }
 }
 
+async function loadDutyCodes() {
+  try {
+    dutyCodes = (await fetchData("data/duty-codes.json")).codes ?? {}
+  } catch {
+    dutyCodes = {}
+  }
+}
+
 async function loadCards() {
   try {
     const index = await fetchData("data/duties/index.json")
@@ -1528,16 +1633,21 @@ async function loadCards() {
 }
 
 async function boot() {
-  roster = cleanRoster(read(ROSTER_KEY))
+  roster = cleanPlanRoster(read(ROSTER_KEY))
   plan = cleanPlan(read(PLAN_KEY))
   state.monday = nextMonday()
   loadTrayView()
   // 開新一週要用更份時間排待定區，所以資料到咗先畫表；兩樣資料同時讀，唔好一樣等完先讀另一樣。
   view.innerHTML = `<p class="empty">${S.loadingData}</p>`
-  await Promise.all([loadBasic(), loadCards()])
+  await Promise.all([loadBasic(), loadDutyCodes(), loadCards()])
   view.addEventListener("click", onClick)
   view.addEventListener("submit", onSubmit)
   view.addEventListener("input", (event) => {
+    if (event.target.matches(".p-tick-filter")) {
+      const find = event.target.value.trim().toLowerCase()
+      for (const row of event.target.closest(".p-paste-card").querySelectorAll(".p-tickrow")) row.hidden = Boolean(find) && !row.dataset.find.includes(find)
+      return
+    }
     const box = event.target.closest(".plan-setup, .csv-import")
     if (!box || !event.target.matches("input[name=year], input[name=week]")) return
     const monday = typedMonday(box)
@@ -1549,16 +1659,16 @@ async function boot() {
       const row = Number(event.target.dataset.row)
       store({ ...plan, members: plan.members.map((m) => (m.row === row ? { ...m, name: event.target.value.trim().slice(0, 40) } : m)) })
       render()
-    } else if (event.target.matches(".p-csv-file")) {
-      const file = event.target.files?.[0]
-      if (!file) return
-      const anchor = typedMonday(event.target.closest(".csv-import")) ?? nextMonday()
-      event.target.value = ""
-      if (!importAllowed(anchor)) return
-      file.text().then((text) => importRoster(text, anchor)).catch(() => {
-        state.message = S.csvFail
-        render()
-      })
+    } else if (event.target.matches(".p-tick")) {
+      const ticked = state.paste.ticked
+      const i = Number(event.target.dataset.i)
+      if (event.target.checked) ticked.add(i)
+      else ticked.delete(i)
+      const total = state.paste.parsed.rows.filter((row) => !row.vacant).length
+      event.target.closest(".p-paste-card").querySelector(".p-tick-count").textContent = S.pasteCount(ticked.size, total)
+    } else if (event.target.matches(".p-copy-sort")) {
+      state.tray.copyOrder = event.target.value
+      saveTrayView()
     } else if (event.target.matches(".p-pick-row")) {
       const v = Number(event.target.dataset.v)
       const list = state.pick.rows

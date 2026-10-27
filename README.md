@@ -67,6 +67,7 @@
 python3 -m http.server 8000      # 開 http://localhost:8000
 node tools/validate_roster.mjs   # roster 邏輯檢查（用虛構 roster）
 node tools/validate_plan.mjs     # 編更邏輯檢查（用虛構 roster 同更份）
+node tools/validate_paste.mjs    # 編更貼上匯入、時數、Remarks 排序、複製匯出檢查（虛構貼入資料）
 ```
 
 新 Duty Sheet 同 Duty 總表（Index 工作表）只喺 TML-traffic 匯入（見嗰邊 `docs/DUTYSHEET.md`）。merge 咗、Cloudflare 部署完，呢度下次開頁就用新資料，唔使改呢個 repo、唔使加 cache 版本。
