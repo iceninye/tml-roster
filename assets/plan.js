@@ -7,7 +7,7 @@
 // Book-on/off times come from TML-traffic data/duty-basic.json (lib/tml-data.js).
 
 import { extraHours, isOffCode, workOf } from "../lib/tml-extra.js"
-import { EMPTY, EXTRA, HHS, LEAVE, PENDING, PREFS, SHIFTS, allToTray, canRemove, cleanPlan, clearWeek, combosView, fillMember, fillTeam, formatRanges, fromTray, importWeek, isHeld, isHhs, isLocked, isoWeek, missingMembers, mondayOfIsoWeek, namedRows, newPlan, parseRanges, prefDistance, pruneWeeks, removeBlock, renameBlock, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, toggleLock, trayView, useCombo, weekContent, weekView } from "../lib/tml-plan.js"
+import { EMPTY, EXTRA, HHS, LEAVE, PENDING, PREFS, SHIFTS, allToTray, canRemove, cleanPlan, clearWeek, combosView, fillMember, fillTeam, fromTray, importWeek, isHeld, isHhs, isLocked, isoWeek, missingMembers, mondayOfIsoWeek, prefDistance, pruneWeeks, removeBlock, renameBlock, restIssues, setCell, setSheet, sheetOf, shiftOf, swapCells, toTray, toggleLock, trayView, useCombo, weekContent, weekView } from "../lib/tml-plan.js"
 import { addDays, classify, mondayOf, normaliseCode, weekDates } from "../lib/tml-roster.js"
 import { buildRoster, byRemark, cellHours, cleanPlanRoster, dupNames, emptyCount, exportText, isLeaveCode, leftNames, nameKey, nextRemarkMode, parsePaste, pasteWeek, preTicked, tableTime } from "../lib/tml-paste.js"
 import { serviceDate } from "../lib/tml-time.js"
@@ -72,17 +72,8 @@ const S = {
   importOver: (weeks) => `${weeks} 已經有手動編排，匯入後會重新開始。確定？`,
   csvSheets: (days) => `；週${days}用特別 Duty Sheet`,
   csvBackup: (done) => `${done}。`,
-  importedWeek: (week) => `而家嘅 Standard Roster：${week}`,
-  useNamed: "用有名稱嘅行",
-  namedHint: (n) => `Standard Roster 有 ${n} 行有名稱。`,
-  setupTitle: "設定組員",
-  setupAdvanced: "進階：手動設定組員行號",
-  setupIntro: "一般唔使用：匯入 CSV 時有名稱嘅行已經係組員。只有想改組員行號先用呢度。每過一個星期，組員自動跳去下一行。",
   weekSpanLabel: (week, span) => `第 ${week} 週：${span}`,
   yearLabel: "年份",
-  rangesLabel: "組員行號（基準星期）",
-  rangesHelp: "例如 31-40, 55-70。用逗號分隔，可以有多段。",
-  save: "儲存",
   team: (n) => `${n} 位組員`,
   prev: "上週",
   next: "下週",
@@ -232,7 +223,6 @@ const S = {
   removeBlock: "刪除呢個更份積木",
   blockRemoved: "已刪除積木",
   needRd: "每位組員一星期要有一日 RD，未有 RD 就唔會自動填更份",
-  setupDone: "已儲存組員，積木已放入待定區；設好假期同喜好後按「自動」",
   emptyCount: (n) => `空 ${n}`,
 }
 
@@ -406,7 +396,7 @@ function opened(p, monday) {
 /* --------------------------------------------------------------- pages */
 
 function render() {
-  if (!roster) {
+  if (!roster || !plan) {
     view.innerHTML = `<p class="empty">${S.noRoster}</p>${csvImportHtml()}<p class="me-msg" role="status">${escapeHtml(state.message)}</p>` +
       `<details class="panel"><summary>${S.importJson}</summary>${backupImportHtml()}</details>` + syncHtml()
     return
@@ -415,7 +405,7 @@ function render() {
   // Repainting must not throw the reader back to the top of a long table.
   const table = view.querySelector(".ptable")
   const keep = table ? [table.scrollLeft, table.scrollTop, window.scrollY] : null
-  view.innerHTML = plan ? weekHtml() + csvImportHtml() + syncHtml() : setupHtml() + syncHtml()
+  view.innerHTML = weekHtml() + csvImportHtml() + syncHtml()
   const fresh = view.querySelector(".ptable")
   if (keep && fresh) {
     fresh.scrollLeft = keep[0]
@@ -446,7 +436,7 @@ function spanText(monday) {
 // team, then import. The week defaults to what the paste says; the import itself checks the week.
 function csvImportHtml() {
   const next = nextMonday()
-  return `<details class="panel csv-import"${!plan || plan.anchor < next || state.importOpen ? " open" : ""}><summary>${S.csvTitle}<span class="meta">${plan?.anchor ? S.importedWeek(weekNo(plan.anchor)) : weekNo(next)}</span></summary><div class="me-setup">` +
+  return `<details class="panel csv-import"${!plan || plan.anchor < next || state.importOpen ? " open" : ""}><summary>${S.csvTitle}</summary><div class="me-setup">` +
     `<h4>${S.csvBtnTitle}</h4>` +
     (state.paste ? pasteCardHtml() : `<label>${S.pasteLabel}<textarea class="p-paste-text" rows="5" spellcheck="false" placeholder="${S.pastePh}"></textarea></label>` +
       `<div class="me-edit-row"><button type="button" class="btn primary p-paste-read">${S.pasteRead}</button><button type="button" class="btn p-paste-clear">${S.pasteClear}</button></div>` +
@@ -509,18 +499,6 @@ function typedMonday(box) {
   const year = Number(box?.querySelector("input[name=year]")?.value)
   const week = Number(box?.querySelector("input[name=week]")?.value)
   return year >= 2000 && year <= 2100 && week >= 1 && week <= 53 ? mondayOfIsoWeek(year, week) : null
-}
-
-function setupHtml(inPanel = false) {
-  const named = roster ? namedRows(roster) : []
-  const body =
-    `<form class="me-setup plan-setup" autocomplete="off">` +
-    `<label>${S.rangesLabel}<input name="ranges" value="${escapeHtml(plan?.ranges ?? (named.length ? formatRanges(named) : "31-40, 55-70"))}" spellcheck="false" required></label>` +
-    `<p class="fine">${S.rangesHelp}${named.length ? ` ${S.namedHint(named.length)}<button type="button" class="link p-named">${S.useNamed}</button>` : ""}</p>` +
-    `<div class="me-edit-row"><button type="submit" class="btn primary">${S.save}</button></div>` +
-    (inPanel ? "" : `<p class="me-msg" role="status">${escapeHtml(state.message)}</p>`) + `</form>`
-  if (inPanel) return body
-  return `${csvImportHtml()}<section class="panel"><h3>${S.setupTitle}</h3><p class="fine">${S.setupIntro}</p>${body}</section>`
 }
 
 function weekHtml() {
@@ -806,12 +784,11 @@ function backupImportHtml() {
     `<div class="me-edit-row"><button type="submit" class="btn">${S.importJson}</button></div></form>`
 }
 
-// 備份 and the manual member rows, in the same panel as the CSV import.
+// 備份, in the same panel as the paste import.
 function backupHtml() {
   return `<div class="me-setup p-backup"><h4>${S.backupTitle}</h4><p class="fine">${S.backupHelp}</p><div class="me-edit-row"><button type="button" class="btn p-export">${S.exportJson}</button>` +
     `<button type="button" class="btn danger p-clear">${S.clear}</button></div></div>` +
-    backupImportHtml() +
-    `<details class="p-advanced"><summary>${S.setupAdvanced}</summary><p class="fine">${S.setupIntro}</p>${setupHtml(true)}</details>`
+    backupImportHtml()
 }
 
 // 跨裝置同步: its own panel under 匯入同備份; also shown before any roster, so a new phone can download.
@@ -1029,26 +1006,6 @@ function undo() {
   state.message = S.undone
   render()
 }
-
-function submitSetup(form) {
-  const ranges = form.elements.ranges.value.trim()
-  const parsed = parseRanges(ranges)
-  if (parsed.issues.length || !parsed.rows.length) {
-    state.message = parsed.issues.join("；") || S.rangesHelp
-    return render()
-  }
-  const missing = parsed.rows.filter((r) => !roster.numbers.includes(r))
-  if (missing.length) {
-    state.message = `Standard Roster 冇呢啲行：${missing.join(", ")}`
-    return render()
-  }
-  // The rows are those of the week the Standard Roster was imported for.
-  const next = newPlan(plan?.anchor ?? roster.anchor?.monday ?? nextMonday(), ranges, plan)
-  state.monday = next.anchor === plan?.anchor ? state.monday : next.anchor
-  store(next.weeks?.[state.monday] ? allToTray(roster, next, state.monday, timeOf) : opened(next, state.monday), S.setupDone)
-  render()
-}
-
 
 // 匯入新一週之後，plan 只保留匯入週之前 8 週（舊週唔會再睇，省上傳同備份嘅大小）。
 const KEEP_WEEKS = 8
@@ -1365,11 +1322,7 @@ function onClick(event) {
     settle(next, row)
   }
   else if (t.closest(".p-cancel")) state.sel = null
-  else if (t.closest(".p-named")) {
-    const input = t.closest("form").elements.ranges
-    input.value = formatRanges(namedRows(roster))
-    return
-  } else if (t.closest(".p-to-tray")) return act(state.sel, { type: "tray", day: state.sel.day })
+  else if (t.closest(".p-to-tray")) return act(state.sel, { type: "tray", day: state.sel.day })
   else if (t.closest(".p-reset")) {
     if (!window.confirm(S.resetAsk)) return
     state.sel = null
@@ -1427,7 +1380,6 @@ function onClick(event) {
 function onSubmit(event) {
   event.preventDefault()
   const form = event.target
-  if (form.matches(".plan-setup")) return submitSetup(form)
   if (form.matches(".p-paste-card")) return submitPaste(form)
   if (form.matches(".p-custom")) {
     const code = normaliseCode(form.elements.code.value)
@@ -1648,7 +1600,7 @@ async function boot() {
       for (const row of event.target.closest(".p-paste-card").querySelectorAll(".p-tickrow")) row.hidden = Boolean(find) && !row.dataset.find.includes(find)
       return
     }
-    const box = event.target.closest(".plan-setup, .csv-import")
+    const box = event.target.closest(".csv-import")
     if (!box || !event.target.matches("input[name=year], input[name=week]")) return
     const monday = typedMonday(box)
     const span = box.querySelector(".p-span")

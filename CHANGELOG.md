@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.9.48 — unreleased
+- 編更（Ice 2026-10-27）: 拎走「設定組員」整個區（手動組員行號、「用有名稱嘅行」）：組員改為每次匯入時喺確認卡剔選。
+  「匯入同備份」標題旁邊嘅「而家嘅 Standard Roster：第 X 週」亦拎走。有 roster 但未有編更嗰陣，都係顯示貼上匯入。
+- Shell cache 改名 `v78`。
+
 ## v0.9.47 — unreleased
 - 編更（Ice 2026-10-27）: 匯入改為由 Excel 複製貼上「Staff Roster - Train Crew Unit」，取代 CSV（範本檔、揀檔都拎走）。
   `lib/tml-paste.js` 唔靠固定位置：由有「Rota No.」同「Name」嘅標題行開始，Name 之後每日兩格（更份編號、時數）到「Remarks」止，
