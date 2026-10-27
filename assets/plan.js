@@ -43,7 +43,7 @@ const S = {
   pasteHelp: "揀 Excel 入面成個 Staff Roster 複製（有 Rota No. 標題行就得），貼上後按「讀取」。每日嘅更份編號同時數、Remarks 都會讀；到 TRA 就停，Zvacant 唔計。",
   pasteConfirm: "確認匯入",
   pasteSummary: (rows, vacant, stop) => `讀到 ${rows} 行（Zvacant ${vacant} 行${stop ? `，行號 ${stop} 起係 TRA，唔要` : ""}）`,
-  pasteWk: (agree, wk, week, year) => agree === true ? `貼入嘅 WK ${wk.week}${wk.year ? ` /${String(wk.year).slice(2)}` : ""} 同日期一致（${year} 年第 ${week} 週）。` : agree === false ? `⚠ 貼入嘅 WK 寫第 ${wk.week} 週${wk.year ? `（${wk.year}）` : ""}，但日期係 ${year} 年第 ${week} 週。請確認下面週數同年份。` : `冇搵到 WK 行，用日期 ${year} 年第 ${week} 週。請確認。`,
+  pasteWk: (agree, wk, week, year) => agree === true ? `貼入嘅 WK ${wk.week}${wk.year ? ` /${String(wk.year).slice(2)}` : ""} 同日期一致（${year} 年第 ${week} 週）。` : agree === false ? `⚠ 貼入嘅 WK 寫第 ${wk.week} 週${wk.year ? `（${wk.year}）` : ""}，但標題行日期同佢唔一致。以 WK 為準（${year} 年第 ${week} 週），請確認下面週數同年份。` : wk ? `用 WK ${wk.week} 嗰週（${year} 年第 ${week} 週），標題行日期核對唔到。請確認。` : `冇搵到 WK 行，用日期 ${year} 年第 ${week} 週。請確認。`,
   pasteMixed: (list) => `⚠ 同一個代碼有唔同時數：${list.join("、")}（用最多嗰個）`,
   pasteTeam: "剔選組員（按英文全名對，之後會記住）",
   pasteFilter: "搵名",
@@ -227,7 +227,7 @@ const S = {
 }
 
 const view = document.getElementById("view")
-const state = { monday: null, sel: null, message: "", syncMsg: "", syncOpen: false, tray: { tab: "blocks", filter: [], sort: "on", order: "row", remark: "default", copyOrder: "name", fold: false }, pick: { rows: [] }, notesOpen: false, importOpen: false, leaveOpen: false, paste: null, pasteMsg: "", copyText: "" }
+const state = { monday: null, sel: null, message: "", syncMsg: "", syncOpen: false, tray: { tab: "blocks", filter: [], sort: "on", order: "row", remark: "default", copyOrder: "name", fold: false }, pick: { rows: [] }, notesOpen: false, importOpen: false, leaveOpen: false, paste: null, pasteMsg: "", pasteText: "", copyText: "" }
 // How the tray and the members are shown (tab, filter, sort, member order) is this viewer's own; kept in the browser.
 const TRAY_KEY = "tml-plan-tray-view"
 // Earlier { plan, roster } pairs, for 還原上一步; kept for this visit only.
@@ -438,7 +438,7 @@ function csvImportHtml() {
   const next = nextMonday()
   return `<details class="panel csv-import"${!plan || plan.anchor < next || state.importOpen ? " open" : ""}><summary>${S.csvTitle}</summary><div class="me-setup">` +
     `<h4>${S.csvBtnTitle}</h4>` +
-    (state.paste ? pasteCardHtml() : `<label>${S.pasteLabel}<textarea class="p-paste-text" rows="5" spellcheck="false" placeholder="${S.pastePh}"></textarea></label>` +
+    (state.paste ? pasteCardHtml() : `<label>${S.pasteLabel}<textarea class="p-paste-text" rows="5" spellcheck="false" placeholder="${S.pastePh}">${escapeHtml(state.pasteText)}</textarea></label>` +
       `<div class="me-edit-row"><button type="button" class="btn primary p-paste-read">${S.pasteRead}</button><button type="button" class="btn p-paste-clear">${S.pasteClear}</button></div>` +
       `<p class="fine">${S.pasteHelp}</p>`) +
     `<p class="me-msg" role="status">${escapeHtml(state.pasteMsg)}</p></div>` +
@@ -1013,6 +1013,7 @@ const KEEP_WEEKS = 8
 // Read the pasted Staff Roster and open the confirm card (nothing is stored yet).
 function readPaste(text) {
   const parsed = parsePaste(text)
+  state.pasteText = parsed.issues.length ? text : ""
   state.paste = null
   state.pasteMsg = parsed.issues.slice(0, 4).join(" ")
   if (!parsed.issues.length) {
@@ -1331,6 +1332,7 @@ function onClick(event) {
   else if (t.closest(".p-paste-read")) readPaste(t.closest(".csv-import").querySelector(".p-paste-text").value)
   else if (t.closest(".p-paste-clear")) {
     t.closest(".csv-import").querySelector(".p-paste-text").value = ""
+    state.pasteText = ""
     state.pasteMsg = ""
     render()
   } else if (t.closest(".p-paste-cancel")) {

@@ -140,6 +140,60 @@ check(rows.every((r) => !/Tra|Vacant/.test(r.join())), "TRA and Zvacant never re
 const next = weekView(roster, first, "2026-09-28")
 check(next.map((l) => l.row).join() !== lines.map((l) => l.row).join() && lines.map((l) => l.row).join() === "1,2,4,5", "later weeks rotate from the imported rows")
 
+// iPhone Excel / Numbers: M/D/YY dates, only "Working Hr" after Remarks, trailing tabs, the whole
+// roster pasted twice (the second copy with CRLF and a second header), TRA rows that end the block.
+const MDY = ["9/21/26", "9/22/26", "9/23/26", "9/24/26", "9/25/26", "9/26/26", "9/27/26"]
+const phoneRow = (rota, name, days, remark, hrs) => ["", rota, name, ...days.flatMap(([c, h]) => [c, h]), remark, hrs, ""].join("\t")
+const phoneHead = (dates = MDY, week = "39") => [
+  "\t\tResume Original duty no.\t\t\t\t\t\t\t\t\tThis roster pattern implemented in January 2022",
+  "",
+  `\t\tStaff Roster - Train Crew Unit   WK :\t\t\t\t\t\t\t\t\t\t${week}\t\t/26\t\t\t\t`,
+  ["", "Rota No.", "Name", ...dates.flatMap((d) => [d, ""]), "Remarks", "Working Hr", ""].join("\t"),
+  ["", "", "", ...DAYS.flatMap((d) => [d, ""]), "", "", ""].join("\t"),
+]
+const phoneBlock = (dates, week) => [
+  ...phoneHead(dates, week),
+  phoneRow(1, "Ann Lee", [["1101105", 7], ["1101581", 7], ["1101126", 7.5], ["1101104", 6], ["1102105", 7], RD, ["HSP1", 8.5]], "E", 43),
+  phoneRow(2, " Bo  Chan ", [["1101108", 8], ["OJT", 7], ["SPT11", 10], ["S", 7], RD, ["7091118", 6.5], RD], "L", 38.5),
+  phoneRow(3, "Zvacant", [RD, RD, RD, RD, RD, RD, RD], "E", 0),
+  phoneRow(137, "Tra One", Array(6).fill(["TRA", 7]).concat([RD]), "E/L", 42),
+  phoneRow(138, "Tra Two", Array(6).fill(["TRA", 7]).concat([RD]), " E/L", 42),
+  "",
+]
+const phone = phoneBlock().join("\n") + "\n" + phoneBlock().join("\r\n")
+const ph = parsePaste(phone)
+check(ph.issues.length === 0, `iPhone paste is read (${ph.issues.join("; ")})`)
+check(ph.monday === "2026-09-21" && ph.dates[6] === "2026-09-27", "M/D/YY dates are read as month/day")
+check(ph.rows.map((r) => r.rota).join() === "1,2,3" && ph.stoppedAt === 137, "only the first block is read and TRA ends it")
+check(ph.rows[1].name === "Bo Chan" && ph.rows[1].remark === "L" && ph.rows[2].vacant, "names with spaces are tidied, Zvacant kept without a name")
+check(pasteWeek(ph).week === 39 && pasteWeek(ph).agree === true, "WK 39 /26 agrees with the iPhone dates")
+
+// A second header stops the read even when there is no TRA row to stop at.
+const noTra = phoneBlock().filter((l) => !l.includes("TRA")).join("\n") + "\n" + phoneBlock().filter((l) => !l.includes("TRA")).join("\n")
+check(parsePaste(noTra).rows.length === 3 && parsePaste(noTra).stoppedAt === null, "a second Rota No. header ends the first block")
+
+// Lone CR line endings (Numbers) and desktop D/M/YYYY with the same parser.
+check(parsePaste(phoneBlock().join("\r")).rows.length === 3, "lines ending in a lone CR are split")
+check(parsePaste(phoneBlock().join("\r\n")).issues.length === 0, "CRLF lines are read")
+check(parsePaste(phoneBlock(DATES).join("\n")).monday === "2026-09-21", "D/M/YYYY dates still work")
+
+// Dates that read both ways (9/10/26: 9 Oct or 10 Sep?) are decided by the Monday run and the WK.
+const amb = ["10/5/26", "10/6/26", "10/7/26", "10/8/26", "10/9/26", "10/10/26", "10/11/26"]
+const ambig = parsePaste(phoneBlock(amb, "41").join("\n"))
+check(ambig.monday === "2026-10-05" && pasteWeek(ambig).agree === true, "an ambiguous header is settled by the WK week")
+
+// The week comes from WK first; dates only cross-check.
+const clash = parsePaste(phoneBlock(MDY, "40").join("\n"))
+check(clash.monday === "2026-09-28" && pasteWeek(clash).agree === false, "WK wins over the dates and the clash is flagged")
+const noDates = parsePaste(phoneBlock(MDY.map(() => ""), "39").join("\n"))
+check(noDates.issues.length === 0 && noDates.monday === "2026-09-21" && pasteWeek(noDates).agree === null, "no readable dates: the WK week is used")
+
+// Failures say why.
+check(/Rota No/.test(parsePaste("hello\tworld").issues[0]), "no header: the reason names Rota No. and Name")
+check(/未貼入/.test(parsePaste("  \n").issues[0]), "empty paste: says nothing was pasted")
+const nothing = parsePaste(phoneBlock(MDY.map(() => ""), "39").join("\n").replace(/\t\t\/26/, "").replace("39", ""))
+check(nothing.issues.length === 1 && /WK/.test(nothing.issues[0]), "no dates and no WK: the reason names the WK line")
+
 if (failed) {
   console.error(`${failed} check(s) failed`)
   process.exit(1)
