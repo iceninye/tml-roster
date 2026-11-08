@@ -1,6 +1,6 @@
 // Checks lib/tml-hko.js（天文台農曆對照表、天氣預報）:
 //   node tools/validate_hko.mjs
-import { lunarFromApi, lunarLabel, mergeFnd, nextTerm, parseLunarTable, psrLevel, tempRange, wxIcon, cleanFlw, cleanWarnsum, cleanWarningInfo, cleanSwt, cleanQuake, cleanRyes, wxAlerts, warnIconSvg, hkoUrl } from "../lib/tml-hko.js"
+import { lunarFromApi, lunarLabel, mergeFnd, nextTerm, parseLunarTable, psrLevel, tempRange, wxIcon, cleanFlw, cleanWarnsum, cleanWarningInfo, cleanSwt, cleanQuake, cleanRyes, wxAlerts, warnIconSvg, warnIconUrl, hkoUrl } from "../lib/tml-hko.js"
 
 let failed = 0
 const check = (ok, what) => {
@@ -81,6 +81,8 @@ check(wxAlerts({ ryes: cleanRyes({ XMicrosieverts: 0.5 }) }, now)[0].kind === "w
 check(wxAlerts({}, now).length === 0 && wxAlerts(null).length === 0, "nothing at all -> no items")
 check(wxAlerts({ tc: "熱帶氣旋銀杏集結在南海北部。" }, now)[0].title === "熱帶氣旋消息", "flw tcInfo kept when warnsum unavailable")
 check(warnIconSvg("TC8NE").includes("東北") && warnIconSvg("TC1").includes("<path") && warnIconSvg("WRAINB").includes("雨") && warnIconSvg("XX") === "", "warning icons")
+check(warnIconUrl("TC8SE").endsWith("/tc8b.gif") && warnIconUrl("WMSGNL").endsWith("/sms.gif") && warnIconUrl("WFIRER").endsWith("/firer.gif") && warnIconUrl("XX") === "", "official HKO warning icons")
+check(by.ryes.title === "☢ 輻射水平", "radiation line title")
 check(hkoUrl("qem").includes("earthquake.php?dataType=qem") && hkoUrl("ryes", "2026-11-07").includes("date=20261107") && hkoUrl("x") === null, "feed URLs")
 
 if (failed) {
