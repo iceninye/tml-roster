@@ -12,13 +12,13 @@ import { OFF_CODES, workOf } from "../lib/tml-extra.js"
 import { serviceDate, hkDate, secondsInto } from "../lib/tml-time.js"
 import { fetchData, placeNames, sheetForDate, stationNames } from "../lib/tml-data.js"
 import { holidaysOn } from "../lib/tml-ics.js"
-import { HKO_LUNAR_API, cleanFlw, cleanQuake, cleanRyes, cleanSwt, cleanWarningInfo, cleanWarnsum, hkoUrl, lunarCsvUrl, lunarFromApi, lunarLabel, mergeFnd, nextTerm, parseLunarTable, psrLevel, tempRange, warnIconSvg, wxAlerts, wxIcon, wxIconUrl } from "../lib/tml-hko.js"
+import { HKO_LUNAR_API, cleanFlw, cleanQuake, cleanRyes, cleanSwt, cleanWarningInfo, cleanWarnsum, hkoUrl, lunarCsvUrl, lunarFromApi, lunarLabel, mergeFnd, nextTerm, parseLunarTable, psrLevel, tempRange, warnIconSvg, warnIconUrl, wxAlerts, wxIcon, wxIconUrl } from "../lib/tml-hko.js"
 import { isoWeek } from "../lib/tml-plan.js"
 import { monthDates, otClock, otFromClock, recentOt, setOt } from "../lib/tml-ot.js"
 import { feedId, subscribeLinks } from "../lib/tml-cal.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson, syncState } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.54", commit: "dev" }
+const BUILD = { version: "0.9.55", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -966,8 +966,8 @@ function wxLine(date) {
 }
 
 // 今日卡最底「天氣」框（Ice 2026-11-08）：氣溫、降雨概率已經喺右上角，唔再重複；唔寫「本港地區今日天氣預測」。
-// 先列天文台警告（圖示＋名，一定顯示）、短嘅提示同地震直接顯示；長文（警告詳情、長嘅特別天氣提示、
-// 輻射各站數字）收埋，撳一下先出。冇警告就乜都唔加。
+// 警告、熱帶氣旋消息、特別天氣提示、地震：只用一行列晒圖示（天文台官方警告圖），撳一下先展開名同詳情。
+// 輻射水平自己一行，各站數字撳開先出。冇警告就乜都唔加。
 function todayWeatherHtml(date) {
   const flw = weather.flw
   const day = fndDay(date)
@@ -976,24 +976,59 @@ function todayWeatherHtml(date) {
   if (!flw && !day && !alerts.length) return `<span class="today-wx"><span class="wx-at">${S.wxNone}</span></span>`
   const stamp = flw?.updateTime ? hkStamp(flw.updateTime) : ""
   const time = stamp ? `${meDate(stamp.slice(0, 10))} ${stamp.slice(11, 16)}` : ""
-  const warns = alerts.filter((a) => a.kind === "warn")
-  const others = alerts.filter((a) => a.kind !== "warn")
+  const row = alerts.filter((a) => a.key !== "ryes")
+  const ryes = alerts.find((a) => a.key === "ryes")
   return `<span class="today-wx"><span class="wx-head"><b>${S.wxTitle}</b></span>` +
-    (warns.length ? `<span class="wx-warns">${warns.map(alertHtml).join("")}</span>` : "") +
-    others.filter((a) => a.kind !== "info" || a.key !== "ryes").map(alertHtml).join("") +
+    alertRowHtml(row) +
     (flw ? `<span class="wx-text">${escapeHtml(flw.desc)}</span>` : day ? `<span class="wx-text">${escapeHtml(day.weather)}</span>` : "") +
-    others.filter((a) => a.kind === "info" && a.key === "ryes").map(alertHtml).join("") +
+    (ryes ? alertHtml(ryes) : "") +
     (weather.warnFailed && !fresh ? `<span class="wx-at">${S.wxWarnOld}</span>` : "") +
     (time ? `<span class="wx-at">${weather.ok ? S.wxAt(time) : S.wxOld(time)}</span>` : "") + `</span>`
 }
 
-// 一項警告／提示。有長文就成行可以撳（span，因為成張今日卡係 button）
+// 警告圖示：天文台官方 gif；離線讀唔到就換做自畫嘅 SVG。冇官方圖嘅（熱帶氣旋消息、特別天氣提示、地震）用 emoji。
+function alertIconHtml(a) {
+  const title = escapeHtml(a.title)
+  if (a.kind === "warn") {
+    const url = warnIconUrl(a.code)
+    const svg = warnIconSvg(a.code) || "⚠️"
+    return url
+      ? `<span class="wx-ico" title="${title}"><img src="${url}" alt="${title}" width="30" height="30" decoding="async" onerror="this.nextElementSibling.hidden=false;this.remove()"><span hidden>${svg}</span></span>`
+      : `<span class="wx-ico" title="${title}">${svg}</span>`
+  }
+  const emoji = a.kind === "quake" ? "🌏" : a.key === "tc" ? "🌀" : a.key === "fire" ? "🔥" : "ℹ️"
+  return `<span class="wx-ico wx-ico-emoji" title="${title}" aria-label="${title}">${emoji}</span>`
+}
+
+const alertTime = (a) => {
+  const t = a.time ? hkStamp(a.time) : ""
+  return t ? ` <small>${meDate(t.slice(0, 10))} ${t.slice(11, 16)}</small>` : ""
+}
+
+const iconKind = (a) => (a.kind === "warn" ? a.code : a.kind === "quake" ? "quake" : a.key.replace(/-\d+$/, ""))
+
+// 一行圖示；撳開就逐項列名、短句同詳情（全部展開）
+function alertRowHtml(items) {
+  if (!items.length) return ""
+  const open = state.wxOpen.has("alerts")
+  const list = open
+    ? `<span class="wx-list">${items.map((a) =>
+      `<span class="wx-a" data-kind="${a.kind}"><span class="wx-a-icon">${alertIconHtml(a)}</span><span class="wx-a-body"><b>${escapeHtml(a.title)}</b>` +
+      (a.text ? ` ${escapeHtml(a.text)}` : "") + alertTime(a) +
+      (a.more.length ? `<span class="wx-a-more">${a.more.map((t) => `<span>${escapeHtml(t)}</span>`).join("")}</span>` : "") +
+      `</span></span>`).join("")}</span>`
+    : ""
+  return `<span class="wx-row wx-more" data-wx="alerts" role="button" aria-expanded="${open}" title="${S.wxMore}">` +
+    // 同一款圖示（例如兩個特別天氣提示）一行只出一次
+    `<span class="wx-icons">${items.filter((a, i) => items.findIndex((b) => iconKind(b) === iconKind(a)) === i).map(alertIconHtml).join("")}</span>` +
+    `<span class="wx-a-caret" aria-hidden="true">${open ? "▾" : "▸"}</span></span>${list}`
+}
+
+// 輻射水平一行；各站數字撳開先出（span，因為成張今日卡係 button）
 function alertHtml(a) {
   const open = state.wxOpen.has(a.key)
-  const icon = a.kind === "warn" ? warnIconSvg(a.code) || "⚠️" : a.kind === "quake" ? "🌏" : a.key === "ryes" ? (a.kind === "info" ? "🟢" : "☢️") : a.key === "fire" ? "🔥" : "ℹ️"
-  const when = a.time && hkStamp(a.time) ? ` <small>${meDate(hkStamp(a.time).slice(0, 10))} ${hkStamp(a.time).slice(11, 16)}</small>` : ""
-  const line = `<span class="wx-a-icon">${icon}</span><span class="wx-a-body"><b>${escapeHtml(a.title)}</b>` +
-    (a.text ? ` ${escapeHtml(a.text)}` : "") + when + (a.note ? ` <small>${escapeHtml(a.note)}</small>` : "") + `</span>` +
+  const line = `<span class="wx-a-body"><b>${escapeHtml(a.title)}</b>` +
+    (a.text ? ` ${escapeHtml(a.text)}` : "") + (a.note ? ` <small>${escapeHtml(a.note)}</small>` : "") + `</span>` +
     (a.more.length ? `<span class="wx-a-caret" aria-hidden="true">${open ? "▾" : "▸"}</span>` : "")
   const more = open && a.more.length ? `<span class="wx-a-more">${a.more.map((t) => `<span>${escapeHtml(t)}</span>`).join("")}</span>` : ""
   return a.more.length
