@@ -32,6 +32,7 @@ const SCHOOL_TEXT = [
 ].join("\r\n")
 // 天文台 stand-in：天氣預報同一年嘅對照表文字（每 30 日一個「X月」）
 let hkoDown = false
+let seenRyes = ""
 const LUNAR_DAYS = Array.from({ length: 365 }, (_, i) => new Date(Date.UTC(2026, 0, 1 + i)).toISOString().slice(0, 10))
 const DAYS30 = ["初一", "初二", "初三", "初四", "初五", "初六", "初七", "初八", "初九", "初十", "十一", "十二", "十三", "十四", "十五", "十六", "十七", "十八", "十九", "二十", "廿一", "廿二", "廿三", "廿四", "廿五", "廿六", "廿七", "廿八", "廿九", "三十"]
 const LUNAR_TEXT = LUNAR_DAYS.map((d, i) => {
@@ -42,7 +43,14 @@ const LUNAR_TEXT = LUNAR_DAYS.map((d, i) => {
 globalThis.fetch = async (url, init) => {
   if (String(url).startsWith("https://data.weather.gov.hk/weatherAPI/opendata/weather.php")) {
     if (hkoDown) return new Response("", { status: 503 })
+    if (url.includes("dataType=warningInfo")) return new Response("") // 冇警告：天文台回空白
+    if (url.includes("dataType=warnsum")) return Response.json({ WHOT: { name: "酷熱天氣警告", code: "WHOT", actionCode: "ISSUE" } })
     return Response.json(url.includes("dataType=fnd") ? { weatherForecast: [{ forecastDate: "20261109", PSR: "中" }] } : { forecastDesc: "天晴。" })
+  }
+  if (String(url).startsWith("https://data.weather.gov.hk/weatherAPI/opendata/earthquake.php?dataType=qem")) return hkoDown ? new Response("", { status: 503 }) : Response.json({ mag: 4.5, region: "台灣" })
+  if (String(url).startsWith("https://data.weather.gov.hk/weatherAPI/opendata/opendata.php?dataType=RYES&date=")) {
+    seenRyes = String(url)
+    return Response.json({ KingsParkLocationName: "京士柏", KingsParkMicrosieverts: "0.14" })
   }
   if (String(url) === "https://www.hko.gov.hk/tc/gts/time/calendar/text/files/T2026c.txt") return hkoDown ? new Response("", { status: 404 }) : new Response(LUNAR_TEXT)
   if (String(url).startsWith("https://data.weather.gov.hk/weatherAPI/hko_data/calendar/")) return new Response("", { status: 404 })
@@ -240,8 +248,16 @@ r = await call("GET", "/api/hko/fnd")
 check(r.status === 200 && r.body.ok && r.body.body.weatherForecast[0].PSR === "中", "9-day forecast is passed through")
 r = await call("GET", "/api/hko/flw")
 check(r.status === 200 && r.body.body.forecastDesc === "天晴。", "local forecast is passed through")
+r = await call("GET", "/api/hko/warnsum")
+check(r.status === 200 && r.body.body.WHOT.code === "WHOT", "warning summary is passed through")
+r = await call("GET", "/api/hko/warningInfo")
+check(r.status === 200 && r.body.ok && Object.keys(r.body.body).length === 0, "an empty warningInfo (no warnings) is {} not an error")
+r = await call("GET", "/api/hko/qem")
+check(r.status === 200 && r.body.body.mag === 4.5, "earthquake feed goes to earthquake.php")
+r = await call("GET", "/api/hko/ryes")
+check(r.status === 200 && /date=\d{8}&lang=tc$/.test(seenRyes) && r.body.body.KingsParkMicrosieverts === "0.14", "RYES asks for yesterday's report")
 r = await call("GET", "/api/hko/rhrread")
-check(r.status === 404, "only flw and fnd are proxied")
+check(r.status === 404, "only the listed HKO feeds are proxied")
 r = await call("GET", "/api/lunar/2026")
 check(r.status === 200 && r.body.days["2026-01-01"].join() === "十二,初一," && r.body.days["2026-11-07"][2] === "立冬" && Object.keys(r.body.days).length === 365, "lunar year: table read (CSV missing is fine), terms kept")
 hkoDown = true
@@ -249,6 +265,8 @@ r = await call("GET", "/api/lunar/2026")
 check(r.status === 502 && r.body.reason === "upstream", "lunar table down -> 502")
 r = await call("GET", "/api/hko/fnd")
 check(r.status === 502, "weather down -> 502")
+r = await call("GET", "/api/hko/qem")
+check(r.status === 502, "earthquake feed down -> 502")
 hkoDown = false
 
 // ---- lib/tml-cloud.js

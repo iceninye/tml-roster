@@ -7,7 +7,8 @@
 //   POST /api/token-log       -> 產生／用新 token 時寄一封 log 電郵（裝置、時間、token）
 //   POST /api/backup          -> 將一份備份檔寄去 owner 電郵
 //   GET /api/school-holidays  -> 代讀學校假期 iCal（Google Calendar 唔俾瀏覽器直接讀），回 JSON
-//   GET /api/hko/flw|fnd      -> 代讀天文台本港地區天氣預報／九天天氣預報（快取 10 分鐘）
+//   GET /api/hko/<type>       -> 代讀天文台：flw|fnd 預報（快取 10 分鐘）；warnsum|warningInfo|swt 警告、
+//                                qem|feltearthquake 地震、ryes 天氣及輻射水平（快取 3 分鐘）
 //   GET /api/lunar/<year>     -> 天文台公曆與農曆對照表同節氣，讀好變 JSON（快取 30 日）
 //   PUT /api/cal/<token>      -> 上載我的更表每日 event，俾手機日曆訂閱（lib/tml-cal.js）
 //   GET /api/ics/<feed>.ics   -> 手機日曆訂閱嘅 .ics（feed = sha256(token) 頭 32 hex，唔洩露 token）
@@ -21,7 +22,7 @@
 
 import { holidaysBetween, parseIcs } from "../lib/tml-ics.js"
 import { FEED_RE, cleanEvents, feedId, icsText, mergeRange, withSequence } from "../lib/tml-cal.js"
-import { HKO_API, lunarCsvUrl, lunarTextUrl, parseLunarTable } from "../lib/tml-hko.js"
+import { HKO_TYPES, hkoUrl, lunarCsvUrl, lunarTextUrl, parseLunarTable } from "../lib/tml-hko.js"
 
 const TOKEN_RE = /^[a-z0-9]{20,64}$/
 const MAX_BYTES = { roster: 128 * 1024, plan: 1024 * 1024 }
@@ -409,14 +410,27 @@ const HKO_HEADERS = { "user-agent": "Mozilla/5.0 (compatible; tml-roster/1.0; +h
 const WEATHER_TTL = 600
 const LUNAR_TTL = 30 * 86400
 
-// 天氣預報照原樣轉交（前端自己讀），只係加快取同 CORS 唔使煩。
+const WARN_TTL = 180
+
+// 前一日（香港時間）：天氣及輻射水平資料係每日出前一日嘅
+const hkYesterday = () => new Date(Date.now() + 8 * 3600e3 - 86400e3).toISOString().slice(0, 10)
+
+// 天文台資料照原樣轉交（前端自己讀），只係加快取同 CORS 唔使煩。
+// 冇警告時 warningInfo 等會回空白 body：當 {}，唔當出錯。
 async function hkoWeather(type) {
+  const ttl = type === "flw" || type === "fnd" ? WEATHER_TTL : WARN_TTL
   try {
-    const res = await fetch(`${HKO_API}?dataType=${type}&lang=tc`, { headers: HKO_HEADERS, cf: { cacheTtl: WEATHER_TTL, cacheEverything: true } })
-    const body = res.ok ? await res.json() : null
+    const res = await fetch(hkoUrl(type, hkYesterday()), { headers: HKO_HEADERS, cf: { cacheTtl: ttl, cacheEverything: true } })
+    const text = res.ok ? await res.text() : null
+    let body = null
+    try {
+      body = text === null ? null : text.trim() ? JSON.parse(text) : {}
+    } catch {
+      body = null
+    }
     if (!body || typeof body !== "object") return reply({ ok: false, reason: "upstream", status: res.status }, 502)
     return new Response(JSON.stringify({ ok: true, type, body }), {
-      headers: { "content-type": "application/json; charset=utf-8", "cache-control": `public, max-age=${WEATHER_TTL}` },
+      headers: { "content-type": "application/json; charset=utf-8", "cache-control": `public, max-age=${ttl}` },
     })
   } catch (error) {
     return reply({ ok: false, reason: "upstream", why: String(error?.message ?? error).slice(0, 60) }, 502)
@@ -564,7 +578,7 @@ export default {
     // 前端用嚟問「呢個網址支唔支援同步」（GitHub Pages 版會 404）
     if (parts[0] === "api" && parts[1] === "ping") return reply({ ok: true, sync: true, mail: !!(env.RESEND_API_KEY && env.BACKUP_TO) })
     if (parts[0] === "api" && parts[1] === "school-holidays" && parts.length === 2 && request.method === "GET") return schoolHolidays()
-    if (parts[0] === "api" && parts[1] === "hko" && parts.length === 3 && (parts[2] === "flw" || parts[2] === "fnd") && request.method === "GET") return hkoWeather(parts[2])
+    if (parts[0] === "api" && parts[1] === "hko" && parts.length === 3 && HKO_TYPES.includes(parts[2]) && request.method === "GET") return hkoWeather(parts[2])
     if (parts[0] === "api" && parts[1] === "lunar" && parts.length === 3 && /^20\d\d$/.test(parts[2]) && request.method === "GET") return lunarYear(Number(parts[2]))
     if (parts[0] === "api" && parts[1] === "ics" && parts.length === 3 && (request.method === "GET" || request.method === "HEAD")) return getCalendar(parts[2], env)
     if (parts[0] === "api" && parts[1] === "cal" && parts.length === 3) {

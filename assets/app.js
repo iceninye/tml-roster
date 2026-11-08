@@ -12,13 +12,13 @@ import { OFF_CODES, workOf } from "../lib/tml-extra.js"
 import { serviceDate, hkDate, secondsInto } from "../lib/tml-time.js"
 import { fetchData, placeNames, sheetForDate, stationNames } from "../lib/tml-data.js"
 import { holidaysOn } from "../lib/tml-ics.js"
-import { HKO_API, HKO_LUNAR_API, cleanFlw, lunarCsvUrl, lunarFromApi, lunarLabel, mergeFnd, nextTerm, parseLunarTable, psrLevel, tempRange, wxIcon } from "../lib/tml-hko.js"
+import { HKO_LUNAR_API, cleanFlw, cleanQuake, cleanRyes, cleanSwt, cleanWarningInfo, cleanWarnsum, hkoUrl, lunarCsvUrl, lunarFromApi, lunarLabel, mergeFnd, nextTerm, parseLunarTable, psrLevel, tempRange, warnIconSvg, wxAlerts, wxIcon, wxIconUrl } from "../lib/tml-hko.js"
 import { isoWeek } from "../lib/tml-plan.js"
 import { monthDates, otClock, otFromClock, recentOt, setOt } from "../lib/tml-ot.js"
 import { feedId, subscribeLinks } from "../lib/tml-cal.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson, syncState } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.53", commit: "dev" }
+const BUILD = { version: "0.9.54", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -38,6 +38,9 @@ const SCHOOL_KEY = "tml-roster-school"
 const WX_KEY = "tml-roster-weather"
 const LUNAR_KEY = "tml-roster-lunar"
 const WX_EVERY = 30 * 60 * 1000
+// 天氣警告、特別天氣提示、地震、輻射：5 分鐘讀一次；超過 2 小時未讀到就唔顯示（唔好顯示已取消咗嘅警告）
+const WARN_EVERY = 5 * 60 * 1000
+const WARN_STALE = 2 * 3600 * 1000
 // 手機日曆：上次同步嘅時間（顯示用）；訂閱網址由 token 計，唔使存
 const CAL_AT = "tml-roster-cal-at"
 const CAL_WEEKS = "tml-roster-cal-weeks" // {monday: 上次同步時間}，🗓️ 淡色 = 未同步過
@@ -299,6 +302,8 @@ const S = {
   noteCleared: "已刪除備註",
   factTomorrow: "明天",
   wxTitle: "天氣",
+  wxMore: "撳一下睇詳情",
+  wxWarnOld: "天氣警告未能更新",
   wxPsr: "降雨概率",
   wxPsrShort: "降雨",
   wxTc: "熱帶氣旋",
@@ -328,6 +333,7 @@ const state = {
   syncMsg: "",
   calMsg: "", // 手機日曆面板訊息
   calOpen: null, // 首頁 🗓️ 面板打開咗嘅星期（monday）
+  wxOpen: new Set(), // 今日卡天氣框：撳開咗嘅長文（警告詳情、特別天氣提示……）
   calFeed: null, // 手機日曆訂閱 id（由 token 計）
   calMonth: null, // 月曆睇緊邊個月 "YYYY-MM"（null = 今個月）
   otOpen: null, // 日詳情：OT 格打開咗嘅日子（預設收埋，儲存後收埋）
@@ -354,7 +360,8 @@ const dutyBooks = new Map()
 let shown = ""
 let shownCal = ""
 let school = null // 學校假期 [{ start, end, title }]
-let weather = { flw: null, fnd: null, at: 0, ok: false } // 天文台：flw 本港預報、fnd { days: { date: day } }
+// 天文台：flw 本港預報、fnd { days: { date: day } }、warn 警告／地震／輻射（cleaned，見 wxAlerts）
+let weather = { flw: null, fnd: null, at: 0, ok: false, warn: null, warnAt: 0, warnTried: 0 }
 let lunar = {} // { "2026-11-08": { month, day, term } }，按年讀
 const lunarYears = new Set()
 let openedWeek = ""
@@ -932,12 +939,21 @@ function lunarHtml(date) {
   return ` <span class="today-lunar">${S.lunar(lunarLabel(day))}</span>${term}`
 }
 
+// 天文台天氣圖示；圖讀唔到（離線）就換返 emoji
+const wxIconHtml = (code) => {
+  const url = wxIconUrl(code)
+  const emoji = wxIcon(code)
+  return url
+    ? `<i class="wx-pic" aria-hidden="true"><img src="${url}" alt="${emoji}" width="26" height="26" loading="lazy" decoding="async" onerror="this.replaceWith(this.alt)"></i>`
+    : `<i aria-hidden="true">${emoji}</i>`
+}
+
 // 卡右上角：天氣圖示、氣溫、降雨概率（九天天氣預報有嗰日先出）
 function wxCornerHtml(date) {
   const day = fndDay(date)
   if (!day) return ""
   return `<span class="wx-corner" title="${escapeHtml(`${day.weather} ${day.wind}`.trim())}">` +
-    `<span class="wx-top"><i aria-hidden="true">${wxIcon(day.icon)}</i><b>${tempRange(day)}</b></span>${psrHtml(day.psr, S.wxPsrShort)}</span>`
+    `<span class="wx-top">${wxIconHtml(day.icon)}<b>${tempRange(day)}</b></span>${psrHtml(day.psr, S.wxPsrShort)}</span>`
 }
 
 // 「明天」一行尾：🌦️ 22–26° 降雨 中
@@ -949,22 +965,40 @@ function wxLine(date) {
   return [`${wxIcon(day.icon)}\u00a0${tempRange(day)}`, p ? `${S.wxPsrShort}\u00a0${p.text}` : ""].filter(Boolean).join(" ")
 }
 
-// 今日卡最底：本港地區天氣預報（flw）＋今日降雨概率（PSR，九天預報有今日先有）
+// 今日卡最底「天氣」框（Ice 2026-11-08）：氣溫、降雨概率已經喺右上角，唔再重複；唔寫「本港地區今日天氣預測」。
+// 先列天文台警告（圖示＋名，一定顯示）、短嘅提示同地震直接顯示；長文（警告詳情、長嘅特別天氣提示、
+// 輻射各站數字）收埋，撳一下先出。冇警告就乜都唔加。
 function todayWeatherHtml(date) {
   const flw = weather.flw
   const day = fndDay(date)
-  if (!flw && !day) return `<span class="today-wx"><span class="wx-at">${S.wxNone}</span></span>`
+  const fresh = weather.warn && Date.now() - weather.warnAt < WARN_STALE
+  const alerts = fresh ? wxAlerts({ ...weather.warn, tc: flw?.tc, fire: flw?.fire }) : wxAlerts({ tc: flw?.tc, fire: flw?.fire })
+  if (!flw && !day && !alerts.length) return `<span class="today-wx"><span class="wx-at">${S.wxNone}</span></span>`
   const stamp = flw?.updateTime ? hkStamp(flw.updateTime) : ""
   const time = stamp ? `${meDate(stamp.slice(0, 10))} ${stamp.slice(11, 16)}` : ""
-  const head = `<span class="wx-head"><b>${S.wxTitle}</b>` +
-    (day ? `<span class="wx-now"><i aria-hidden="true">${wxIcon(day.icon)}</i>${tempRange(day)}</span>` : "") +
-    (day ? psrHtml(day.psr, S.wxPsr) : "") + `</span>`
-  const alert = (label, text) => (text ? `<span class="wx-alert"><b>${label}</b> ${escapeHtml(text)}</span>` : "")
-  return `<span class="today-wx">${head}` +
-    alert(S.wxTc, flw?.tc) +
-    (flw ? `<span class="wx-text">${flw.period ? `<small>${escapeHtml(flw.period)}</small>` : ""}${escapeHtml(flw.desc)}</span>` : day ? `<span class="wx-text">${escapeHtml(day.weather)}</span>` : "") +
-    alert(S.wxFire, flw?.fire) +
+  const warns = alerts.filter((a) => a.kind === "warn")
+  const others = alerts.filter((a) => a.kind !== "warn")
+  return `<span class="today-wx"><span class="wx-head"><b>${S.wxTitle}</b></span>` +
+    (warns.length ? `<span class="wx-warns">${warns.map(alertHtml).join("")}</span>` : "") +
+    others.filter((a) => a.kind !== "info" || a.key !== "ryes").map(alertHtml).join("") +
+    (flw ? `<span class="wx-text">${escapeHtml(flw.desc)}</span>` : day ? `<span class="wx-text">${escapeHtml(day.weather)}</span>` : "") +
+    others.filter((a) => a.kind === "info" && a.key === "ryes").map(alertHtml).join("") +
+    (weather.warnFailed && !fresh ? `<span class="wx-at">${S.wxWarnOld}</span>` : "") +
     (time ? `<span class="wx-at">${weather.ok ? S.wxAt(time) : S.wxOld(time)}</span>` : "") + `</span>`
+}
+
+// 一項警告／提示。有長文就成行可以撳（span，因為成張今日卡係 button）
+function alertHtml(a) {
+  const open = state.wxOpen.has(a.key)
+  const icon = a.kind === "warn" ? warnIconSvg(a.code) || "⚠️" : a.kind === "quake" ? "🌏" : a.key === "ryes" ? (a.kind === "info" ? "🟢" : "☢️") : a.key === "fire" ? "🔥" : "ℹ️"
+  const when = a.time && hkStamp(a.time) ? ` <small>${meDate(hkStamp(a.time).slice(0, 10))} ${hkStamp(a.time).slice(11, 16)}</small>` : ""
+  const line = `<span class="wx-a-icon">${icon}</span><span class="wx-a-body"><b>${escapeHtml(a.title)}</b>` +
+    (a.text ? ` ${escapeHtml(a.text)}` : "") + when + (a.note ? ` <small>${escapeHtml(a.note)}</small>` : "") + `</span>` +
+    (a.more.length ? `<span class="wx-a-caret" aria-hidden="true">${open ? "▾" : "▸"}</span>` : "")
+  const more = open && a.more.length ? `<span class="wx-a-more">${a.more.map((t) => `<span>${escapeHtml(t)}</span>`).join("")}</span>` : ""
+  return a.more.length
+    ? `<span class="wx-a wx-more" data-kind="${a.kind}" data-wx="${escapeHtml(a.key)}" role="button" aria-expanded="${open}" title="${S.wxMore}">${line}${more}</span>`
+    : `<span class="wx-a" data-kind="${a.kind}">${line}</span>`
 }
 
 async function getJson(url) {
@@ -981,20 +1015,26 @@ async function hkoGet(type) {
   } catch {
     // 下面直接問
   }
-  return getJson(`${HKO_API}?dataType=${type}&lang=tc`)
+  const url = hkoUrl(type, addDays(todayDate(), -1))
+  // 冇警告時 warningInfo 會回空白：當 {}
+  const res = await fetch(url, { headers: { accept: "application/json" }, cache: "no-cache" })
+  if (!res.ok) throw new Error(String(res.status))
+  const text = await res.text()
+  return text.trim() ? JSON.parse(text) : {}
 }
 
 function loadWeather(force = false) {
   if (!weather.at) {
     try {
       const saved = JSON.parse(readPref(WX_KEY) ?? "null")
-      if (saved) weather = { flw: saved.flw ?? null, fnd: mergeFnd(saved.fnd, null, todayDate()), at: saved.at ?? 0, ok: false }
+      if (saved) weather = { flw: saved.flw ?? null, fnd: mergeFnd(saved.fnd, null, todayDate()), at: saved.at ?? 0, ok: false, warn: saved.warn ?? null, warnAt: saved.warnAt ?? 0, warnTried: 0 }
     } catch {
       // 壞咗嘅記錄當冇
     }
   }
-  if (!force && weather.ok && Date.now() - weather.at < WX_EVERY) return
   if (globalThis.navigator?.onLine === false) return
+  loadWarnings(force)
+  if (!force && weather.ok && Date.now() - weather.at < WX_EVERY) return
   Promise.allSettled([hkoGet("flw"), hkoGet("fnd")]).then(([flw, fnd]) => {
     const got = flw.status === "fulfilled" || fnd.status === "fulfilled"
     if (flw.status === "fulfilled") weather.flw = cleanFlw(flw.value) ?? weather.flw
@@ -1005,7 +1045,36 @@ function loadWeather(force = false) {
     }
     weather.ok = true
     weather.at = Date.now()
-    writePref(WX_KEY, JSON.stringify({ flw: weather.flw, fnd: weather.fnd, at: weather.at }))
+    saveWeather()
+    paintData()
+  })
+}
+
+const saveWeather = () =>
+  writePref(WX_KEY, JSON.stringify({ flw: weather.flw, fnd: weather.fnd, at: weather.at, warn: weather.warn, warnAt: weather.warnAt }))
+
+// 警告、特別天氣提示、地震、輻射：逐個讀，讀唔到嘅用返上次（但上次超過 2 小時就唔顯示，見 todayWeatherHtml）
+const WARN_FEEDS = { warnsum: cleanWarnsum, info: cleanWarningInfo, swt: cleanSwt, qem: cleanQuake, felt: cleanQuake, ryes: cleanRyes }
+const WARN_TYPE = { warnsum: "warnsum", info: "warningInfo", swt: "swt", qem: "qem", felt: "feltearthquake", ryes: "ryes" }
+function loadWarnings(force) {
+  if (!force && Date.now() - weather.warnTried < WARN_EVERY) return
+  weather.warnTried = Date.now()
+  const names = Object.keys(WARN_FEEDS)
+  Promise.allSettled(names.map((name) => hkoGet(WARN_TYPE[name]))).then((results) => {
+    const warn = { ...(weather.warn ?? {}) }
+    let got = false
+    results.forEach((r, i) => {
+      if (r.status !== "fulfilled") return
+      warn[names[i]] = WARN_FEEDS[names[i]](r.value)
+      got = true
+    })
+    // 警告一覽係最重要嗰份：佢讀到先當更新咗
+    weather.warnFailed = results[0].status !== "fulfilled"
+    if (got && !weather.warnFailed) {
+      weather.warn = warn
+      weather.warnAt = Date.now()
+      saveWeather()
+    }
     paintData()
   })
 }
@@ -2166,6 +2235,13 @@ function onClick(event) {
     state.from = state.page
     state.page = "duty"
     state.duty = { sheet: mate.dataset.sheet, id: mate.dataset.duty }
+  } else if (target.closest(".wx-more")) {
+    // 今日卡天氣框：撳開／收埋長文，唔好開日詳情
+    const key = target.closest(".wx-more").dataset.wx
+    if (state.wxOpen.has(key)) state.wxOpen.delete(key)
+    else state.wxOpen.add(key)
+    paintData()
+    return
   } else if (target.closest('.me-day[data-past="1"]:not([data-open])')) {
     state.pastOpen.add(target.closest(".me-day").dataset.date)
     return render()

@@ -888,6 +888,23 @@ button.cal-day { cursor: pointer; }
 .wx-text small { display: block; font-size: 12px; font-weight: 600; opacity: 0.75; }
 .wx-alert { padding: 6px 10px; font-size: 14px; background: rgba(239, 106, 88, 0.35); border-radius: 8px; }
 .wx-at { font-size: 12px; opacity: 0.7; }
+/* 天文台天氣圖示（讀唔到就係 emoji） */
+.wx-pic { display: inline-flex; font-style: normal; }
+.wx-pic img { display: block; width: 26px; height: 26px; object-fit: contain; }
+.today .wx-pic img { width: 30px; height: 30px; }
+/* 今日卡天氣框：警告、提示、地震、輻射 */
+.wx-warns { display: grid; gap: 6px; }
+.wx-a { display: flex; align-items: flex-start; gap: 8px; padding: 6px 8px; font-size: 14px; line-height: 1.45; background: rgba(255, 255, 255, 0.1); border-radius: 8px; }
+.wx-a[data-kind="warn"] { align-items: center; background: rgba(0, 0, 0, 0.28); font-size: 15px; }
+.wx-a[data-kind="warn-info"], .wx-a[data-kind="quake"] { background: rgba(239, 106, 88, 0.35); }
+.wx-a.wx-more { flex-wrap: wrap; cursor: pointer; }
+.wx-a-icon { flex: none; display: inline-flex; width: 28px; justify-content: center; font-size: 18px; line-height: 1.4; }
+.wx-a-icon .wx-icon { display: block; }
+.wx-a-body { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; }
+.wx-a-body b { font-weight: 800; }
+.wx-a-body small { font-size: 12px; opacity: 0.8; }
+.wx-a-caret { flex: none; font-size: 13px; opacity: 0.8; padding-top: 2px; }
+.wx-a-more { display: grid; gap: 6px; flex-basis: 100%; padding: 4px 0 2px 36px; font-size: 14px; line-height: 1.55; opacity: 0.95; }
 /* 今日卡飯腳：全部列出，一粒粒排（Ice 2026-11-08） */
 .mate-chips { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 2px; }
 .mate-chips > span { padding: 1px 8px; font-size: 14px; font-weight: 600; line-height: 1.6; background: rgba(255, 255, 255, 0.14); border-radius: 8px; }
