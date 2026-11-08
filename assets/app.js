@@ -15,9 +15,10 @@ import { holidaysOn } from "../lib/tml-ics.js"
 import { HKO_API, HKO_LUNAR_API, cleanFlw, lunarCsvUrl, lunarFromApi, lunarLabel, mergeFnd, nextTerm, parseLunarTable, psrLevel, tempRange, wxIcon } from "../lib/tml-hko.js"
 import { isoWeek } from "../lib/tml-plan.js"
 import { monthDates, otClock, otFromClock, recentOt, setOt } from "../lib/tml-ot.js"
+import { feedId, subscribeLinks } from "../lib/tml-cal.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson, syncState } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.51", commit: "dev" }
+const BUILD = { version: "0.9.52", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -37,6 +38,11 @@ const SCHOOL_KEY = "tml-roster-school"
 const WX_KEY = "tml-roster-weather"
 const LUNAR_KEY = "tml-roster-lunar"
 const WX_EVERY = 30 * 60 * 1000
+// 手機日曆：上次同步嘅時間（顯示用）；訂閱網址由 token 計，唔使存
+const CAL_AT = "tml-roster-cal-at"
+// 同步幾多日：今日之前 7 日到之後 6 星期
+const CAL_BACK = 7
+const CAL_AHEAD = 42
 
 const S = {
   weekdays: ["週一", "週二", "週三", "週四", "週五", "週六", "週日"],
@@ -148,6 +154,20 @@ const S = {
   syncCopied: "已複製 token。",
   syncCopyFail: "複製唔到，請手動選取輸入框內容。",
   syncUpload: "上傳到雲端",
+  phoneCalTitle: "同步手機日曆",
+  calHelp: "撳「同步」會將今日之前 7 日到之後 6 個星期嘅更（返工時間、地點、OT、備註；休息日同假期係全日）上載，變成一個日曆訂閱。第一次同步之後撳「iPhone 訂閱」或者「Google 日曆訂閱」加入手機日曆，之後改咗更再撳一次「同步」：新日子會加入、改咗嘅會更新、唔再有嘅會刪走。手機日曆自己定時重讀：iPhone 喺「設定 › 日曆 › 帳號 › 取得新資料」揀每 15 分鐘或每小時；Google 日曆由 Google 決定，通常幾個鐘到一日。用同一條同步 token；訂閱網址由 token 計出但倒推唔返 token，只讀，唔好傳出去。",
+  calNoToken: "要先喺「跨裝置同步」產生或者貼上 token。",
+  calSync: "同步",
+  calBusy: "整理緊更份資料…",
+  calWait: "更份資料未讀完，請等一陣再撳。",
+  calDone: (n, a, c, r, when) => `已同步 ${n} 日（新增 ${a}、更新 ${c}、刪走 ${r}）· ${when}`,
+  calLast: (when) => `上次同步：${when}`,
+  calFail: "同步唔到，請檢查網絡再試。",
+  calIphone: "iPhone 訂閱",
+  calGoogle: "Google 日曆訂閱",
+  calCopy: "複製訂閱網址",
+  calCopied: "已複製訂閱網址。",
+  calLinkHint: "Android 用 Google 日曆訂閱；如果開唔到，喺電腦打開 Google 日曆 › 其他日曆 › 透過網址新增，貼上訂閱網址。",
   syncDownload: "由雲端下載",
   syncNoToken: "先貼上同步 token 再撳。",
   syncBadToken: "token 格式唔啱（20 至 64 個細楷英文字母或數字），冇上傳亦冇下載。",
@@ -302,6 +322,8 @@ const state = {
   message: "",
   editing: false,
   syncMsg: "",
+  calMsg: "", // 手機日曆面板訊息
+  calFeed: null, // 手機日曆訂閱 id（由 token 計）
   calMonth: null, // 月曆睇緊邊個月 "YYYY-MM"（null = 今個月）
   otOpen: null, // 日詳情：OT 格打開咗嘅日子（預設收埋，儲存後收埋）
   noteOpen: null, // 日詳情：備註格打開咗嘅日子
@@ -462,7 +484,7 @@ function dutyBook(code) {
   if (!entry) {
     entry = { status: "loading", data: null, entry: null }
     dutyBooks.set(code, entry)
-    dutyIndexPromise()
+    entry.promise = dutyIndexPromise()
       .then((index) => {
         if (!index) throw new Error("no index")
         entry.entry = index.sheets.find((item) => item.code === code) ?? null
@@ -575,6 +597,7 @@ function basicOf(code) {
 // "KSR2" is platform 2 of 錦上路; a code that is no station keeps its letters.
 function placeName(code) {
   if (!code) return "—"
+  if (code === "HHS") return DEPOT_NAMES.HHS // Ice：「紅磡廠 HHS」只寫「紅磡廠」
   if (DEPOT_NAMES[code]) return `${DEPOT_NAMES[code]} ${code}`
   if (places[code]) return places[code]
   const base = code.replace(/\d$/, "")
@@ -1466,7 +1489,7 @@ function paintData() {
       return `<li><button type="button" class="day me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}" data-today="${date === today ? 1 : 0}"${short.has(date) ? ' data-short="1"' : ""}` +
         // 本週已過嘅日子：淡色、縮細、只顯示頭兩行；撳一下還原 full size（仍然淡色）
         `${date < today ? ` data-past="1"${state.pastOpen.has(date) ? ' data-open="1"' : ""}` : ""}>` +
-        `<span class="day-date"><small>${S.weekdays[weekdayIndex(date)]}</small><b>${Number(date.slice(8))}</b></span>` +
+        `<span class="day-date"><small>${S.weekdays[weekdayIndex(date)]}</small><b>${Number(date.slice(8))}</b>${lunar[date] ? `<small class="day-lunar">${escapeHtml(lunar[date].day)}</small>` : ""}</span>` +
         // 右上角：九天天氣預報（有先顯示）
         wxCornerHtml(date) +
         `<span class="day-main"><span class="day-title">${isOffTone(cell) ? offTitleHtml(entry.code, cell) : escapeHtml(cell.label)}${tags}${badges}${short.has(date) ? `<span class="badge rest-short">${S.restShort}</span>` : ""}</span>` +
@@ -1617,7 +1640,113 @@ function setupHtml() {
         `<button type="button" class="btn ${roster ? "" : "primary "}me-kv-down">${S.syncDownload}</button></div>` +
         (bellState() === "none" && kvDirty() ? `<p class="fine me-sync-dirty">${S.syncDirty}</p>` : "") +
         `<div id="me-bell" class="me-bell-slot">${bellHtml(false)}</div>` +
-        `<p class="me-msg me-sync-msg" role="status">${escapeHtml(state.syncMsg)}</p>`))
+        `<p class="me-msg me-sync-msg" role="status">${escapeHtml(state.syncMsg)}</p>`)) +
+    (roster && syncSupported !== false ? calPanelHtml() : "")
+}
+
+/* ------------------------------------------------------------ 手機日曆 */
+
+// 一日嘅 cell，等更份卡讀完先回（日曆唔可以上載「載入中」）
+async function settledCell(date) {
+  for (let i = 0; i < 4; i += 1) {
+    const got = dayCell(date)
+    if (got.cell.status !== "loading") return got
+    await dutyIndexPromise()
+    await Promise.all([...dutyBooks.values()].map((entry) => entry.promise).filter(Boolean))
+  }
+  return dayCell(date)
+}
+
+// 一日 -> 日曆 event（lib/tml-cal.js cleanEvents 嘅格式）。資料未齊（讀失敗）回 null。
+function calEvent(date, entry, cell) {
+  if (["loading", "failed"].includes(cell.status)) return null
+  const code = entry.code || ""
+  const note = noteOf(date)
+  const ot = otText(cell.ot)
+  if (cell.status === "ok" || cell.status === "basic") {
+    const shift = shiftOfCell(cell)
+    const d = cell.duty
+    const onAt = d ? d.on[1] : cell.basic.onAt
+    const offAt = d ? d.off[1] : cell.basic.offAt
+    const desc = [
+      `${S.on} ${hhmm(cell.on)} ${onAt ? placeName(onAt) : ""} → ${S.off} ${hhmm(offOf(cell))} ${offAt ? placeName(offAt) : ""}`.replace(/ +/g, " "),
+      d?.meal ? `${S.meal} ${hhmm(d.meal[0])}–${hhmm(d.meal[1])} ${placeName(d.meal[2])}` : "",
+      cardHours(cell),
+      cell.sheet ? `Duty Sheet ${cell.sheet}` : "",
+      ot,
+      note,
+    ].filter(Boolean).join("\n")
+    return {
+      date,
+      summary: [code, shift ? S.shift[shift] : "", cell.ot ? S.ot : ""].filter(Boolean).join(" "),
+      location: onAt ? placeName(onAt) : "",
+      description: desc,
+      on: cell.on,
+      off: offOf(cell),
+    }
+  }
+  const label = isOffTone(cell) ? `${code} ${S.status?.[code] ?? cell.label}`.trim() : cell.label || code
+  return { date, summary: label === code ? code : label, description: [summary(cell), ot, note].filter(Boolean).join("\n") }
+}
+
+async function calSync() {
+  if (!kvToken()) return calMessage(S.calNoToken)
+  calMessage(S.calBusy)
+  const start = addDays(todayDate(), -CAL_BACK)
+  const events = []
+  for (let i = 0; i <= CAL_BACK + CAL_AHEAD; i += 1) {
+    const date = addDays(start, i)
+    const { entry, cell } = await settledCell(date)
+    if (!entry.code) continue
+    const ev = calEvent(date, entry, cell)
+    if (!ev) return calMessage(S.calWait)
+    events.push(ev)
+  }
+  let body = null
+  try {
+    const res = await fetch(`/api/cal/${encodeURIComponent(kvToken())}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: title || S.title, events }),
+    })
+    body = await res.json().catch(() => null)
+  } catch {
+    body = null
+  }
+  if (!body?.ok) return calMessage(S.calFail)
+  writePref(CAL_AT, body.updatedAt)
+  state.calFeed = body.feed
+  calMessage(S.calDone(body.count, body.added, body.changed, body.removed, hkStamp(body.updatedAt)))
+}
+
+function calMessage(text) {
+  state.calMsg = text
+  render()
+}
+
+function calLinksHtml() {
+  if (!state.calFeed) return ""
+  const links = subscribeLinks(location.origin, state.calFeed)
+  return `<div class="row me-foot cal-links">` +
+    `<a class="btn" href="${escapeHtml(links.webcal)}">${S.calIphone}</a>` +
+    `<a class="btn" href="${escapeHtml(links.google)}" target="_blank" rel="noopener">${S.calGoogle}</a>` +
+    `<button type="button" class="btn me-cal-copy" data-url="${escapeHtml(links.https)}">${S.calCopy}</button></div>` +
+    `<p class="fine">${S.calLinkHint}</p>`
+}
+
+let calFeedPending = false
+function calPanelHtml() {
+  // 有 token 又同步過：一開就計返訂閱網址（唔使存）
+  if (!state.calFeed && kvToken() && readPref(CAL_AT) && !calFeedPending) {
+    calFeedPending = true
+    feedId(kvToken()).then((feed) => { state.calFeed = feed; render() }).finally(() => { calFeedPending = false })
+  }
+  const last = readPref(CAL_AT)
+  return foldPanel("cal", S.phoneCalTitle,
+    `<details class="fine-box"><summary>${S.hintTitle}</summary><p class="fine">${S.calHelp}</p></details>` +
+    `<div class="row me-foot"><button type="button" class="btn primary me-cal-sync">${S.calSync}</button></div>` +
+    calLinksHtml() +
+    `<p class="me-msg me-cal-msg" role="status">${escapeHtml(state.calMsg || (last ? S.calLast(hkStamp(last)) : ""))}</p>`)
 }
 
 // 匯出：CSV 每行一個星期（行號、名、週一至週日），可以原封不動貼返入「Standard Roster 內容」
@@ -1652,6 +1781,7 @@ function adoptToken() {
     writePref(KV_KEY, value)
     writePref(KV_VERSION, "0") // 換咗 token：手上版本號唔再適用
     cloud = null
+    state.calFeed = null
     sendLog("join", value)
   }
   return kvToken()
@@ -1776,6 +1906,7 @@ function kvNewToken() {
   writePref(KV_KEY, token)
   writePref(KV_VERSION, "0") // 新記錄由第 0 版開始
   cloud = null
+  state.calFeed = null
   kvMessage(S.syncNewDone)
   sendLog("new", token)
 }
@@ -2049,6 +2180,14 @@ function onClick(event) {
   } else if (target.closest(".me-kv-up")) {
     if (adoptToken() === null) kvMessage(S.syncBadToken)
     else kvUpload()
+    return
+  } else if (target.closest(".me-cal-sync")) {
+    if (adoptToken() === null) calMessage(S.syncBadToken)
+    else calSync()
+    return
+  } else if (target.closest(".me-cal-copy")) {
+    const url = target.closest(".me-cal-copy").dataset.url
+    navigator.clipboard?.writeText(url).then(() => calMessage(S.calCopied), () => prompt(S.calCopy, url))
     return
   } else if (target.closest(".me-kv-down")) {
     if (adoptToken() === null) kvMessage(S.syncBadToken)

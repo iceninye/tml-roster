@@ -9,6 +9,8 @@
 //   GET /api/school-holidays  -> 代讀學校假期 iCal（Google Calendar 唔俾瀏覽器直接讀），回 JSON
 //   GET /api/hko/flw|fnd      -> 代讀天文台本港地區天氣預報／九天天氣預報（快取 10 分鐘）
 //   GET /api/lunar/<year>     -> 天文台公曆與農曆對照表同節氣，讀好變 JSON（快取 30 日）
+//   PUT /api/cal/<token>      -> 上載我的更表每日 event，俾手機日曆訂閱（lib/tml-cal.js）
+//   GET /api/ics/<feed>.ics   -> 手機日曆訂閱嘅 .ics（feed = sha256(token) 頭 32 hex，唔洩露 token）
 //
 // PUT 要蓋掉雲端現有版本之前，會先將現有版本寄電郵做備份；寄唔到就唔寫，回 502
 // backup_failed，等用戶揀（帶 skipBackup: true 先會照寫）。
@@ -18,6 +20,7 @@
 // 呢個係「靠 URL 保密」，唔係認證 —— 攞到條 URL 嘅人讀寫得到。
 
 import { holidaysBetween, parseIcs } from "../lib/tml-ics.js"
+import { FEED_RE, cleanEvents, feedId, icsText, withSequence } from "../lib/tml-cal.js"
 import { HKO_API, lunarCsvUrl, lunarTextUrl, parseLunarTable } from "../lib/tml-hko.js"
 
 const TOKEN_RE = /^[a-z0-9]{20,64}$/
@@ -456,6 +459,45 @@ async function lunarYear(year) {
   })
 }
 
+/* ---------------------------------------------------------- 手機日曆 */
+
+const CAL_MAX = 96 * 1024
+
+async function putCalendar(token, request, env) {
+  if (request.method !== "PUT") return new Response(null, { status: 405, headers: { allow: "PUT", "cache-control": "no-store" } })
+  const { body, error } = await readJson(request, CAL_MAX)
+  if (error) return error
+  const events = cleanEvents(body?.events)
+  if (!events) return reply({ ok: false, reason: "bad_shape" }, 400)
+  const name = String(body?.name ?? "").trim().slice(0, 24) || "我的更表"
+  const feed = await feedId(token)
+  const key = `cal:${feed}`
+  const stored = await env.ROSTER_KV.get(key, "json")
+  const now = new Date().toISOString()
+  const next = withSequence(stored?.events, events, now)
+  const old = new Map((stored?.events ?? []).map((ev) => [ev.date, ev]))
+  const added = next.filter((ev) => !old.has(ev.date)).length
+  const changed = next.filter((ev) => old.has(ev.date) && ev.seq !== old.get(ev.date).seq).length
+  const removed = (stored?.events ?? []).filter((ev) => !next.some((item) => item.date === ev.date)).length
+  await env.ROSTER_KV.put(key, JSON.stringify({ name, events: next, updatedAt: now }))
+  return reply({ ok: true, feed, count: next.length, added, changed, removed, updatedAt: now })
+}
+
+async function getCalendar(file, env) {
+  const feed = file.replace(/\.ics$/, "")
+  if (!file.endsWith(".ics") || !FEED_RE.test(feed)) return reply({ ok: false, reason: "not_found" }, 404)
+  const stored = await env.ROSTER_KV.get(`cal:${feed}`, "json")
+  if (!stored) return new Response("Not found", { status: 404, headers: { "cache-control": "no-store" } })
+  return new Response(icsText(stored.events ?? [], { feed, name: stored.name }), {
+    headers: {
+      "content-type": "text/calendar; charset=utf-8",
+      "content-disposition": `inline; filename="tml-roster.ics"`,
+      "cache-control": "private, max-age=300",
+      "access-control-allow-origin": "*",
+    },
+  })
+}
+
 /* ---------------------------------------------------------------- 同步 */
 
 async function syncRecord(kind, token, request, env) {
@@ -518,6 +560,11 @@ export default {
     if (parts[0] === "api" && parts[1] === "school-holidays" && parts.length === 2 && request.method === "GET") return schoolHolidays()
     if (parts[0] === "api" && parts[1] === "hko" && parts.length === 3 && (parts[2] === "flw" || parts[2] === "fnd") && request.method === "GET") return hkoWeather(parts[2])
     if (parts[0] === "api" && parts[1] === "lunar" && parts.length === 3 && /^20\d\d$/.test(parts[2]) && request.method === "GET") return lunarYear(Number(parts[2]))
+    if (parts[0] === "api" && parts[1] === "ics" && parts.length === 3 && (request.method === "GET" || request.method === "HEAD")) return getCalendar(parts[2], env)
+    if (parts[0] === "api" && parts[1] === "cal" && parts.length === 3) {
+      if (!TOKEN_RE.test(parts[2])) return reply({ ok: false, reason: "bad_token" }, 400)
+      return putCalendar(parts[2], request, env)
+    }
     if (parts[0] === "api" && parts[1] === "backup" && parts.length === 2) return (await limited(request, env)) ?? mailBackup(request, env)
     if (parts[0] === "api" && parts[1] === "token-log" && parts.length === 2) return (await limited(request, env)) ?? tokenLog(request, env)
     if (parts.length < 2 || parts[0] !== "api" || (parts[1] !== "roster" && parts[1] !== "plan")) {
