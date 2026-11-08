@@ -1,6 +1,6 @@
 // Checks lib/tml-hko.js（天文台農曆對照表、天氣預報）:
 //   node tools/validate_hko.mjs
-import { lunarFromApi, lunarLabel, mergeFnd, nextTerm, parseLunarTable, psrLevel, tempRange, wxIcon, cleanFlw } from "../lib/tml-hko.js"
+import { lunarFromApi, lunarLabel, mergeFnd, nextTerm, parseLunarTable, psrLevel, tempRange, wxIcon, cleanFlw, cleanWarnsum, cleanWarningInfo, cleanSwt, cleanQuake, cleanRyes, wxAlerts, warnIconSvg, hkoUrl } from "../lib/tml-hko.js"
 
 let failed = 0
 const check = (ok, what) => {
@@ -51,6 +51,37 @@ check(noon.days["2026-11-08"]?.psr === "中" && noon.days["2026-11-09"].psr === 
 check(!mergeFnd(noon, null, "2026-11-09").days["2026-11-08"], "past days are dropped")
 check(tempRange(noon.days["2026-11-09"]) === "22–26°", "temperature range")
 check(cleanFlw({ forecastDesc: "  天晴。 ", tcInfo: "" })?.desc === "天晴。" && cleanFlw({}) === null, "flw cleaned")
+
+// 警告
+const ws = cleanWarnsum({
+  WFIRE: { name: "火災危險警告", code: "WFIRE", type: "紅色", actionCode: "ISSUE" },
+  WTCSGNL: { name: "熱帶氣旋警告信號", code: "TC8NE", actionCode: "ISSUE", issueTime: "2026-11-08T22:15:00+08:00" },
+  WRAIN: { name: "暴雨警告信號", code: "WRAINA", actionCode: "CANCEL" },
+})
+check(ws.map((w) => w.code).join() === "TC8NE,WFIRER", "warnsum: cancelled dropped, 紅色火災 read from type, TC first")
+check(cleanWarnsum({}).length === 0 && cleanWarnsum(null).length === 0, "no warnings -> nothing")
+const info = cleanWarningInfo({ details: [{ warningStatementCode: "WTCSGNL", contents: ["八號東北烈風或暴風信號現正生效。", "長文……"] }] })
+check(info.WTCSGNL.length === 2 && Object.keys(cleanWarningInfo({})).length === 0, "warningInfo by statement code; empty body is fine")
+check(cleanSwt({ swt: [{ desc: " 雷雨區正移近 " }] })[0] === "雷雨區正移近" && cleanSwt({}).length === 0, "special weather tips")
+const now = Date.parse("2026-11-08T23:00:00+08:00")
+const qem = cleanQuake({ mag: 5.6, region: "台灣東部海域", ptime: "2026-11-08T21:05:00+08:00" })
+const oldQ = cleanQuake({ mag: 4, region: "日本", ptime: "2026-11-05T21:05:00+08:00" })
+const felt = cleanQuake([{ mag: 4.1, region: "廣東陽江", intensity: "III", ptime: "2026-11-08T20:00:00+08:00", details: ["長文"] }])
+const ryes = cleanRyes({ KingsParkLocationName: "京士柏", KingsParkMicrosieverts: "0.14", TapMunMicrosieverts: "0.12", RYESDate: "20261107" })
+check(qem.mag === 5.6 && felt.intensity === "III" && ryes.max === 0.14 && ryes.stations[1].name === "TapMun", "earthquake and radiation parsed")
+check(cleanRyes({ foo: 1 }) === null && cleanQuake({}) === null, "rubbish quake / RYES -> null")
+const items = wxAlerts({ warnsum: ws, info, swt: ["短提示", "好長".repeat(30)], qem, felt, ryes }, now)
+const by = Object.fromEntries(items.map((a) => [a.key, a]))
+check(items[0].code === "TC8NE" && by["w-TC8NE"].more.length === 2 && by["w-WFIRER"].more.length === 0, "warnings first, details hidden behind a tap")
+check(by["swt-0"].text === "短提示" && !by["swt-1"].text && by["swt-1"].more.length === 1, "short tip inline, long tip collapsed")
+check(by.qem.text.includes("5.6") && by.felt.text.includes("III") && by.felt.more[0] === "長文", "recent earthquakes shown")
+check(!wxAlerts({ qem: oldQ }, now).length, "old earthquake not shown")
+check(by.ryes.kind === "info" && !by.ryes.text && by.ryes.more.length === 2, "normal radiation collapsed")
+check(wxAlerts({ ryes: cleanRyes({ XMicrosieverts: 0.5 }) }, now)[0].kind === "warn-info", "high radiation shown")
+check(wxAlerts({}, now).length === 0 && wxAlerts(null).length === 0, "nothing at all -> no items")
+check(wxAlerts({ tc: "熱帶氣旋銀杏集結在南海北部。" }, now)[0].title === "熱帶氣旋消息", "flw tcInfo kept when warnsum unavailable")
+check(warnIconSvg("TC8NE").includes("東北") && warnIconSvg("TC1").includes("<path") && warnIconSvg("WRAINB").includes("雨") && warnIconSvg("XX") === "", "warning icons")
+check(hkoUrl("qem").includes("earthquake.php?dataType=qem") && hkoUrl("ryes", "2026-11-07").includes("date=20261107") && hkoUrl("x") === null, "feed URLs")
 
 if (failed) {
   console.error(`${failed} check(s) failed`)
