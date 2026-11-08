@@ -1,7 +1,7 @@
 // Checks src/index.js (sync, token log, mail-before-overwrite) with a fake KV and a fake Resend:
 //   node tools/validate_worker.mjs
 import worker from "../src/index.js"
-import { feedId, icsText, subscribeLinks, withSequence, cleanEvents } from "../lib/tml-cal.js"
+import { feedId, icsText, subscribeLinks, withSequence, cleanEvents, mergeRange } from "../lib/tml-cal.js"
 import { TOKEN_RE, guessDevice, hkStamp, newToken, syncState } from "../lib/tml-cloud.js"
 
 let failed = 0
@@ -293,6 +293,18 @@ check(ics.text.includes("SUMMARY:1101102 早") && ics.text.includes("SEQUENCE:1"
 check((await call("PUT", `/api/cal/short`, { events: evs })).status === 400, "calendar upload refuses a bad token")
 check((await call("PUT", `/api/cal/${TOKEN}`, { events: [evs[0], evs[0]] })).status === 400, "calendar upload refuses duplicate dates")
 check((await getIcs(`/api/ics/${"0".repeat(32)}.ics`)).status === 404 && (await getIcs(`/api/ics/${TOKEN}.ics`)).status === 404, "unknown feed or a token as feed is 404")
+// 每週同步（首頁 🗓️）：from/to 範圍內換晒，範圍外照留
+const wk = [{ date: "2026-11-16", summary: "1101103 早", on: 21600, off: 50400 }, { date: "2026-11-17", summary: "RD" }]
+r = await call("PUT", `/api/cal/${TOKEN}`, { name: "我", from: "2026-11-16", to: "2026-11-22", events: wk })
+check(r.status === 200 && r.body.added === 2 && r.body.count === 2 && r.body.total === 4 && r.body.removed === 0, "week sync adds its days and keeps other weeks")
+r = await call("PUT", `/api/cal/${TOKEN}`, { name: "我", from: "2026-11-16", to: "2026-11-22", events: [{ ...wk[0], summary: "1101103 中" }] })
+check(r.status === 200 && r.body.changed === 1 && r.body.removed === 1 && r.body.added === 0 && r.body.total === 3, "week sync: 1 changed, 1 removed inside the week only")
+ics = await getIcs(`/api/ics/${feed}.ics`)
+check(ics.text.includes("UID:2026-11-09@") && ics.text.includes("SUMMARY:1101103 中") && !ics.text.includes("2026-11-17@"), "other week stays, changed day updated, dropped day gone")
+r = await call("PUT", `/api/cal/${TOKEN}`, { name: "我", from: "2026-11-16", to: "2026-11-22", events: [{ ...wk[0], summary: "1101103 中" }] })
+check(r.status === 200 && r.body.added + r.body.changed + r.body.removed === 0, "same week again: nothing changes")
+check((await call("PUT", `/api/cal/${TOKEN}`, { from: "2026-11-16", to: "2026-11-22", events: evs })).status === 400, "week sync refuses days outside the week")
+check(mergeRange([{ date: "2026-01-01", summary: "old" }], [], "2026-11-16", "2026-11-22", "2026-09-01").length === 0, "very old days are pruned")
 check(cleanEvents([{ date: "2026-11-09", summary: "x", on: 100, off: 50 }])?.[0].on === undefined, "end before start -> all-day")
 check(withSequence([{ date: "2026-11-09", summary: "x", seq: 4 }], [{ date: "2026-11-09", summary: "x" }], "t")[0].seq === 4, "same content keeps SEQUENCE")
 const links = subscribeLinks("https://tml-roster.iceninye.workers.dev/", feed)
