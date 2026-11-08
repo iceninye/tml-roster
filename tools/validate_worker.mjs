@@ -1,6 +1,7 @@
 // Checks src/index.js (sync, token log, mail-before-overwrite) with a fake KV and a fake Resend:
 //   node tools/validate_worker.mjs
 import worker from "../src/index.js"
+import { feedId, icsText, subscribeLinks, withSequence, cleanEvents } from "../lib/tml-cal.js"
 import { TOKEN_RE, guessDevice, hkStamp, newToken, syncState } from "../lib/tml-cloud.js"
 
 let failed = 0
@@ -263,6 +264,40 @@ check(syncState({ cloudVersion: 3, localVersion: 3, dirty: true }) === "local", 
 check(syncState({ cloudVersion: 4, localVersion: 3, dirty: true }) === "both", "🔔 both changed")
 check(syncState({ cloudVersion: 4, localVersion: 3, dirty: true, same: true }) === "none", "🔔 same content under another version: no bell")
 check(syncState({ cloudVersion: 1, localVersion: 0, dirty: false }) === "cloud", "🔔 fresh token on this device, cloud already has one")
+
+// ---- 手機日曆：PUT 事件，GET .ics；UID 固定，改咗 SEQUENCE 加一，唔見咗就冇
+const feed = await feedId(TOKEN)
+check(/^[0-9a-f]{32}$/.test(feed) && !feed.includes(TOKEN.slice(0, 8)), "calendar feed id is a hash, not the token")
+const getIcs = async (path) => {
+  const response = await worker.fetch(new Request(`https://x.test${path}`), env)
+  return { status: response.status, type: response.headers.get("content-type") ?? "", text: await response.text() }
+}
+const evs = [
+  { date: "2026-11-09", summary: "1101101 早", location: "錦上路", description: "上班 06:00 錦上路\n用膳 10:00", on: 6 * 3600, off: 14 * 3600 },
+  { date: "2026-11-10", summary: "1101501 死夜 OT", location: "紅磡廠", on: 22 * 3600, off: 25 * 3600 + 30 * 60 },
+  { date: "2026-11-11", summary: "RD 休息日" },
+]
+r = await call("PUT", `/api/cal/${TOKEN}`, { name: "我", events: evs })
+check(r.status === 200 && r.body.feed === feed && r.body.count === 3 && r.body.added === 3, "calendar upload adds 3 days")
+let ics = await getIcs(`/api/ics/${feed}.ics`)
+check(ics.status === 200 && ics.type.startsWith("text/calendar"), "calendar feed is text/calendar")
+check(ics.text.includes(`UID:2026-11-09@${feed}.tml-roster`) && ics.text.includes("SEQUENCE:0"), "events have stable UIDs and SEQUENCE 0")
+check(ics.text.includes("DTSTART;TZID=Asia/Hong_Kong:20261109T060000") && ics.text.includes("DTEND;TZID=Asia/Hong_Kong:20261111T013000"), "timed events in HK time, past midnight rolls to the next day")
+check(ics.text.includes("DTSTART;VALUE=DATE:20261111") && ics.text.includes("DTEND;VALUE=DATE:20261112"), "rest day is all-day")
+check(ics.text.includes("DESCRIPTION:上班 06:00 錦上路\\n用膳 10:00"), "description escapes new lines")
+check(ics.text.split("\r\n").every((line) => new TextEncoder().encode(line).length <= 75), "lines folded to 75 octets")
+r = await call("PUT", `/api/cal/${TOKEN}`, { name: "我", events: [{ ...evs[0], summary: "1101102 早" }, evs[1]] })
+check(r.status === 200 && r.body.changed === 1 && r.body.added === 0 && r.body.removed === 1, "calendar re-upload: 1 changed, 1 removed")
+ics = await getIcs(`/api/ics/${feed}.ics`)
+check(ics.text.includes("SUMMARY:1101102 早") && ics.text.includes("SEQUENCE:1") && !ics.text.includes("2026-11-11@"), "changed day bumps SEQUENCE, dropped day leaves the feed")
+check((await call("PUT", `/api/cal/short`, { events: evs })).status === 400, "calendar upload refuses a bad token")
+check((await call("PUT", `/api/cal/${TOKEN}`, { events: [evs[0], evs[0]] })).status === 400, "calendar upload refuses duplicate dates")
+check((await getIcs(`/api/ics/${"0".repeat(32)}.ics`)).status === 404 && (await getIcs(`/api/ics/${TOKEN}.ics`)).status === 404, "unknown feed or a token as feed is 404")
+check(cleanEvents([{ date: "2026-11-09", summary: "x", on: 100, off: 50 }])?.[0].on === undefined, "end before start -> all-day")
+check(withSequence([{ date: "2026-11-09", summary: "x", seq: 4 }], [{ date: "2026-11-09", summary: "x" }], "t")[0].seq === 4, "same content keeps SEQUENCE")
+const links = subscribeLinks("https://tml-roster.iceninye.workers.dev/", feed)
+check(links.webcal === `webcal://tml-roster.iceninye.workers.dev/api/ics/${feed}.ics` && links.google.includes("cid=webcal%3A%2F%2F"), "subscribe links: webcal and Google cid")
+check(icsText([], { feed }).startsWith("BEGIN:VCALENDAR\r\n"), "empty calendar is still valid")
 
 if (failed) {
   console.error(`${failed} check(s) failed`)

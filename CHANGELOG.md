@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.9.52 — unreleased
+- 我的更表（Ice 2026-11-08）:
+  - 地點「紅磡廠 HHS」改為「紅磡廠」（其他車廠照舊寫代號）。
+  - 其他日卡：日期下面加農曆日（例如「十九」，唔寫月份）；已過嘅縮細卡唔顯示。
+  - 新增「同步手機日曆」（設定頁）：撳「同步」將今日前 7 日到後 6 星期嘅更上載做日曆訂閱
+    （Worker `PUT /api/cal/<token>`、`GET /api/ics/<feed>.ics`，`lib/tml-cal.js`）。一日一個 event，UID 固定，
+    改咗內容 SEQUENCE 加一，所以手機日曆重讀時會新增、更新、刪走。iPhone 用 webcal 訂閱，Android 用 Google 日曆訂閱。
+    訂閱網址用 sha256(token) 做 id，唔會洩露同步 token。
+- Shell cache 改名 `v82`。
+
 ## v0.9.51 — unreleased
 - 我的更表（Ice 2026-11-08）: 用天文台資料加天氣、農曆同節氣。
   - 飯腳全部顯示：日詳情唔再淨係列頭 3 個（唔使撳「其餘 N 個飯腳」），今日卡「飯腳」一行都列晒。

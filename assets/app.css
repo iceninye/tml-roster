@@ -185,6 +185,8 @@ a.btn { display: inline-flex; align-items: center; text-decoration: none; }
 .day-date small { font-size: 13px; color: var(--muted); font-weight: 600; }
 .day-date b { font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .day[data-today="1"] .day-date b { color: var(--accent); }
+/* 日期下面：農曆日（唔寫月份） */
+.day-date small.day-lunar { font-size: 11px; font-weight: 600; margin-top: 2px; white-space: nowrap; }
 .day-main { display: grid; gap: 3px; min-width: 0; }
 .day-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .day-times { font-size: 22px; line-height: 1.2; font-weight: 800; font-variant-numeric: tabular-nums; }
@@ -228,6 +230,7 @@ input.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter
 .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 14px 2px 0; font-size: 13px; color: var(--muted); }
 .legend i { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 3px; vertical-align: -1px; }
 .me-foot { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 0; }
+.cal-links a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 
 /* ---- day detail ---- */
 .duty-head { display: flex; align-items: center; gap: 12px; margin: 4px 0 14px; }
@@ -871,7 +874,7 @@ button.cal-day { cursor: pointer; }
 .day > .day-date { grid-area: date; }
 .day > .day-main { grid-area: main; }
 .day > .wx-corner { grid-area: wx; align-self: start; padding-top: 2px; }
-.day[data-past="1"]:not([data-open]) .wx-corner { display: none; }
+.day[data-past="1"]:not([data-open]) :is(.wx-corner, .day-lunar) { display: none; }
 
 /* 今日卡最底：本港地區天氣預報 */
 .today-wx { display: grid; gap: 6px; margin: 8px 0 0; padding: 10px 12px; font-size: 15px; line-height: 1.5; background: rgba(0, 0, 0, 0.26); border-radius: 12px; }
