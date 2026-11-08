@@ -7,6 +7,8 @@
 //   POST /api/token-log       -> 產生／用新 token 時寄一封 log 電郵（裝置、時間、token）
 //   POST /api/backup          -> 將一份備份檔寄去 owner 電郵
 //   GET /api/school-holidays  -> 代讀學校假期 iCal（Google Calendar 唔俾瀏覽器直接讀），回 JSON
+//   GET /api/hko/flw|fnd      -> 代讀天文台本港地區天氣預報／九天天氣預報（快取 10 分鐘）
+//   GET /api/lunar/<year>     -> 天文台公曆與農曆對照表同節氣，讀好變 JSON（快取 30 日）
 //
 // PUT 要蓋掉雲端現有版本之前，會先將現有版本寄電郵做備份；寄唔到就唔寫，回 502
 // backup_failed，等用戶揀（帶 skipBackup: true 先會照寫）。
@@ -16,6 +18,7 @@
 // 呢個係「靠 URL 保密」，唔係認證 —— 攞到條 URL 嘅人讀寫得到。
 
 import { holidaysBetween, parseIcs } from "../lib/tml-ics.js"
+import { HKO_API, lunarCsvUrl, lunarTextUrl, parseLunarTable } from "../lib/tml-hko.js"
 
 const TOKEN_RE = /^[a-z0-9]{20,64}$/
 const MAX_BYTES = { roster: 128 * 1024, plan: 1024 * 1024 }
@@ -397,6 +400,62 @@ async function schoolHolidays() {
   })
 }
 
+/* ------------------------------------------------------------ 天文台 */
+
+const HKO_HEADERS = { "user-agent": "Mozilla/5.0 (compatible; tml-roster/1.0; +https://tml-roster.iceninye.workers.dev)", accept: "application/json, text/plain, */*" }
+const WEATHER_TTL = 600
+const LUNAR_TTL = 30 * 86400
+
+// 天氣預報照原樣轉交（前端自己讀），只係加快取同 CORS 唔使煩。
+async function hkoWeather(type) {
+  try {
+    const res = await fetch(`${HKO_API}?dataType=${type}&lang=tc`, { headers: HKO_HEADERS, cf: { cacheTtl: WEATHER_TTL, cacheEverything: true } })
+    const body = res.ok ? await res.json() : null
+    if (!body || typeof body !== "object") return reply({ ok: false, reason: "upstream", status: res.status }, 502)
+    return new Response(JSON.stringify({ ok: true, type, body }), {
+      headers: { "content-type": "application/json; charset=utf-8", "cache-control": `public, max-age=${WEATHER_TTL}` },
+    })
+  } catch (error) {
+    return reply({ ok: false, reason: "upstream", why: String(error?.message ?? error).slice(0, 60) }, 502)
+  }
+}
+
+// 文字表可能係 UTF-8，亦可能係 Big5：UTF-8 讀唔通先試 Big5。
+function decode(buffer) {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(buffer)
+  } catch {
+    try {
+      return new TextDecoder("big5").decode(buffer)
+    } catch {
+      return ""
+    }
+  }
+}
+
+async function readTable(url) {
+  try {
+    const res = await fetch(url, { headers: HKO_HEADERS, cf: { cacheTtl: LUNAR_TTL, cacheEverything: true } })
+    return res.ok ? parseLunarTable(decode(await res.arrayBuffer())) : {}
+  } catch {
+    return {}
+  }
+}
+
+// 一年嘅農曆同節氣：文字表（有節氣）為主，CSV 補漏。回 { ok, year, days: { "2026-11-08": [月, 日, 節氣] } }
+async function lunarYear(year) {
+  const [text, csv] = await Promise.all([readTable(lunarTextUrl(year)), readTable(lunarCsvUrl(year))])
+  const days = {}
+  for (const [date, v] of Object.entries({ ...csv, ...text })) {
+    if (!date.startsWith(`${year}-`)) continue
+    days[date] = [v.month, v.day, v.term || csv[date]?.term || ""]
+  }
+  if (Object.keys(days).length < 300) return reply({ ok: false, reason: "upstream" }, 502)
+  return new Response(JSON.stringify({ ok: true, year, days }), {
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": `public, max-age=${LUNAR_TTL}` },
+  })
+}
+
 /* ---------------------------------------------------------------- 同步 */
 
 async function syncRecord(kind, token, request, env) {
@@ -457,6 +516,8 @@ export default {
     // 前端用嚟問「呢個網址支唔支援同步」（GitHub Pages 版會 404）
     if (parts[0] === "api" && parts[1] === "ping") return reply({ ok: true, sync: true, mail: !!(env.RESEND_API_KEY && env.BACKUP_TO) })
     if (parts[0] === "api" && parts[1] === "school-holidays" && parts.length === 2 && request.method === "GET") return schoolHolidays()
+    if (parts[0] === "api" && parts[1] === "hko" && parts.length === 3 && (parts[2] === "flw" || parts[2] === "fnd") && request.method === "GET") return hkoWeather(parts[2])
+    if (parts[0] === "api" && parts[1] === "lunar" && parts.length === 3 && /^20\d\d$/.test(parts[2]) && request.method === "GET") return lunarYear(Number(parts[2]))
     if (parts[0] === "api" && parts[1] === "backup" && parts.length === 2) return (await limited(request, env)) ?? mailBackup(request, env)
     if (parts[0] === "api" && parts[1] === "token-log" && parts.length === 2) return (await limited(request, env)) ?? tokenLog(request, env)
     if (parts.length < 2 || parts[0] !== "api" || (parts[1] !== "roster" && parts[1] !== "plan")) {

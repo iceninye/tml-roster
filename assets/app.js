@@ -12,11 +12,12 @@ import { OFF_CODES, workOf } from "../lib/tml-extra.js"
 import { serviceDate, hkDate, secondsInto } from "../lib/tml-time.js"
 import { fetchData, placeNames, sheetForDate, stationNames } from "../lib/tml-data.js"
 import { holidaysOn } from "../lib/tml-ics.js"
+import { HKO_API, HKO_LUNAR_API, cleanFlw, lunarCsvUrl, lunarFromApi, lunarLabel, mergeFnd, nextTerm, parseLunarTable, psrLevel, tempRange, wxIcon } from "../lib/tml-hko.js"
 import { isoWeek } from "../lib/tml-plan.js"
 import { monthDates, otClock, otFromClock, recentOt, setOt } from "../lib/tml-ot.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson, syncState } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.50", commit: "dev" }
+const BUILD = { version: "0.9.51", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -32,6 +33,10 @@ const KV_SYNCED = "tml-roster-kv-synced"
 const KV_LOCAL_AT = "tml-roster-local-at"
 // 學校假期（Worker 代讀 iCal）：上次讀到嘅，離線都有得睇
 const SCHOOL_KEY = "tml-roster-school"
+// 天文台天氣（flw + fnd 每日合併）同農曆（一年一份，唔會變）：離線或者讀唔到就用返上次
+const WX_KEY = "tml-roster-weather"
+const LUNAR_KEY = "tml-roster-lunar"
+const WX_EVERY = 30 * 60 * 1000
 
 const S = {
   weekdays: ["週一", "週二", "週三", "週四", "週五", "週六", "週日"],
@@ -57,8 +62,7 @@ const S = {
   meal: "用膳",
   mates: "飯腳",
   matesNone: "冇（同一車站食飯重疊未夠 45 分鐘）",
-  matesHelp: "飯腳：同你喺同一個車站、食飯時間重疊至少 45 分鐘嘅更份。撳更份編號可以睇佢嘅行程。",
-  matesMore: (n) => `其餘 ${n} 個飯腳`,
+  mealMatesHelp: "飯腳：同你喺同一個車站、食飯時間重疊至少 45 分鐘嘅更份。撳更份編號可以睇佢嘅行程。",
   work: "工時",
   workMin: (m) => `${Math.floor(m / 60)} 小時${m % 60 ? ` ${m % 60} 分` : ""}`,
   legs: "全日行程",
@@ -270,6 +274,17 @@ const S = {
   noteSaved: "已儲存備註",
   noteCleared: "已刪除備註",
   factTomorrow: "明天",
+  wxTitle: "天氣",
+  wxPsr: "降雨概率",
+  wxPsrShort: "降雨",
+  wxTc: "熱帶氣旋",
+  wxFire: "火災危險",
+  wxOutlook: "展望",
+  wxAt: (t) => `天文台 ${t} 發出`,
+  wxOld: (t) => `未能更新，以下係 ${t} 嘅預報`,
+  wxNone: "未有天氣預報（連線後會自動讀取）",
+  lunar: (text) => `農曆${text}`,
+  termIn: (term, n) => (n === 1 ? `明日${term}` : `${n} 日後${term}`),
   tomorrowWork: (code, on, off) => `${code} ${on}–${off}`,
 }
 
@@ -312,6 +327,9 @@ const dutyBooks = new Map()
 let shown = ""
 let shownCal = ""
 let school = null // 學校假期 [{ start, end, title }]
+let weather = { flw: null, fnd: null, at: 0, ok: false } // 天文台：flw 本港預報、fnd { days: { date: day } }
+let lunar = {} // { "2026-11-08": { month, day, term } }，按年讀
+const lunarYears = new Set()
 let openedWeek = ""
 
 /* ------------------------------------------------------------- storage */
@@ -701,10 +719,8 @@ function mealMatesHtml(duty, duties, sheet) {
   const item = ({ duty: other, from, to }) =>
     `<button type="button" class="duty-mate" data-duty="${other.id}" data-sheet="${sheet}"><b>${other.id}</b>` +
     `<small>${hhmm(from)}–${hhmm(to)} · ${Math.round((to - from) / 60)} 分</small></button>`
-  // 只列前 3 個，其餘收埋，免得日詳情被飯腳塞爆
-  const rest = mates.slice(3)
-  return `<span class="mates">${mates.slice(0, 3).map(item).join("")}</span>` +
-    (rest.length ? `<details class="mates-more"><summary>${S.matesMore(rest.length)}</summary><span class="mates">${rest.map(item).join("")}</span></details>` : "")
+  // 全部飯腳都列出（Ice 2026-11-08）
+  return `<span class="mates">${mates.map(item).join("")}</span>`
 }
 
 // A duty without leg-by-leg data (spare duties, sheets not copied here).
@@ -752,7 +768,7 @@ function dutyDetailHtml({ sheet, id }, liveDate) {
     (duty.work != null ? `<dt>${S.work}</dt><dd>${S.workMin(duty.work)}</dd>` : "") +
     (duty.meal ? `<dt>${S.meal}</dt><dd>${hhmm(duty.meal[0])}–${hhmm(duty.meal[1])} ${mealPlace(duty.meal)}</dd>` +
       `<dt>${S.mates}</dt><dd>${mealMatesHtml(duty, book.data.duties, sheet)}</dd>` : "") +
-    `</dl>${duty.meal ? `<p class="fine">${S.matesHelp}</p>` : ""}${nowBox}<div class="stops-head">${S.legs}</div><ol class="duty-legs">` +
+    `</dl>${duty.meal ? `<p class="fine">${S.mealMatesHelp}</p>` : ""}${nowBox}<div class="stops-head">${S.legs}</div><ol class="duty-legs">` +
     rows.map((row) => `<li data-now="${row.now ? 1 : 0}" data-kind="${row.kind}">${row.html}</li>`).join("") + `</ol><p class="fine">${source}</p>`
 }
 
@@ -805,13 +821,14 @@ function todayFactsHtml(date, cell, live) {
     }
     if (duty.meal && duty.meal[1] != null && tau < duty.meal[0]) {
       events.push([duty.meal[0], S.factMeal, `${hhmm(duty.meal[0])}–${hhmm(duty.meal[1])} ${placeName(duty.meal[2])} · ${S.inTime(S.dur(duty.meal[0] - tau))}`])
-      // 飯腳：頭 3 個（全部喺詳情頁）
-      const mates = mealMates(duty, all).slice(0, 3).map((m) => m.duty.id)
-      if (mates.length) events.push([duty.meal[0] + 0.5, S.factMates, mates.join("、")])
+      // 飯腳：全部（Ice 2026-11-08）
+      const mates = mealMates(duty, all).map((m) => m.duty.id)
+      // 一粒粒排好（全部列出時一長串「、」好難睇）
+      if (mates.length) events.push([duty.meal[0] + 0.5, S.factMates, mates.join("、"), `<span class="mate-chips">${mates.map((id) => `<span>${escapeHtml(id)}</span>`).join("")}</span>`])
     }
   }
 
-  for (const [, k, v] of events.sort((a, b) => a[0] - b[0])) rows.push([k, v])
+  for (const [, k, v, html] of events.sort((a, b) => a[0] - b[0])) rows.push([k, v, html])
   // 工時：返工前同返緊工都顯示（放咗工就唔使）
   const hours = cardHours(cell)
   if (hours && off != null && tau < off) rows.push([S.factWork, hours])
@@ -841,11 +858,12 @@ function todayFactsHtml(date, cell, live) {
       gap != null ? `${S.restGap(S.dur(gap))}${gap < REST_MIN ? `（${S.restShort}）` : ""}` : "",
       otText(next1.ot),
       noteOf(tomorrow) ? `📝 ${noteOf(tomorrow)}` : "",
+      wxLine(tomorrow),
     ]
     tomorrowRow = [S.factTomorrow, parts.filter(Boolean).join(" · ")]
   }
   // 卡本身係 <button>，入面只可以用 span
-  const box = (list, extra = "") => `<span class="today-facts${extra}">${list.map(([k, v]) => `<b>${k}</b><span>${escapeHtml(v)}</span>`).join("")}</span>`
+  const box = (list, extra = "") => `<span class="today-facts${extra}">${list.map(([k, v, html]) => `<b>${k}</b><span>${html ?? escapeHtml(v)}</span>`).join("")}</span>`
   return (rows.length ? box(rows) : "") + box([tomorrowRow], " today-tomorrow")
 }
 
@@ -864,6 +882,145 @@ function progressHtml(span, date) {
   return `<span class="today-progress">${S.doneLeft(S.dur(tau - span[0]), S.dur(span[1] - tau))}</span>`
 }
 
+/* ------------------------------------------------- 天氣、農曆（天文台） */
+
+const fndDay = (date) => weather.fnd?.days?.[date] ?? null
+const psrHtml = (psr, label) => {
+  const p = psrLevel(psr)
+  return p ? `<span class="wx-psr" data-level="${p.level}">${label} ${escapeHtml(p.text)}</span>` : ""
+}
+
+// 日子後面：農曆，節氣當日加節氣；唔係節氣就細字講下一個節氣仲有幾日（14 日內）
+function lunarHtml(date) {
+  const day = lunar[date]
+  if (!day) return ""
+  let term = ""
+  if (day.term) term = `<span class="badge term">${escapeHtml(day.term)}</span>`
+  else {
+    const next = nextTerm(lunar, date)
+    const n = next ? Math.round((Date.parse(next.date) - Date.parse(date)) / 86400000) : null
+    if (n && n <= 14) term = `<span class="today-term">${escapeHtml(S.termIn(next.term, n))}</span>`
+  }
+  return ` <span class="today-lunar">${S.lunar(lunarLabel(day))}</span>${term}`
+}
+
+// 卡右上角：天氣圖示、氣溫、降雨概率（九天天氣預報有嗰日先出）
+function wxCornerHtml(date) {
+  const day = fndDay(date)
+  if (!day) return ""
+  return `<span class="wx-corner" title="${escapeHtml(`${day.weather} ${day.wind}`.trim())}">` +
+    `<span class="wx-top"><i aria-hidden="true">${wxIcon(day.icon)}</i><b>${tempRange(day)}</b></span>${psrHtml(day.psr, S.wxPsrShort)}</span>`
+}
+
+// 「明天」一行尾：🌦️ 22–26° 降雨 中
+function wxLine(date) {
+  const day = fndDay(date)
+  if (!day) return ""
+  const p = psrLevel(day.psr)
+  // 唔好喺中間斷行
+  return [`${wxIcon(day.icon)}\u00a0${tempRange(day)}`, p ? `${S.wxPsrShort}\u00a0${p.text}` : ""].filter(Boolean).join(" ")
+}
+
+// 今日卡最底：本港地區天氣預報（flw）＋今日降雨概率（PSR，九天預報有今日先有）
+function todayWeatherHtml(date) {
+  const flw = weather.flw
+  const day = fndDay(date)
+  if (!flw && !day) return `<span class="today-wx"><span class="wx-at">${S.wxNone}</span></span>`
+  const stamp = flw?.updateTime ? hkStamp(flw.updateTime) : ""
+  const time = stamp ? `${meDate(stamp.slice(0, 10))} ${stamp.slice(11, 16)}` : ""
+  const head = `<span class="wx-head"><b>${S.wxTitle}</b>` +
+    (day ? `<span class="wx-now"><i aria-hidden="true">${wxIcon(day.icon)}</i>${tempRange(day)}</span>` : "") +
+    (day ? psrHtml(day.psr, S.wxPsr) : "") + `</span>`
+  const alert = (label, text) => (text ? `<span class="wx-alert"><b>${label}</b> ${escapeHtml(text)}</span>` : "")
+  return `<span class="today-wx">${head}` +
+    alert(S.wxTc, flw?.tc) +
+    (flw ? `<span class="wx-text">${flw.period ? `<small>${escapeHtml(flw.period)}</small>` : ""}${escapeHtml(flw.desc)}</span>` : day ? `<span class="wx-text">${escapeHtml(day.weather)}</span>` : "") +
+    alert(S.wxFire, flw?.fire) +
+    (time ? `<span class="wx-at">${weather.ok ? S.wxAt(time) : S.wxOld(time)}</span>` : "") + `</span>`
+}
+
+async function getJson(url) {
+  const res = await fetch(url, { headers: { accept: "application/json" }, cache: "no-cache" })
+  if (!res.ok) throw new Error(String(res.status))
+  return res.json()
+}
+
+// 先問自己 Worker（/api/hko），唔得就直接問天文台（GitHub Pages 版冇 Worker）
+async function hkoGet(type) {
+  try {
+    const body = await getJson(`/api/hko/${type}`)
+    if (body?.ok && body.body) return body.body
+  } catch {
+    // 下面直接問
+  }
+  return getJson(`${HKO_API}?dataType=${type}&lang=tc`)
+}
+
+function loadWeather(force = false) {
+  if (!weather.at) {
+    try {
+      const saved = JSON.parse(readPref(WX_KEY) ?? "null")
+      if (saved) weather = { flw: saved.flw ?? null, fnd: mergeFnd(saved.fnd, null, todayDate()), at: saved.at ?? 0, ok: false }
+    } catch {
+      // 壞咗嘅記錄當冇
+    }
+  }
+  if (!force && weather.ok && Date.now() - weather.at < WX_EVERY) return
+  if (globalThis.navigator?.onLine === false) return
+  Promise.allSettled([hkoGet("flw"), hkoGet("fnd")]).then(([flw, fnd]) => {
+    const got = flw.status === "fulfilled" || fnd.status === "fulfilled"
+    if (flw.status === "fulfilled") weather.flw = cleanFlw(flw.value) ?? weather.flw
+    if (fnd.status === "fulfilled") weather.fnd = mergeFnd(weather.fnd, fnd.value, todayDate())
+    if (!got) {
+      weather.ok = false
+      return paintData()
+    }
+    weather.ok = true
+    weather.at = Date.now()
+    writePref(WX_KEY, JSON.stringify({ flw: weather.flw, fnd: weather.fnd, at: weather.at }))
+    paintData()
+  })
+}
+
+// 一年嘅農曆同節氣：Worker 讀天文台對照表；唔得就直接讀 CSV；再唔得就淨係問今日（冇節氣）
+function loadLunar(year) {
+  if (lunarYears.has(year)) return
+  lunarYears.add(year)
+  let saved = {}
+  try {
+    saved = JSON.parse(readPref(LUNAR_KEY) ?? "{}") ?? {}
+  } catch {
+    saved = {}
+  }
+  const use = (days) => {
+    Object.assign(lunar, days)
+    paintData()
+  }
+  const fromWire = (days) => Object.fromEntries(Object.entries(days ?? {}).map(([d, [month, day, term]]) => [d, { month, day, term }]))
+  if (saved[year]) return use(fromWire(saved[year]))
+  const keep = (days) => {
+    if (Object.keys(days).length < 300) throw new Error("short")
+    // 只留今年同明年，唔好愈儲愈多
+    const next = Object.fromEntries(Object.entries(saved).filter(([y]) => Math.abs(Number(y) - year) <= 1))
+    next[year] = Object.fromEntries(Object.entries(days).map(([d, v]) => [d, [v.month, v.day, v.term]]))
+    writePref(LUNAR_KEY, JSON.stringify(next))
+    use(days)
+  }
+  getJson(`/api/lunar/${year}`)
+    .then((body) => keep(fromWire(body?.ok ? body.days : null)))
+    .catch(() => fetch(lunarCsvUrl(year)).then((res) => (res.ok ? res.text() : "")).then((text) => keep(parseLunarTable(text))))
+    .catch(() => {
+      lunarYears.delete(year) // 下次再試
+      const today = todayDate()
+      if (!today.startsWith(String(year))) return
+      return getJson(`${HKO_LUNAR_API}?date=${today}`).then((body) => {
+        const day = lunarFromApi(body)
+        if (day) use({ [today]: day })
+      })
+    })
+    .catch(() => {})
+}
+
 // Today, big, with what the duty is doing right now.
 function todayHtml(date, entry, cell, short = false) {
   const lines = dayLines(cell)
@@ -876,7 +1033,7 @@ function todayHtml(date, entry, cell, short = false) {
     (entry.source === "override" ? `<span class="badge plain">${S.changed}</span>` : "") +
     holidaysOn(school, date).map((h) => `<span class="badge school">${S.factSchool}假期 · ${escapeHtml(h)}</span>`).join("")
   return `<button type="button" class="today me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}"${short ? ' data-short="1"' : ""}>` +
-    `<span class="today-label">${S.today} · ${S.weekdays[weekdayIndex(date)]} ${meDate(date)}</span>` +
+    `<span class="today-head"><span class="today-label">${S.today} · ${S.weekdays[weekdayIndex(date)]} ${meDate(date)}${lunarHtml(date)}</span>${wxCornerHtml(date)}</span>` +
     `<span class="today-title">${tags ? `<span class="today-tags">${tags}</span>` : ""}${isOffTone(cell) ? offTitleHtml(entry.code, cell) : escapeHtml(cell.label)}${short ? `<span class="badge rest-short">${S.restShort}</span>` : ""}</span>` +
     (lines.times ? `<span class="today-times">${lines.times}</span>${todayPlacesHtml(cell)}${barHtml(lines.span, secondsInto(date, Date.now()))}${progressHtml(lines.span, date)}` : "") +
     (lines.note && !lines.times ? `<span class="today-note">${escapeHtml(lines.note)}</span>` : "") +
@@ -885,6 +1042,7 @@ function todayHtml(date, entry, cell, short = false) {
     (live ? `<span class="today-live"><i class="pulse"></i><span>${S.now}：${escapeHtml(dutyPhaseText(live))} <small>${S.until(hhmm(live.until))}</small></span></span>` : "") +
     (noteOf(date) ? `<span class="today-note today-memo">📝 ${escapeHtml(noteOf(date))}</span>` : "") +
     todayFactsHtml(date, cell, live) +
+    todayWeatherHtml(date) +
     `</button>`
 }
 
@@ -1309,6 +1467,8 @@ function paintData() {
         // 本週已過嘅日子：淡色、縮細、只顯示頭兩行；撳一下還原 full size（仍然淡色）
         `${date < today ? ` data-past="1"${state.pastOpen.has(date) ? ' data-open="1"' : ""}` : ""}>` +
         `<span class="day-date"><small>${S.weekdays[weekdayIndex(date)]}</small><b>${Number(date.slice(8))}</b></span>` +
+        // 右上角：九天天氣預報（有先顯示）
+        wxCornerHtml(date) +
         `<span class="day-main"><span class="day-title">${isOffTone(cell) ? offTitleHtml(entry.code, cell) : escapeHtml(cell.label)}${tags}${badges}${short.has(date) ? `<span class="badge rest-short">${S.restShort}</span>` : ""}</span>` +
         (lines.times ? `<span class="day-times">${lines.times}</span>${barHtml(lines.span)}` : "") +
         (noteWithHours(lines.note, cell) ? `<span class="meta">${escapeHtml(noteWithHours(lines.note, cell))}</span>` : "") +
@@ -2073,18 +2233,29 @@ function boot() {
     `更份資料來自 <a href="https://github.com/iceninye/TML-traffic">TML-traffic</a>`
   loadBasic()
   loadSchool()
+  loadWeather()
+  loadLunar(Number(todayDate().slice(0, 4)))
   probeSync()
   open()
   dutyIndexPromise().then((index) => {
     if (index) document.getElementById("foot").insertAdjacentHTML("beforeend", ` · ${S.dutyData(index.sheets.filter((s) => s.class !== "special").map((s) => s.issued).sort().pop())}`)
   })
   // 每 15 秒重畫一次就夠（時間軸以分鐘為單位）；唔好每秒做全套計算。
-  setInterval(() => { rollWeek(); paintData() }, 15000)
-  window.addEventListener("online", retryData)
+  setInterval(() => {
+    rollWeek()
+    loadWeather()
+    // 12 月尾就預先讀埋下年
+    const today = todayDate()
+    loadLunar(Number(today.slice(0, 4)))
+    if (today.slice(5) >= "12-17") loadLunar(Number(today.slice(0, 4)) + 1)
+    paintData()
+  }, 15000)
+  window.addEventListener("online", () => { retryData(); loadWeather(true) })
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible") return
     rollWeek()
     retryData()
+    loadWeather()
     kvCheck()
   })
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {})
