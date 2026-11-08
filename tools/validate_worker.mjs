@@ -29,7 +29,22 @@ const SCHOOL_TEXT = [
   "BEGIN:VEVENT", `DTSTART;VALUE=DATE:${year}0901`, "SUMMARY:取消咗", "STATUS:CANCELLED", "END:VEVENT",
   "BEGIN:VEVENT", `DTSTART;VALUE=DATE:${year - 5}0101`, "SUMMARY:好舊", "END:VEVENT", "END:VCALENDAR",
 ].join("\r\n")
+// 天文台 stand-in：天氣預報同一年嘅對照表文字（每 30 日一個「X月」）
+let hkoDown = false
+const LUNAR_DAYS = Array.from({ length: 365 }, (_, i) => new Date(Date.UTC(2026, 0, 1 + i)).toISOString().slice(0, 10))
+const DAYS30 = ["初一", "初二", "初三", "初四", "初五", "初六", "初七", "初八", "初九", "初十", "十一", "十二", "十三", "十四", "十五", "十六", "十七", "十八", "十九", "二十", "廿一", "廿二", "廿三", "廿四", "廿五", "廿六", "廿七", "廿八", "廿九", "三十"]
+const LUNAR_TEXT = LUNAR_DAYS.map((d, i) => {
+  const [y, m, dd] = d.split("-").map(Number)
+  const lunarDay = i % 30 === 0 ? `${["十二", "正", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二"][i / 30]}月` : DAYS30[i % 30]
+  return `${y}年${m}月${dd}日          ${lunarDay}        星期一${d === "2026-11-07" ? "      立冬" : ""}`
+}).join("\n")
 globalThis.fetch = async (url, init) => {
+  if (String(url).startsWith("https://data.weather.gov.hk/weatherAPI/opendata/weather.php")) {
+    if (hkoDown) return new Response("", { status: 503 })
+    return Response.json(url.includes("dataType=fnd") ? { weatherForecast: [{ forecastDate: "20261109", PSR: "中" }] } : { forecastDesc: "天晴。" })
+  }
+  if (String(url) === "https://www.hko.gov.hk/tc/gts/time/calendar/text/files/T2026c.txt") return hkoDown ? new Response("", { status: 404 }) : new Response(LUNAR_TEXT)
+  if (String(url).startsWith("https://data.weather.gov.hk/weatherAPI/hko_data/calendar/")) return new Response("", { status: 404 })
   if (String(url).startsWith("https://calendar.google.com/")) {
     // 只應該讀 cal 1（vk7g…）；讀其他日曆就係錯
     if (!url.includes("skhsslmc.edu.hk_vk7g1ubf9dqnlvn7fegnkuj3h0%40group.calendar.google.com")) throw new Error(`unexpected calendar ${url}`)
@@ -218,6 +233,22 @@ schoolDown = true
 r = await call("GET", "/api/school-holidays")
 check(r.status === 502 && r.body.reason === "upstream" && r.body.tried.join() === "404", "school calendar down -> 502 upstream with its status")
 schoolDown = false
+
+// ---- 天文台
+r = await call("GET", "/api/hko/fnd")
+check(r.status === 200 && r.body.ok && r.body.body.weatherForecast[0].PSR === "中", "9-day forecast is passed through")
+r = await call("GET", "/api/hko/flw")
+check(r.status === 200 && r.body.body.forecastDesc === "天晴。", "local forecast is passed through")
+r = await call("GET", "/api/hko/rhrread")
+check(r.status === 404, "only flw and fnd are proxied")
+r = await call("GET", "/api/lunar/2026")
+check(r.status === 200 && r.body.days["2026-01-01"].join() === "十二,初一," && r.body.days["2026-11-07"][2] === "立冬" && Object.keys(r.body.days).length === 365, "lunar year: table read (CSV missing is fine), terms kept")
+hkoDown = true
+r = await call("GET", "/api/lunar/2026")
+check(r.status === 502 && r.body.reason === "upstream", "lunar table down -> 502")
+r = await call("GET", "/api/hko/fnd")
+check(r.status === 502, "weather down -> 502")
+hkoDown = false
 
 // ---- lib/tml-cloud.js
 check(TOKEN_RE.test(newToken()) && newToken() !== newToken(), "newToken makes a fresh 32-char token")

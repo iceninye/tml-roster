@@ -242,10 +242,10 @@ input.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; margin: 0 2px; font-size: 15px; }
 .kv dt { color: var(--muted); }
 .kv dd { font-variant-numeric: tabular-nums; }
-.mates { display: flex; flex-wrap: wrap; gap: 6px; }
-.mates-more { margin-top: 6px; }
-.mates-more > summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--accent); }
-.mates-more .mates { margin-top: 6px; }
+/* 飯腳全部列出（Ice 2026-11-08）：一行放 2–4 粒，唔會一粒一行拉到好長 */
+.mates { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 6px; }
+.mates .duty-mate { width: auto; min-width: 0; padding: 5px 8px; }
+.mates .duty-mate small { white-space: nowrap; letter-spacing: -0.01em; }
 .duty-mate { display: grid; gap: 0; padding: 5px 10px; text-align: left; background: var(--panel); border: 1px solid var(--edge); border-radius: 10px; font-variant-numeric: tabular-nums; line-height: 1.3; }
 .duty-mate b { font-size: 14px; color: var(--accent); }
 .duty-mate small { font-size: 12px; color: var(--muted); }
@@ -846,3 +846,45 @@ button.cal-day { cursor: pointer; }
 .ptable th.who .p-rem { color: var(--text); font-weight: 700; }
 .p-copy-sort { padding: 7px 8px; font: inherit; font-size: 13px; color: var(--text); background: var(--panel-2); border: 1px solid var(--edge); border-radius: 10px; }
 .p-copy-text { margin: 0 0 8px; }
+
+/* ---- 天氣、農曆、節氣（Ice 2026-11-08，天文台資料） ---- */
+.today-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.today-head .today-label { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; }
+.today-lunar { font-weight: 600; opacity: 0.9; }
+.today-term { font-size: 13px; font-weight: 600; opacity: 0.75; }
+.badge.term { background: rgba(255, 255, 255, 0.92); color: #7a2a12; font-weight: 800; letter-spacing: 0.06em; }
+
+/* 卡右上角：圖示＋氣溫，下面細字降雨概率 */
+.wx-corner { display: grid; justify-items: end; gap: 1px; line-height: 1.15; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.wx-top { display: inline-flex; align-items: center; gap: 4px; }
+.wx-top i { font-style: normal; font-size: 20px; line-height: 1; }
+.wx-top b { font-size: 15px; font-weight: 800; }
+.wx-psr { font-size: 12px; font-weight: 700; color: var(--muted); }
+.wx-psr[data-level="2"] { color: var(--warn); }
+.wx-psr[data-level="3"], .wx-psr[data-level="4"] { color: var(--mid); }
+.today .wx-corner { flex: none; margin-top: -2px; }
+.today .wx-top i { font-size: 24px; }
+.today .wx-top b { font-size: 17px; }
+.today .wx-psr { color: rgba(255, 255, 255, 0.85); }
+
+.day { grid-template-columns: 42px 1fr auto; grid-template-areas: "date main wx"; }
+.day > .day-date { grid-area: date; }
+.day > .day-main { grid-area: main; }
+.day > .wx-corner { grid-area: wx; align-self: start; padding-top: 2px; }
+.day[data-past="1"]:not([data-open]) .wx-corner { display: none; }
+
+/* 今日卡最底：本港地區天氣預報 */
+.today-wx { display: grid; gap: 6px; margin: 8px 0 0; padding: 10px 12px; font-size: 15px; line-height: 1.5; background: rgba(0, 0, 0, 0.26); border-radius: 12px; }
+.wx-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.wx-head > b { font-weight: 700; opacity: 0.85; }
+.wx-now { display: inline-flex; align-items: center; gap: 4px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.wx-now i { font-style: normal; font-size: 18px; }
+.today-wx .wx-psr { padding: 1px 8px; font-size: 13px; color: #fff; background: rgba(255, 255, 255, 0.18); border-radius: 999px; }
+.today-wx .wx-psr[data-level="2"] { background: rgba(227, 169, 58, 0.55); }
+.today-wx .wx-psr[data-level="3"], .today-wx .wx-psr[data-level="4"] { background: rgba(74, 159, 224, 0.7); }
+.wx-text small { display: block; font-size: 12px; font-weight: 600; opacity: 0.75; }
+.wx-alert { padding: 6px 10px; font-size: 14px; background: rgba(239, 106, 88, 0.35); border-radius: 8px; }
+.wx-at { font-size: 12px; opacity: 0.7; }
+/* 今日卡飯腳：全部列出，一粒粒排（Ice 2026-11-08） */
+.mate-chips { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 2px; }
+.mate-chips > span { padding: 1px 8px; font-size: 14px; font-weight: 600; line-height: 1.6; background: rgba(255, 255, 255, 0.14); border-radius: 8px; }
