@@ -18,7 +18,7 @@ import { monthDates, otClock, otFromClock, recentOt, setOt } from "../lib/tml-ot
 import { feedId, subscribeLinks } from "../lib/tml-cal.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson, syncState } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.52", commit: "dev" }
+const BUILD = { version: "0.9.53", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -40,9 +40,7 @@ const LUNAR_KEY = "tml-roster-lunar"
 const WX_EVERY = 30 * 60 * 1000
 // 手機日曆：上次同步嘅時間（顯示用）；訂閱網址由 token 計，唔使存
 const CAL_AT = "tml-roster-cal-at"
-// 同步幾多日：今日之前 7 日到之後 6 星期
-const CAL_BACK = 7
-const CAL_AHEAD = 42
+const CAL_WEEKS = "tml-roster-cal-weeks" // {monday: 上次同步時間}，🗓️ 淡色 = 未同步過
 
 const S = {
   weekdays: ["週一", "週二", "週三", "週四", "週五", "週六", "週日"],
@@ -155,13 +153,19 @@ const S = {
   syncCopyFail: "複製唔到，請手動選取輸入框內容。",
   syncUpload: "上傳到雲端",
   phoneCalTitle: "同步手機日曆",
-  calHelp: "撳「同步」會將今日之前 7 日到之後 6 個星期嘅更（返工時間、地點、OT、備註；休息日同假期係全日）上載，變成一個日曆訂閱。第一次同步之後撳「iPhone 訂閱」或者「Google 日曆訂閱」加入手機日曆，之後改咗更再撳一次「同步」：新日子會加入、改咗嘅會更新、唔再有嘅會刪走。手機日曆自己定時重讀：iPhone 喺「設定 › 日曆 › 帳號 › 取得新資料」揀每 15 分鐘或每小時；Google 日曆由 Google 決定，通常幾個鐘到一日。用同一條同步 token；訂閱網址由 token 計出但倒推唔返 token，只讀，唔好傳出去。",
-  calNoToken: "要先喺「跨裝置同步」產生或者貼上 token。",
+  calBtn: (week) => `將第${week}週同步去手機日曆`,
+  calSheetTitle: (week) => `第${week}週 · 手機日曆`,
+  calHelp: "每撳一次 🗓️ 就將嗰個星期嘅更（返工時間、地點、OT、備註；休息日同假期係全日）上載去你嘅日曆訂閱：新日子會加入、改咗嘅會更新、嗰個星期唔再有嘅會刪走，其他星期唔郁。第一次同步之後撳「iPhone 訂閱」或者「Google 日曆訂閱」加入手機日曆（只需做一次）。手機日曆自己定時重讀：iPhone 喺「設定 › 日曆 › 帳號 › 取得新資料」揀每 15 分鐘或每小時；Google 日曆由 Google 決定，通常幾個鐘到一日。用同一條同步 token；訂閱網址由 token 計出但倒推唔返 token，只讀，唔好傳出去。",
+  calLinksTitle: "訂閱連結（第一次先要）",
+  calClose: "收埋",
+  calNoToken: "要先喺設定 ⚙ 嘅「跨裝置同步」產生或者貼上 token。",
   calSync: "同步",
   calBusy: "整理緊更份資料…",
   calWait: "更份資料未讀完，請等一陣再撳。",
-  calDone: (n, a, c, r, when) => `已同步 ${n} 日（新增 ${a}、更新 ${c}、刪走 ${r}）· ${when}`,
-  calLast: (when) => `上次同步：${when}`,
+  calDone: (n, a, c, r, when) => `已同步呢個星期 ${n} 日（新增 ${a}、更新 ${c}、刪走 ${r}）· ${when}`,
+  calSame: (when) => `呢個星期冇改動，日曆已經係最新 · ${when}`,
+  calLast: (when) => `呢個星期上次同步：${when}`,
+  calNever: "呢個星期未同步過。",
   calFail: "同步唔到，請檢查網絡再試。",
   calIphone: "iPhone 訂閱",
   calGoogle: "Google 日曆訂閱",
@@ -323,6 +327,7 @@ const state = {
   editing: false,
   syncMsg: "",
   calMsg: "", // 手機日曆面板訊息
+  calOpen: null, // 首頁 🗓️ 面板打開咗嘅星期（monday）
   calFeed: null, // 手機日曆訂閱 id（由 token 計）
   calMonth: null, // 月曆睇緊邊個月 "YYYY-MM"（null = 今個月）
   otOpen: null, // 日詳情：OT 格打開咗嘅日子（預設收埋，儲存後收埋）
@@ -1435,8 +1440,10 @@ function renderPage() {
     `<div class="me-nav"><button type="button" class="btn me-prev" aria-label="${S.prev}">‹</button>` +
     `<div class="weeklabel"><b>${weekLabel(dates)}</b>` +
     `<span>${state.monday === current ? S.weekNo(S.thisWeek, isoWeek(state.monday).week) : `${S.weekNo("", isoWeek(state.monday).week)} · <button type="button" class="link me-this">${S.backThis}</button>`}` +
-    `<button type="button" class="lock me-lock" aria-pressed="${locked}" title="${locked ? S.unlock : S.lock}" aria-label="${locked ? S.unlock : S.lock}">${locked ? "🔒" : "🔓"}</button></span></div>` +
+    `<button type="button" class="lock me-lock" aria-pressed="${locked}" title="${locked ? S.unlock : S.lock}" aria-label="${locked ? S.unlock : S.lock}">${locked ? "🔒" : "🔓"}</button>` +
+    (syncSupported !== false ? calButtonHtml(state.monday) : "") + `</span></div>` +
     `<button type="button" class="btn me-next" aria-label="${S.next}">›</button></div>` +
+    (state.calOpen === state.monday ? calSheetHtml(state.monday) : "") +
     `<div id="me-bell" class="me-bell-slot">${bellHtml(true)}</div>` +
     `<div id="me-data"></div>` +
     `<details class="fine-box hints"><summary>${S.hintTitle}</summary><p class="fine">${S.weekHint} · ${S.swipeHint} · ${S.restHelp}</p></details>` +
@@ -1640,8 +1647,7 @@ function setupHtml() {
         `<button type="button" class="btn ${roster ? "" : "primary "}me-kv-down">${S.syncDownload}</button></div>` +
         (bellState() === "none" && kvDirty() ? `<p class="fine me-sync-dirty">${S.syncDirty}</p>` : "") +
         `<div id="me-bell" class="me-bell-slot">${bellHtml(false)}</div>` +
-        `<p class="me-msg me-sync-msg" role="status">${escapeHtml(state.syncMsg)}</p>`)) +
-    (roster && syncSupported !== false ? calPanelHtml() : "")
+        `<p class="me-msg me-sync-msg" role="status">${escapeHtml(state.syncMsg)}</p>`))
 }
 
 /* ------------------------------------------------------------ 手機日曆 */
@@ -1689,13 +1695,34 @@ function calEvent(date, entry, cell) {
   return { date, summary: label === code ? code : label, description: [summary(cell), ot, note].filter(Boolean).join("\n") }
 }
 
-async function calSync() {
+function calWeeks() {
+  try {
+    const saved = JSON.parse(readPref(CAL_WEEKS) ?? "{}")
+    return saved && typeof saved === "object" ? saved : {}
+  } catch {
+    return {}
+  }
+}
+
+// 首頁 🗓️：同步「睇緊嗰個星期」去手機日曆（Ice 2026-11-08，原本喺設定頁一次過同步 7 星期）
+let calRunning = false
+async function calSync(monday) {
+  if (calRunning) return
+  calRunning = true
+  try {
+    await calSyncWeek(monday)
+  } finally {
+    calRunning = false
+  }
+}
+
+async function calSyncWeek(monday) {
+  state.calOpen = monday
   if (!kvToken()) return calMessage(S.calNoToken)
   calMessage(S.calBusy)
-  const start = addDays(todayDate(), -CAL_BACK)
+  const dates = weekDates(monday)
   const events = []
-  for (let i = 0; i <= CAL_BACK + CAL_AHEAD; i += 1) {
-    const date = addDays(start, i)
+  for (const date of dates) {
     const { entry, cell } = await settledCell(date)
     if (!entry.code) continue
     const ev = calEvent(date, entry, cell)
@@ -1707,7 +1734,7 @@ async function calSync() {
     const res = await fetch(`/api/cal/${encodeURIComponent(kvToken())}`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: title || S.title, events }),
+      body: JSON.stringify({ name: title || S.title, from: dates[0], to: dates[6], events }),
     })
     body = await res.json().catch(() => null)
   } catch {
@@ -1715,8 +1742,13 @@ async function calSync() {
   }
   if (!body?.ok) return calMessage(S.calFail)
   writePref(CAL_AT, body.updatedAt)
+  const weeks = calWeeks()
+  weeks[monday] = body.updatedAt
+  // 只留最近 30 個星期嘅記錄
+  writePref(CAL_WEEKS, JSON.stringify(Object.fromEntries(Object.entries(weeks).sort().slice(-30))))
   state.calFeed = body.feed
-  calMessage(S.calDone(body.count, body.added, body.changed, body.removed, hkStamp(body.updatedAt)))
+  const when = hkStamp(body.updatedAt)
+  calMessage(body.added + body.changed + body.removed ? S.calDone(body.count, body.added, body.changed, body.removed, when) : S.calSame(when))
 }
 
 function calMessage(text) {
@@ -1724,29 +1756,41 @@ function calMessage(text) {
   render()
 }
 
+function calButtonHtml(monday) {
+  const week = isoWeek(monday).week
+  const done = !!calWeeks()[monday]
+  return `<button type="button" class="lock me-cal-week" data-done="${done}" aria-expanded="${state.calOpen === monday}" title="${S.calBtn(week)}" aria-label="${S.calBtn(week)}">🗓️</button>`
+}
+
 function calLinksHtml() {
   if (!state.calFeed) return ""
   const links = subscribeLinks(location.origin, state.calFeed)
-  return `<div class="row me-foot cal-links">` +
+  // 第一次同步完先打開；之後收埋（訂閱一次就夠）
+  const first = Object.keys(calWeeks()).length <= 1
+  return `<details class="fine-box cal-links-box"${first ? " open" : ""}><summary>${S.calLinksTitle}</summary>` +
+    `<div class="row cal-links">` +
     `<a class="btn" href="${escapeHtml(links.webcal)}">${S.calIphone}</a>` +
     `<a class="btn" href="${escapeHtml(links.google)}" target="_blank" rel="noopener">${S.calGoogle}</a>` +
     `<button type="button" class="btn me-cal-copy" data-url="${escapeHtml(links.https)}">${S.calCopy}</button></div>` +
-    `<p class="fine">${S.calLinkHint}</p>`
+    `<p class="fine">${S.calLinkHint}</p></details>`
 }
 
 let calFeedPending = false
-function calPanelHtml() {
+function calSheetHtml(monday) {
   // 有 token 又同步過：一開就計返訂閱網址（唔使存）
   if (!state.calFeed && kvToken() && readPref(CAL_AT) && !calFeedPending) {
     calFeedPending = true
     feedId(kvToken()).then((feed) => { state.calFeed = feed; render() }).finally(() => { calFeedPending = false })
   }
-  const last = readPref(CAL_AT)
-  return foldPanel("cal", S.phoneCalTitle,
-    `<details class="fine-box"><summary>${S.hintTitle}</summary><p class="fine">${S.calHelp}</p></details>` +
-    `<div class="row me-foot"><button type="button" class="btn primary me-cal-sync">${S.calSync}</button></div>` +
+  const last = calWeeks()[monday]
+  const week = isoWeek(monday).week
+  return `<section class="panel cal-sheet" aria-label="${S.calSheetTitle(week)}">` +
+    `<div class="cal-sheet-head"><b>🗓️ ${S.calSheetTitle(week)}</b>` +
+    `<button type="button" class="btn me-cal-close" aria-label="${S.calClose}">✕</button></div>` +
+    `<p class="me-msg me-cal-msg" role="status">${escapeHtml(state.calMsg || (last ? S.calLast(hkStamp(last)) : S.calNever))}</p>` +
+    `<div class="row cal-sheet-foot"><button type="button" class="btn primary me-cal-sync">${S.calSync}</button></div>` +
     calLinksHtml() +
-    `<p class="me-msg me-cal-msg" role="status">${escapeHtml(state.calMsg || (last ? S.calLast(hkStamp(last)) : ""))}</p>`)
+    `<details class="fine-box"><summary>${S.hintTitle}</summary><p class="fine">${S.calHelp}</p></details></section>`
 }
 
 // 匯出：CSV 每行一個星期（行號、名、週一至週日），可以原封不動貼返入「Standard Roster 內容」
@@ -1782,6 +1826,7 @@ function adoptToken() {
     writePref(KV_VERSION, "0") // 換咗 token：手上版本號唔再適用
     cloud = null
     state.calFeed = null
+    writePref(CAL_WEEKS, "{}") // 換咗 token = 新訂閱，每週記錄唔再啱
     sendLog("join", value)
   }
   return kvToken()
@@ -1907,6 +1952,7 @@ function kvNewToken() {
   writePref(KV_VERSION, "0") // 新記錄由第 0 版開始
   cloud = null
   state.calFeed = null
+  writePref(CAL_WEEKS, "{}")
   kvMessage(S.syncNewDone)
   sendLog("new", token)
 }
@@ -2181,9 +2227,14 @@ function onClick(event) {
     if (adoptToken() === null) kvMessage(S.syncBadToken)
     else kvUpload()
     return
-  } else if (target.closest(".me-cal-sync")) {
-    if (adoptToken() === null) calMessage(S.syncBadToken)
-    else calSync()
+  } else if (target.closest(".me-cal-week") || target.closest(".me-cal-sync")) {
+    // 🗓️ 一撳即刻同步嗰個星期，同時打開細面板（結果、訂閱連結）
+    calSync(state.monday)
+    return
+  } else if (target.closest(".me-cal-close")) {
+    state.calOpen = null
+    state.calMsg = ""
+    render()
     return
   } else if (target.closest(".me-cal-copy")) {
     const url = target.closest(".me-cal-copy").dataset.url

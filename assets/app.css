@@ -891,3 +891,16 @@ button.cal-day { cursor: pointer; }
 /* 今日卡飯腳：全部列出，一粒粒排（Ice 2026-11-08） */
 .mate-chips { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 2px; }
 .mate-chips > span { padding: 1px 8px; font-size: 14px; font-weight: 600; line-height: 1.6; background: rgba(255, 255, 255, 0.14); border-radius: 8px; }
+
+/* 🗓️ 每週同步手機日曆（首頁週標題，跟喺 🔒 後面）：淡色 = 呢個星期未同步過 */
+.weeklabel .me-cal-week { margin-left: 0; }
+.weeklabel .me-cal-week[data-done="false"] { opacity: .55; }
+.weeklabel .me-cal-week[aria-expanded="true"] { background: color-mix(in srgb, var(--accent) 18%, transparent); opacity: 1; }
+.cal-sheet { margin: -4px 0 12px; padding: 12px 14px; }
+.cal-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cal-sheet-head b { font-size: 16px; }
+.cal-sheet-head .btn { width: 36px; height: 36px; min-width: 0; padding: 0; font-size: 16px; }
+.cal-sheet .me-cal-msg { margin: 6px 0 0; }
+.cal-sheet-foot { margin-top: 10px; }
+.cal-sheet .cal-links { flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.cal-sheet .fine-box { margin-top: 10px; }

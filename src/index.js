@@ -20,7 +20,7 @@
 // 呢個係「靠 URL 保密」，唔係認證 —— 攞到條 URL 嘅人讀寫得到。
 
 import { holidaysBetween, parseIcs } from "../lib/tml-ics.js"
-import { FEED_RE, cleanEvents, feedId, icsText, withSequence } from "../lib/tml-cal.js"
+import { FEED_RE, cleanEvents, feedId, icsText, mergeRange, withSequence } from "../lib/tml-cal.js"
 import { HKO_API, lunarCsvUrl, lunarTextUrl, parseLunarTable } from "../lib/tml-hko.js"
 
 const TOKEN_RE = /^[a-z0-9]{20,64}$/
@@ -474,13 +474,19 @@ async function putCalendar(token, request, env) {
   const key = `cal:${feed}`
   const stored = await env.ROSTER_KV.get(key, "json")
   const now = new Date().toISOString()
-  const next = withSequence(stored?.events, events, now)
+  // 有 from/to = 首頁 🗓️ 每週同步：淨係換嗰個星期，其他日子照留（60 日前嘅清走）
+  const ranged = body?.from != null || body?.to != null
+  const keepFrom = new Date(Date.now() - 60 * 86400e3).toISOString().slice(0, 10)
+  const wanted = ranged ? mergeRange(stored?.events, events, body.from, body.to, keepFrom) : events
+  if (!wanted) return reply({ ok: false, reason: "bad_range" }, 400)
+  const next = withSequence(stored?.events, wanted, now)
+  const inRange = (ev) => !ranged || (ev.date >= body.from && ev.date <= body.to)
   const old = new Map((stored?.events ?? []).map((ev) => [ev.date, ev]))
-  const added = next.filter((ev) => !old.has(ev.date)).length
-  const changed = next.filter((ev) => old.has(ev.date) && ev.seq !== old.get(ev.date).seq).length
-  const removed = (stored?.events ?? []).filter((ev) => !next.some((item) => item.date === ev.date)).length
+  const added = next.filter((ev) => inRange(ev) && !old.has(ev.date)).length
+  const changed = next.filter((ev) => inRange(ev) && old.has(ev.date) && ev.seq !== old.get(ev.date).seq).length
+  const removed = (stored?.events ?? []).filter((ev) => inRange(ev) && !next.some((item) => item.date === ev.date)).length
   await env.ROSTER_KV.put(key, JSON.stringify({ name, events: next, updatedAt: now }))
-  return reply({ ok: true, feed, count: next.length, added, changed, removed, updatedAt: now })
+  return reply({ ok: true, feed, count: ranged ? events.length : next.length, total: next.length, added, changed, removed, updatedAt: now })
 }
 
 async function getCalendar(file, env) {
