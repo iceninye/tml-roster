@@ -23,6 +23,11 @@ jobs:
           node tools/validate_worker.mjs
           node tools/validate_hko.mjs
           node tools/validate_version.mjs
+      - name: Browser smoke test
+        run: |
+          npm i --no-save playwright
+          npx playwright install --with-deps chromium
+          node tools/smoke.mjs
       - name: lib/tml-duties.js same as TML-traffic
         # 兩個 repo 各有一份拷貝；唔一樣只警告（TML-traffic 嗰邊未合併時都會唔同），唔擋 PR。
         run: |

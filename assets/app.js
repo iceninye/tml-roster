@@ -11,6 +11,7 @@ import { summariseWeek, weekLabel } from "../lib/tml-week.js"
 import { OFF_CODES, workOf } from "../lib/tml-extra.js"
 import { serviceDate, hkDate, secondsInto } from "../lib/tml-time.js"
 import { fetchData, placeNames, sheetForDate, stationNames } from "../lib/tml-data.js"
+import { S } from "./strings.js"
 import { holidaysOn } from "../lib/tml-ics.js"
 import { HKO_LUNAR_API, cleanFlw, cleanQuake, cleanRyes, cleanSwt, cleanWarningInfo, cleanWarnsum, hkoUrl, lunarCsvUrl, lunarFromApi, lunarLabel, mergeFnd, nextTerm, parseLunarTable, psrLevel, tempRange, warnIconSvg, warnIconUrl, wxAlerts, wxIcon, wxIconUrl } from "../lib/tml-hko.js"
 import { isoWeek } from "../lib/tml-plan.js"
@@ -18,7 +19,7 @@ import { monthDates, otClock, otFromClock, recentOt, setOt } from "../lib/tml-ot
 import { feedId, subscribeLinks } from "../lib/tml-cal.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson, syncState } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.58", commit: "dev" }
+const BUILD = { version: "0.9.59", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -45,289 +46,6 @@ const WARN_STALE = 2 * 3600 * 1000
 const CAL_AT = "tml-roster-cal-at"
 const CAL_WEEKS = "tml-roster-cal-weeks" // {monday: 上次同步時間}，🗓️ 淡色 = 未同步過
 
-const S = {
-  weekdays: ["週一", "週二", "週三", "週四", "週五", "週六", "週日"],
-  status: { RD: "休息日", AL: "年假", SH: "法定假日", HC: "待定" },
-  spare: (code) => `後備更 ${code}`,
-  spareNote: "後備更未有上下班資料",
-  noCard: "呢個更份暫時冇上下班資料",
-  spareTag: "後備更",
-  extraOff: (hours) => `假期${hours ? ` · ${hours} 小時` : ""}`,
-  extraWork: (hours) => `開工日 · ${hours} 小時（冇上下班時間）`,
-  basicNote: "呢個更份冇逐段行程資料，只有上下班時間同地點。",
-  shift: { dawn: "死早", early: "早", mid: "中", late: "夜", night: "死夜" },
-  nextDay: "翌日",
-  hours: (h) => `${h} 小時`,
-  otPlanned: (on, off) => `OT 前原定 ${on} – ${off}`,
-  workCardSays: (text) => `（更份卡寫 ${text}）`,
-  sheetHint: (sheet, id) => `當日用 Duty Sheet ${sheet}，你嘅更可能係 ${id}，請檢查。`,
-  noSheet: (id) => `搵唔到更份 ${id} 所屬嘅 Duty Sheet 資料`,
-  notOnSheet: (id, sheet) => `呢日用 Duty Sheet ${sheet}，入面冇 ${id}；請改做當日嘅更份編號`,
-  noDuty: (id) => `Duty Sheet 入面冇更份 ${id} 嘅資料`,
-  loading: "讀取更份資料中…",
-  failed: "讀取更份資料失敗，請稍後再試",
-  on: "上班",
-  off: "下班",
-  meal: "用膳",
-  mates: "飯腳",
-  matesNone: "冇（同一車站食飯重疊未夠 45 分鐘）",
-  mealMatesHelp: "飯腳：同你喺同一個車站、食飯時間重疊至少 45 分鐘嘅更份。撳更份編號可以睇佢嘅行程。",
-  work: "工時",
-  workMin: (m) => (m < 60 ? `${m} 分` : `${Math.floor(m / 60)} 小時${m % 60 ? ` ${m % 60} 分` : ""}`),
-  legs: "全日行程",
-  bookOn: "上班",
-  bookOff: "下班",
-  now: "現時",
-  until: (clock) => `至 ${clock}`,
-  // 今日卡：倒數、下一程、交車、下一更
-  dur: (sec) => {
-    const m = Math.max(0, Math.ceil(sec / 60))
-    if (m < 60) return `${m} 分`
-    return `${Math.floor(m / 60)} 小時${m % 60 ? ` ${m % 60} 分` : ""}`
-  },
-  factOn: "上班",
-  factOff: "下班",
-  factNext: "下一程",
-  factHand: "落車",
-  factMeal: "用膳",
-  factNextDuty: "下一更",
-  inTime: (d) => `仲有 ${d}`,
-  offDone: "已下班",
-  pickUp: (run, place) => `${place} 接 Run ${run}`,
-  takeFrom: (id) => `由 ${id} 交`,
-  prepAt: (run, place) => `${place} 出車準備 Run ${run}`,
-  handTo: (id) => `交俾 ${id}`,
-  handNone: "收車／泊車",
-  restGap: (d) => `休息 ${d}`,
-  kind: { drive: "載客", empty: "空車", park: "泊車", prep: "準備", ride: "乘搭", wait: "待命", other: "其他" },
-  phase: {
-    drive: (run, a, b) => `Run ${run} 行駛中 ${a} → ${b}`,
-    empty: (run, a, b) => `Run ${run} 空車 ${a} → ${b}`,
-    park: (run, a, b) => `Run ${run} 泊車 ${a} → ${b}`,
-    ride: (run, a, b) => `乘搭接駁 ${a} → ${b}`,
-    prep: (run, a) => `出車準備 ${a}`,
-    wait: (run, a) => `待命／等候 ${a}`,
-    other: (run, a) => `其他 ${a}`,
-    meal: (run, a) => `用膳中 ${a}`,
-    end: (run, a) => `收車 ${a}`,
-    gap: (run, a) => `等待接班 ${a}`,
-  },
-  cls: { weekday: "平日", saturday: "星期六", sunday: "星期日", special: "特別日" },
-  source: (code, tab, issued, dates, cls, full) =>
-    `資料來源：Duty Sheet ${code}（${cls}${dates ? `，只用於 ${dates}` : ""}）${tab ? `、工作表 ${tab}` : ""}${issued ? `、${issued} 發佈` : ""}。${full ? "只收更份編號、上下班、用膳同每段 Run 嘅時間，唔收備註原文。接班時間準確到秒，離班時間係到站時間（只計到分鐘）。" : "呢份資料只有更份編號。"}`,
-  title: "我的更表",
-  prev: "‹ 上週",
-  next: "下週 ›",
-  thisWeek: "本週",
-  weekNo: (label, week) => (label ? `${label}（第${week}週）` : `第${week}週`),
-  lock: "鎖住呢個星期（唔可以改，貼新 Standard Roster 都唔會變）",
-  unlock: "解鎖呢個星期",
-  lockedDay: "🔒 呢個星期鎖咗，唔可以改；返主頁撳 🔒 解鎖",
-  today: "今日",
-  changed: "已手動改",
-  settings: "設定／備份",
-  back: "‹ 返回",
-  backThis: "回到本週",
-
-  stdRow: (n) => `第 ${n} 行`,
-  subDays: (n) => `${n} 日`,
-  subHours: (m) => `${Math.round((m / 60) * 10) / 10} 小時`,
-  titleLabel: "更表名稱",
-  weekHint: "撳任何一日睇全日行程；特別日子（例如 8022、8023）可以喺該日入面手動改。",
-  sumDays: (n) => `開工 ${n} 日`,
-  sumWork: "工時",
-  swipeHint: "左右滑動可換週",
-  hintTitle: "提示",
-  restShort: "休息唔夠 12 小時",
-  restHelp: "休息唔夠鐘：前一日下班到下一個開工唔夠 12 小時，會用閃動紅框標住（同編更頁一致）。",
-  syncTitle: "跨裝置同步",
-  syncFirstTitle: "有雲端備份？貼 token 下載",
-  syncFirstHelp: "換咗機或者清咗瀏覽器？貼同一條 token，撳「由雲端下載」就攞返更表。token 係你第一次上傳時自己嗰條，只存喺你自己部機。",
-  syncHelp: "雲端會存：更表（標題、行號、每格代號）、Standard Roster 每行嘅名字、基準週，同你手動改過嘅日子。唔會存更份卡或者編更計劃。token 只存喺呢部機。⚠️ 拿到呢條網址嘅人都讀寫得到，唔好傳出去。",
-  syncToken: "同步 token",
-  syncUnsupported: "呢個網址唔支援雲端同步（GitHub Pages 版冇 Workers API）。要同步請開 https://tml-roster.iceninye.workers.dev/ice/",
-  syncNew: "產生 token",
-  syncCopy: "複製",
-  logSent: "token log 已寄去電郵。",
-  logFail: (why) => `token log 電郵寄唔到（${why}）。`,
-  syncBackupFail: (why) => `雲端現有版本寄唔到電郵備份（${why}），覆蓋咗就冇得用電郵還原。撳「確定」照樣上傳；撳「取消」就唔上傳。`,
-  syncBackedUp: "雲端舊版本已先寄去電郵備份。",
-  localMailed: "呢部機原本嘅版本已寄去電郵備份。",
-  localSaved: (why) => `呢部機原本嘅版本寄唔到電郵（${why}），已下載咗做備份。`,
-  syncNewAsk: "產生新 token 會換走呢部機現有嗰條（雲端舊記錄唔會刪除）。確定？",
-  syncNewDone: "已產生新 token 並記住。請撳「複製」存好佢；另一部機貼同一條，就可以下載同一份更表。",
-  syncCopied: "已複製 token。",
-  syncCopyFail: "複製唔到，請手動選取輸入框內容。",
-  syncUpload: "上傳到雲端",
-  phoneCalTitle: "同步手機日曆",
-  calBtn: (week) => `將第${week}週同步去手機日曆`,
-  calSheetTitle: (week) => `第${week}週 · 手機日曆`,
-  calHelp: "每撳一次 🗓️ 就將嗰個星期嘅更（上班時間、地點、OT、備註；休息日同假期係全日）上載去你嘅日曆訂閱：新日子會加入、改咗嘅會更新、嗰個星期唔再有嘅會刪走，其他星期唔郁。第一次同步之後撳「iPhone 訂閱」或者「Google 日曆訂閱」加入手機日曆（只需做一次）。手機日曆自己定時重讀：iPhone 喺「設定 › 日曆 › 帳號 › 取得新資料」揀每 15 分鐘或每小時；Google 日曆由 Google 決定，通常幾個鐘到一日。用同一條同步 token；訂閱網址由 token 計出但倒推唔返 token，只讀，唔好傳出去。",
-  calLinksTitle: "訂閱連結（第一次先要）",
-  calClose: "收埋",
-  calNoToken: "要先喺設定 ⚙ 嘅「跨裝置同步」產生或者貼上 token。",
-  calSync: "同步",
-  calBusy: "整理緊更份資料…",
-  calWait: "更份資料未讀完，請等一陣再撳。",
-  calLoadFail: "更份資料讀取失敗（網絡？），已經再試緊，請幾秒後再撳。",
-  calDone: (n, a, c, r, when) => `已同步呢個星期 ${n} 日（新增 ${a}、更新 ${c}、刪走 ${r}）· ${when}`,
-  calSame: (when) => `呢個星期冇改動，日曆已經係最新 · ${when}`,
-  calLast: (when) => `呢個星期上次同步：${when}`,
-  calNever: "呢個星期未同步過。",
-  calFail: "同步唔到，請檢查網絡再試。",
-  calIphone: "iPhone 訂閱",
-  calGoogle: "Google 日曆訂閱",
-  calCopy: "複製訂閱網址",
-  calCopied: "已複製訂閱網址。",
-  calLinkHint: "Android 用 Google 日曆訂閱；如果開唔到，喺電腦打開 Google 日曆 › 其他日曆 › 透過網址新增，貼上訂閱網址。",
-  syncDownload: "由雲端下載",
-  syncNoToken: "先貼上同步 token 再撳。",
-  syncBadToken: "token 格式唔啱（20 至 64 個細楷英文字母或數字），冇上傳亦冇下載。",
-  syncConflict: (at, name, device) => `雲端有另一個版本（${at}${name ? ` · ${name}` : ""}${device ? ` · 由「${device}」上傳` : ""}）。撳「確定」用呢部機覆蓋雲端；撳「取消」就唔覆蓋。`,
-  syncOverwriteLocal: (at, name) => `雲端版本（${at}${name ? ` · ${name}` : ""}）會取代呢部機嘅更表同手動改動。撳「確定」照下載；撳「取消」就唔變。`,
-  syncKeptLocal: "冇覆蓋：雲端版本保持不變。",
-  syncKeptDown: "冇下載：呢部機嘅更表保持不變。",
-  syncDirty: "呢部機有改動未上傳到雲端。",
-  // 🔔 雲端同呢部機邊個新啲（開頁、返到前景時問一次雲端）
-  bell: {
-    cloud: (at, device) => `🔔 雲端較新：${at}${device ? ` 由「${device}」上傳` : ""}，撳「由雲端下載」攞返。`,
-    local: (at) => `🔔 呢部機較新${at ? `：${at} 改咗` : ""}，未上傳到雲端，撳「上傳到雲端」。`,
-    both: (cloudAt, device, at) => `🔔 兩邊都改過：雲端 ${cloudAt}${device ? `（${device}）` : ""}，呢部機 ${at || "未知時間"}。上傳會覆蓋雲端，下載會覆蓋呢部機，請揀一個。`,
-  },
-  bellShort: {
-    cloud: (at, device) => `🔔 雲端較新（${at}${device ? ` · ${device}` : ""}）`,
-    local: (at) => `🔔 呢部機較新${at ? `（${at}）` : ""}，未上傳`,
-    both: (cloudAt, device, at) => `🔔 兩邊都改過（雲端 ${cloudAt} · 呢部機 ${at || "未知"}）`,
-  },
-  bellGo: "去同步 ›",
-  sumTitle: "本週概況",
-  sumShort: (n) => `休息唔夠 ${n} 日`,
-  sumRest: (n) => `休息 ${n} 日`,
-  sumLeave: (n) => `假期 ${n} 日`,
-  syncEmpty: "雲端未有資料，請先上傳一次。",
-  syncFail: "同步失敗（網絡或者 token 有問題）。",
-  syncUp: (v, at) => `已上傳到雲端（第 ${v} 版 · ${at}）。`,
-  syncDown: (at) => `已由雲端下載（${at}）。`,
-  editCode: "改呢日嘅更份編號",
-  save: "儲存",
-  cancel: "取消",
-  reset: "還原",
-  badCode: "格式唔啱：請輸入 7 位更份編號，或者 RD、AL、SH、HC、HSP1、KSP3 呢類代號",
-  setupTitle: "設定我的更表",
-  settingsTitle: "更表設定",
-  setupIntro: "第一次使用，請完成下面兩步。更表預設只會儲存喺呢部機嘅瀏覽器；想跨裝置就喺下面貼同步 token。",
-  stepPaste: "貼上 Standard Roster 同行號",
-  groupRoster: "更表",
-  groupData: "資料",
-  syncNone: "未設定",
-  syncDirtyShort: "未上傳",
-  syncDone: "已同步",
-  howTitle: "應該貼成點樣？",
-  howBody: "每行代表一個星期，由週一至週日共 7 格。行頭可以有行號（冇都得）。用逗號、Tab 或空格分隔都得，直接由 Excel 複製貼上就可以。",
-  howCodes: [
-    ["1101179", "7 位更份編號（頭 4 位係 Duty Sheet 編號）"],
-    ["RD · AL · SH · HC", "休息日 · 年假 · 法定假日 · 待定"],
-    ["HSP1 · KSP3", "後備更"],
-  ],
-  howExample: "1,1101101,1101102,RD,1101104,1101105,6091101,RD\n2,AL,AL,AL,SH,SH,RD,RD",
-  fileBtn: "由檔案匯入",
-  fileHelp: "支援 .csv、.tsv、.txt。直接貼上都得。",
-  fileFail: "讀取檔案失敗",
-  previewTitle: "即時預覽",
-  previewOk: (n, a, b) => `讀到 ${n} 行（行號 ${a}–${b}）`,
-  previewKeep: (n) => `而家用緊嘅 roster：${n} 行`,
-  previewHint: "貼上之後，呢度會即時顯示讀到嘅 roster。",
-  previewRowMiss: (row, a, b) => `你填嘅第 ${row} 行喺呢份 roster 入面冇（有 ${a}–${b}），請修改第 2 步。`,
-  rowHead: "行",
-  pasteLabel: "Standard Roster 內容",
-  pastePlaceholder: "喺度貼上，每行一個星期",
-  pasteKeep: "留空就保留現有更表；貼上新內容會取代舊嘅，但你手動改過嘅日子會保留",
-  rowLabel: (monday) => `今個星期（${monday} 起）係第幾行？`,
-  ok: "確認",
-  rowBad: (nums) => `喺你嘅 roster 入面搵唔到呢個行號（有 ${nums}）`,
-  saved: "已儲存",
-  notStored: "已讀入，但呢部機儲存唔到，關閉頁面後會冇咗",
-  backupTitle: "備份同清除",
-  backupHelp: "換手機或者清除瀏覽器資料之前，先匯出備份。要還原就將備份內容貼返入上面「Standard Roster 內容」再儲存。",
-  export: "匯出 CSV（一週一行）",
-  exportJson: "匯出備份（JSON，包手動改動）",
-  exportHelp: "下載之後可以貼返入上面「Standard Roster 內容」還原。",
-  exported: "已匯出檔案",
-  clear: "清除我的更表",
-  clearAsk: "清除之後要重新貼上 roster，確定？",
-  noRoster: "未有 roster，請先貼上",
-  badBackup: "備份內容讀唔到，請確認複製完整",
-  dutyData: (issued) => `更份資料 ${issued} 發佈`,
-  // 今日卡
-  factPlaces: "地點",
-  factWork: "工時",
-  factMates: "飯腳",
-  factSchool: "學校",
-  doneLeft: (done, left) => `已做 ${done} · 剩 ${left}`,
-  // 月曆
-  calTitle: (y, m) => `${y} 年 ${m} 月`,
-  calPrev: "上個月",
-  calNext: "下個月",
-  calThis: "本月",
-  calSchool: "學校假期",
-  calLegOt: "有 OT",
-  calLegChanged: "手動改過",
-  calLegMemo: "有備註",
-  calWeekHead: "週",
-  calWeek: (n) => `第 ${n} 週`,
-  // OT（lib/tml-ot.js）
-  ot: "OT",
-  otSum: (m) => `OT ${S.workMin(m)}`,
-  otMonth: (m) => `本月 OT ${S.workMin(m)}`,
-  otWhole: "成更 OT",
-  otBefore: (m) => `更前 OT ${S.workMin(m)}`,
-  otAfter: (m) => `更後 OT ${S.workMin(m)}`,
-  otWholeLabel: "整條更份",
-  otTitle: "OT",
-  otBeforeLabel: "更前",
-  otAfterLabel: "更後",
-  otHoursUnit: "小時",
-  otFrom: "或由",
-  otTo: "或至",
-  otSave: "儲存",
-  otClear: "清除",
-  otSaved: "已儲存 OT",
-  otCleared: "已清除 OT",
-  otBad: "OT 時數唔啱：請輸入 0 至 12 小時（例如 3.5）",
-  matesTitle: "同事更表",
-  matesHelp: "剔選想睇嘅同事（本週行號）。之後每個星期會跟佢哋跳去下一行，同你自己一樣。撳右上角 ⚙ 第二下就睇到；再撳返主頁。",
-  matesCount: (n) => (n ? `已揀 ${n} 位` : "未揀"),
-  matesNone: "未揀同事：去設定「同事更表」剔選",
-  matesMe: "我",
-  matesRow: (n) => `第 ${n} 行`,
-  matesWho: "同事",
-  matesCopy: "複製本週 CSV",
-  matesCopied: "已複製，可以貼去 WhatsApp／Excel",
-  matesSaved: (name) => `已下載 ${name}`,
-  matesNameLabel: "同事名稱（可以自己改）",
-  matesNamePlaceholder: "名稱",
-  noteTitle: "備註",
-  notePlaceholder: "例如：同 Ken 換更、帶證件、7 點前到",
-  noteSave: "儲存",
-  noteClear: "刪除",
-  noteSaved: "已儲存備註",
-  noteCleared: "已刪除備註",
-  factTomorrow: "明天",
-  wxTitle: "天氣",
-  wxMore: "撳一下睇詳情",
-  wxWarnOld: "天氣警告未能更新",
-  wxPsr: "降雨概率",
-  wxPsrShort: "降雨",
-  wxTc: "熱帶氣旋",
-  wxFire: "火災危險",
-  wxOutlook: "展望",
-  wxAt: (t) => `天文台 ${t} 發出`,
-  wxOld: (t) => `未能更新，以下係 ${t} 嘅預報`,
-  wxNone: "未有天氣預報（連線後會自動讀取）",
-  lunar: (text) => `農曆${text}`,
-  termIn: (term, n) => (n === 1 ? `明天${term}` : `${n} 日後${term}`),
-  tomorrowWork: (code, on, off) => `${code} ${on}–${off}`,
-}
 
 // Depot and siding codes as the sheets print them (read from the sheets' own
 // duty list pages, not from MTR documents).
@@ -688,6 +406,22 @@ function dutyPhaseText(st) {
 // date picks the Duty Sheet: on a dated sheet's days (7091M on 1 Nov 2026) its own
 // cards, not the regular sheet that shares the numbers.
 function cellInfo(code, date) {
+  if (!cellMemo) return cellInfoRaw(code, date)
+  const key = `${code}|${date}`
+  if (!cellMemo.has(key)) cellMemo.set(key, cellInfoRaw(code, date))
+  return cellMemo.get(key)
+}
+
+// 畫一次畫面（paintData / paintCalendar）入面，同一個 code+日子只計一次；畫完即清，所以資料變咗都唔會用舊嘅。
+// 回傳嘅 cell 唔會被改（withOt 係複製），可以安全共用。
+let cellMemo = null
+function withCellMemo(fn) {
+  if (cellMemo) return fn()
+  cellMemo = new Map()
+  try { return fn() } finally { cellMemo = null }
+}
+
+function cellInfoRaw(code, date) {
   const c = classify(code)
   if (c.kind === "status") return { label: `${S.status[c.code]} ${c.code}`, status: "none", tone: c.code === "HC" ? "tbd" : (c.code === "AL" || c.code === "SH" ? "leave" : "rest") }
   // 其他代碼（編更「其他」tab，lib/tml-extra.js）：工時跟 Ice 嘅表；時間用表入面有嘅，冇就用官表（duty-basic）。
@@ -1626,7 +1360,8 @@ function renderPage() {
 
 // The part that depends on loaded duty data or the clock: repainted when a
 // sheet finishes loading and once a second, never touching the form fields.
-function paintData() {
+function paintData() { return withCellMemo(paintDataNow) }
+function paintDataNow() {
   const box = document.getElementById("me-data")
   if (!box) return
   // 同事更表打緊名，唔好重畫洗走
@@ -1694,7 +1429,8 @@ function paintData() {
 }
 
 // 月曆：更類顏色要等更份資料，所以同 me-data 一齊重畫（內容唔同先換；me-data 重畫咗個格就補返）
-function paintCalendar() {
+function paintCalendar() { return withCellMemo(paintCalendarNow) }
+function paintCalendarNow() {
   const cal = document.getElementById("me-cal")
   if (!cal) return
   const calHtml = calendarHtml(state.calMonth ?? todayDate().slice(0, 7))
