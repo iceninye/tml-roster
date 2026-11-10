@@ -19,7 +19,7 @@ import { monthDates, otClock, otFromClock, recentOt, setOt } from "../lib/tml-ot
 import { feedId, subscribeLinks } from "../lib/tml-cal.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson, syncState } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.60", commit: "dev" }
+const BUILD = { version: "0.9.61", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -28,6 +28,7 @@ const TITLE_KEY = "tml-roster-title"
 const LEGACY_KEY = "tml-traffic-roster"
 // 跨裝置同步：token 同雲端版本號都只存喺呢部機
 const KV_KEY = "tml-roster-kv-token"
+const KV_AUTO = "tml-roster-kv-auto" // "1" = 改完自動上傳（預設關）
 const KV_VERSION = "tml-roster-kv-version"
 // 最後一次上傳／下載時嘅更表指紋：同而家唔同就喺齒輪旁加一粒「未上傳」點
 const KV_SYNCED = "tml-roster-kv-synced"
@@ -44,6 +45,7 @@ const WARN_EVERY = 5 * 60 * 1000
 const WARN_STALE = 2 * 3600 * 1000
 // 手機日曆：上次同步嘅時間（顯示用）；訂閱網址由 token 計，唔使存
 const CAL_AT = "tml-roster-cal-at"
+const CAL_ALARM = "tml-roster-cal-alarm" // 上班前幾多分鐘提醒（0 = 唔提醒）
 const CAL_WEEKS = "tml-roster-cal-weeks" // {monday: 上次同步時間}，🗓️ 淡色 = 未同步過
 
 
@@ -164,6 +166,7 @@ function saveRoster(next) {
   const json = JSON.stringify(next)
   writePref(ROSTER_KEY, json)
   writePref(KV_LOCAL_AT, new Date().toISOString())
+  scheduleAutoUpload()
   return readPref(ROSTER_KEY) === json
 }
 
@@ -240,6 +243,25 @@ function dutyIndexPromise() {
 }
 
 // 再讀之前讀失敗嘅資料（index、duty-basic、站名、更份卡）。
+// 離線時讀唔到，講明係冇網絡，唔好似個站壞咗
+function failedText() {
+  return navigator.onLine === false ? S.failedOffline : S.failed
+}
+
+// 離線橫額：App 已經喺 service worker 存咗上次嘅更份資料，離線照用；講明俾人知
+function paintOffline() {
+  let bar = document.getElementById("offline")
+  if (!bar) {
+    bar = document.createElement("p")
+    bar.id = "offline"
+    bar.className = "offline-bar"
+    bar.setAttribute("role", "status")
+    bar.textContent = S.offlineBar
+    view.before(bar)
+  }
+  bar.hidden = navigator.onLine !== false
+}
+
 function retryData() {
   if (basicFailed) loadBasic()
   if (networkFailed) loadNetwork()
@@ -526,7 +548,7 @@ function dayLines(cell) {
 
 function summary(cell) {
   if (cell.status === "loading") return S.loading
-  if (cell.status === "failed") return S.failed
+  if (cell.status === "failed") return failedText()
   if (cell.status === "noduty" && cell.dated) return S.notOnSheet(cell.c.id, cell.sheet)
   if (cell.status === "nosheet" || cell.status === "noduty") return S.noSheet(cell.c.id)
   if (cell.status === "nocard") return S.noCard
@@ -577,7 +599,7 @@ function dutyDetailHtml({ sheet, id }, liveDate, ot = null) {
   const book = dutyBook(sheet)
   if (book.status === "loading") return `<p class="empty">${S.loading}</p>`
   const duty = book.status === "ok" ? book.data.duties.find((item) => item.id === id) : null
-  if (!duty) return `<p class="empty">${book.status === "ok" ? S.noDuty(id) : book.status === "missing" ? S.noSheet(id) : S.failed}</p>`
+  if (!duty) return `<p class="empty">${book.status === "ok" ? S.noDuty(id) : book.status === "missing" ? S.noSheet(id) : failedText()}</p>`
   const entry = book.entry
   const source = S.source(sheet, duty.tab, entry.issued, entry.dates?.join("、"), S.cls[entry.class] ?? entry.class, Boolean(duty.on))
   if (!duty.on) return `<p class="empty">${S.noCard}</p><dl class="kv"><dt>更份</dt><dd>${id} · ${duty.group}</dd></dl><p class="fine">${source}</p>`
@@ -844,6 +866,17 @@ async function getJson(url) {
 }
 
 // 先問自己 Worker（/api/hko），唔得就直接問天文台（GitHub Pages 版冇 Worker）
+// 警告類一次過問 Worker 嘅 /api/hko/alerts；唔得（GitHub Pages、Worker 舊版、天文台出錯）回 null
+async function alertsGet() {
+  try {
+    const body = await getJson("/api/hko/alerts")
+    if (body?.ok && body.feeds?.warnsum) return body.feeds
+  } catch {
+    // 逐個問
+  }
+  return null
+}
+
 async function hkoGet(type) {
   try {
     const body = await getJson(`/api/hko/${type}`)
@@ -896,7 +929,10 @@ function loadWarnings(force) {
   if (!force && Date.now() - weather.warnTried < WARN_EVERY) return
   weather.warnTried = Date.now()
   const names = Object.keys(WARN_FEEDS)
-  Promise.allSettled(names.map((name) => hkoGet(WARN_TYPE[name]))).then((results) => {
+  alertsGet().then((feeds) => {
+    // 一次過問到：null 嘅項目當讀唔到；整個 /api/hko/alerts 唔得就逐個問（舊做法）
+    return feeds ? names.map((name) => (feeds[name] == null ? { status: "rejected" } : { status: "fulfilled", value: feeds[name] })) : Promise.allSettled(names.map((name) => hkoGet(WARN_TYPE[name])))
+  }).then((results) => {
     const warn = { ...(weather.warn ?? {}) }
     let got = false
     results.forEach((r, i) => {
@@ -1380,7 +1416,7 @@ function paintDataNow() {
     else if (cell.status === "basic") html = basicDetailHtml(cell, entry.ot)
     else if (cell.status === "loading") html = `<p class="empty">${S.loading}</p>`
     else if (cell.status === "nosheet") html = `<p class="empty">${S.noSheet(cell.c.id)}</p>`
-    else if (cell.status === "failed") html = `<p class="empty">${S.failed}</p>`
+    else if (cell.status === "failed") html = `<p class="empty">${failedText()}</p>`
     else html = dutyDetailHtml({ sheet: cell.c.sheet, id: cell.c.id }, state.date === todayDate() && state.date, entry.ot)
     html = sheetHint(entry.code, state.date) + html
   } else if (state.page === "mates") {
@@ -1566,6 +1602,7 @@ function setupHtml() {
         `<button type="button" class="btn me-kv-copy">${S.syncCopy}</button></div>` +
         `<div class="row me-foot">` +
         (roster ? `<button type="button" class="btn me-kv-up">${S.syncUpload}</button>` : "") +
+        (roster && kvToken() ? `<label class="fine auto-up"><input type="checkbox" class="me-kv-auto"${readPref(KV_AUTO) === "1" ? " checked" : ""}> ${S.autoUpLabel}</label>` : "") +
         `<button type="button" class="btn ${roster ? "" : "primary "}me-kv-down">${S.syncDownload}</button></div>` +
         (bellState() === "none" && kvDirty() ? `<p class="fine me-sync-dirty">${S.syncDirty}</p>` : "") +
         `<div id="me-bell" class="me-bell-slot">${bellHtml(false)}</div>` +
@@ -1660,7 +1697,7 @@ async function calSyncWeek(monday) {
     const res = await fetch(`/api/cal/${encodeURIComponent(kvToken())}`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: title || S.title, from: dates[0], to: dates[6], events }),
+      body: JSON.stringify({ name: title || S.title, from: dates[0], to: dates[6], events, alarm: calAlarm() }),
     })
     body = await res.json().catch(() => null)
   } catch {
@@ -1675,6 +1712,12 @@ async function calSyncWeek(monday) {
   state.calFeed = body.feed
   const when = hkStamp(body.updatedAt)
   calMessage(body.added + body.changed + body.removed ? S.calDone(body.count, body.added, body.changed, body.removed, when) : S.calSame(when))
+}
+
+const ALARM_CHOICES = [0, 30, 60, 90, 120]
+function calAlarm() {
+  const n = Number(readPref(CAL_ALARM))
+  return ALARM_CHOICES.includes(n) ? n : 0
 }
 
 function calMessage(text) {
@@ -1720,6 +1763,7 @@ function calSheetHtml(monday) {
     `<div class="cal-sheet-head"><b>🗓️ ${S.calSheetTitle(week)}</b>` +
     `<button type="button" class="btn me-cal-close" aria-label="${S.calClose}">✕</button></div>` +
     `<p class="me-msg me-cal-msg" role="status">${escapeHtml(state.calMsg || (last ? S.calLast(hkStamp(last)) : S.calNever))}</p>` +
+    `<label class="cal-alarm">${S.calAlarm}<select class="me-cal-alarm">${ALARM_CHOICES.map((n) => `<option value="${n}"${n === calAlarm() ? " selected" : ""}>${n ? S.calAlarmMin(n) : S.calAlarmOff}</option>`).join("")}</select></label>` +
     `<div class="row cal-sheet-foot"><button type="button" class="btn primary me-cal-sync">${S.calSync}</button></div>` +
     calLinksHtml() +
     `<details class="fine-box"><summary>${S.hintTitle}</summary><p class="fine">${S.calHelp}</p></details></section>`
@@ -1827,12 +1871,12 @@ async function kvCheck(force = false) {
   try {
     res = await fetch(kvEndpoint(), { headers: { accept: "application/json" }, cache: "no-store" })
   } catch {
-    return // 離線：唔知，唔響
+    return false // 離線：唔知，唔響
   }
-  if (token !== kvToken()) return // 問緊嗰陣換咗 token
+  if (token !== kvToken()) return false // 問緊嗰陣換咗 token
   const body = await res.json().catch(() => null)
   if (res.status === 404 && body?.reason === "empty") cloud = null
-  else if (!res.ok || !body?.ok || !body.record) return
+  else if (!res.ok || !body?.ok || !body.record) return false
   else {
     const rec = body.record
     cloud = { version: Number(rec.version ?? 0), updatedAt: rec.updatedAt ?? "", device: rec.device ?? "", print: cloudPrint(rec) }
@@ -1843,6 +1887,7 @@ async function kvCheck(force = false) {
     }
   }
   paintBell()
+  return true
 }
 
 function kvEndpoint() {
@@ -1856,7 +1901,10 @@ async function probeSync() {
     const res = await fetch("/api/ping", { headers: { accept: "application/json" }, cache: "no-store" })
     const body = await res.json().catch(() => null)
     syncSupported = !!(res.ok && body?.ok)
-    if (syncSupported) kvCheck(true)
+    if (syncSupported) {
+      kvCheck(true)
+      if (kvDirty()) scheduleAutoUpload() // 上次離線改嘅，而家排上傳
+    }
   } catch {
     // 離線或者網絡出錯：唔知支唔支援，照舊顯示同步面板（唔好誤報「唔支援」）
     return
@@ -1902,8 +1950,10 @@ async function kvCopyToken() {
 }
 
 // skipBackup：雲端舊版本寄唔到電郵，用戶都揀照樣覆蓋
-async function kvUpload(force = false, skipBackup = false) {
-  if (!kvToken()) return kvMessage(S.syncNoToken)
+// auto：自動上傳，唔彈窗、唔重畫（用戶可能打緊字）；撞版本或者寄唔到備份就唔上傳，留低未上傳，等用戶手動處理。
+async function kvUpload(force = false, skipBackup = false, auto = false) {
+  const say = auto ? (text) => { state.syncMsg = text; paintDirty(); paintBell() } : kvMessage
+  if (!kvToken()) return say(S.syncNoToken)
   let res
   try {
     res = await fetch(kvEndpoint(), {
@@ -1928,9 +1978,10 @@ async function kvUpload(force = false, skipBackup = false) {
       }),
     })
   } catch {
-    return kvMessage(S.syncFail)
+    return say(S.syncFail)
   }
   const body = await res.json().catch(() => null)
+  if (auto && !body?.ok) return say(S.autoUpFail)
   if (res.status === 409 && body?.reason === "conflict" && !force) {
     const when = hkStamp(body.cloud?.updatedAt)
     if (confirm(S.syncConflict(when, body.cloud?.title ?? "", body.cloud?.device ?? ""))) return kvUpload(true, skipBackup)
@@ -1945,7 +1996,29 @@ async function kvUpload(force = false, skipBackup = false) {
   writePref(KV_VERSION, String(body.version))
   writePref(KV_SYNCED, kvPrint())
   cloud = { version: Number(body.version), updatedAt: body.updatedAt ?? "", device: thisDevice(), print: kvPrint() }
-  kvMessage(S.syncUp(body.version, hkStamp(body.updatedAt)) + (body.backedUp ? S.syncBackedUp : ""))
+  say((auto ? S.autoUpDone : "") + S.syncUp(body.version, hkStamp(body.updatedAt)) + (body.backedUp ? S.syncBackedUp : ""))
+}
+
+// 自動上傳：改完 45 秒先上傳（呢段時間改返轉頭就唔使上傳錯嘅嘢）；要有 token、雲端冇更新嘅版本。
+let autoTimer = null
+const AUTO_UP_MS = 45000
+function scheduleAutoUpload() {
+  if (readPref(KV_AUTO) !== "1" || !kvToken() || syncSupported === false) return
+  clearTimeout(autoTimer)
+  autoTimer = setTimeout(autoUpload, AUTO_UP_MS)
+}
+
+async function autoUpload() {
+  if (readPref(KV_AUTO) !== "1" || !roster || !kvDirty()) return
+  if (navigator.onLine === false) return // 連返線（online 事件）再排
+  // 先問一次雲端：另一部機有新版本就唔好覆蓋，留俾用戶手動揀
+  if (!(await kvCheck(true))) return
+  const kind = bellState()
+  if (cloud === null || kind === "local") await kvUpload(false, false, true)
+  else if (kind === "cloud" || kind === "both") {
+    state.syncMsg = S.autoUpHold
+    paintBell()
+  }
 }
 
 async function kvDownload() {
@@ -2346,6 +2419,17 @@ function boot() {
     if (otForm) syncOtInputs(otForm, event.target)
   })
   view.addEventListener("change", (event) => {
+    if (event.target.matches(".me-kv-auto")) {
+      writePref(KV_AUTO, event.target.checked ? "1" : "0")
+      if (event.target.checked && kvDirty()) scheduleAutoUpload()
+      return
+    }
+    if (event.target.matches(".me-cal-alarm")) {
+      // 提醒設定：記低，再同步一次令整條訂閱用新設定
+      writePref(CAL_ALARM, event.target.value)
+      calSync(state.monday)
+      return
+    }
     if (event.target.matches(".mate-name")) {
       // 同事更表第一欄：手動改名，唔重畫
       const index = Number(event.target.dataset.mate)
@@ -2406,7 +2490,9 @@ function boot() {
     if (today.slice(5) >= "12-17") loadLunar(Number(today.slice(0, 4)) + 1)
     paintData()
   }, 15000)
-  window.addEventListener("online", () => { retryData(); loadWeather(true) })
+  window.addEventListener("online", () => { paintOffline(); retryData(); loadWeather(true); scheduleAutoUpload() })
+  window.addEventListener("offline", () => { paintOffline(); paintData() })
+  paintOffline()
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible") return
     rollWeek()
