@@ -18,7 +18,7 @@ import { monthDates, otClock, otFromClock, recentOt, setOt } from "../lib/tml-ot
 import { feedId, subscribeLinks } from "../lib/tml-cal.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson, syncState } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.57", commit: "dev" }
+const BUILD = { version: "0.9.58", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -216,8 +216,12 @@ const S = {
   setupTitle: "設定我的更表",
   settingsTitle: "更表設定",
   setupIntro: "第一次使用，請完成下面兩步。更表預設只會儲存喺呢部機嘅瀏覽器；想跨裝置就喺下面貼同步 token。",
-  step1: "貼上 Standard Roster",
-  step2: "行號",
+  stepPaste: "貼上 Standard Roster 同行號",
+  groupRoster: "更表",
+  groupData: "資料",
+  syncNone: "未設定",
+  syncDirtyShort: "未上傳",
+  syncDone: "已同步",
   howTitle: "應該貼成點樣？",
   howBody: "每行代表一個星期，由週一至週日共 7 格。行頭可以有行號（冇都得）。用逗號、Tab 或空格分隔都得，直接由 Excel 複製貼上就可以。",
   howCodes: [
@@ -1615,8 +1619,7 @@ function renderPage() {
     (state.calOpen === state.monday ? calSheetHtml(state.monday) : "") +
     `<div id="me-bell" class="me-bell-slot">${bellHtml(true)}</div>` +
     `<div id="me-data"></div>` +
-    `<details class="fine-box hints"><summary>${S.hintTitle}</summary><p class="fine">${S.weekHint} · ${S.swipeHint} · ${S.restHelp}</p></details>` +
-    `<section class="panel me-cal" id="me-cal"></section>`
+    `<details class="fine-box hints"><summary>${S.hintTitle}</summary><p class="fine">${S.weekHint} · ${S.swipeHint} · ${S.restHelp}</p></details>`
   setSub(subLine(state.monday))
   paintData()
 }
@@ -1658,10 +1661,11 @@ function paintData() {
       const badges = (date === today ? `<span class="badge now">${S.today}</span>` : "") +
         (entry.source === "override" ? `<span class="badge plain">${S.changed}</span>` : "")
       const shift = shiftOfCell(cell)
+      // 更類（夜、死早）同 OT 變細字跟喺時間後面，唔再各佔一粒標籤；冇時間嘅日子（例如 RD 上 OT）OT 先用標籤
+      const flags = [shift ? S.shift[shift] : "", cell.ot ? S.ot : ""].filter(Boolean).join(" · ")
       const tags = (cell.group && cell.group !== usual ? `<span class="badge plain">${cell.group}</span>` : "") + (cell.tag ? `<span class="badge plain">${cell.tag}</span>` : "") +
         (cell.sheet ? `<span class="badge plain">${cell.sheet}</span>` : "") +
-        (shift ? `<span class="badge shift">${S.shift[shift]}</span>` : "") +
-        (cell.ot ? `<span class="badge ot">${S.ot}</span>` : "")
+        (!lines.times && cell.ot ? `<span class="badge ot">${S.ot}</span>` : "")
       return `<li><button type="button" class="day me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}" data-today="${date === today ? 1 : 0}"${short.has(date) ? ' data-short="1"' : ""}` +
         // 本週已過嘅日子：淡色、縮細、只顯示頭兩行；撳一下還原 full size（仍然淡色）
         `${date < today ? ` data-past="1"${state.pastOpen.has(date) ? ' data-open="1"' : ""}` : ""}>` +
@@ -1669,28 +1673,35 @@ function paintData() {
         // 右上角：九天天氣預報（有先顯示）
         wxCornerHtml(date) +
         `<span class="day-main"><span class="day-title">${isOffTone(cell) ? offTitleHtml(entry.code, cell) : escapeHtml(cell.label)}${tags}${badges}${short.has(date) ? `<span class="badge rest-short">${S.restShort}</span>` : ""}</span>` +
-        (lines.times ? `<span class="day-times">${lines.times}</span>${barHtml(lines.span)}` : "") +
+        (lines.times ? `<span class="day-times">${lines.times}${flags ? `<small class="day-flag">${flags}</small>` : ""}</span>${barHtml(lines.span)}` : "") +
         (noteWithHours(lines, cell) ? `<span class="meta">${escapeHtml(noteWithHours(lines, cell))}</span>` : "") +
         (noteOf(date) ? `<span class="meta day-memo">📝 ${escapeHtml(noteOf(date))}</span>` : "") +
         `</span></button></li>`
     }).join("")}</ul>`
-    html = `<div class="me-cols"><div class="me-col-a">${heroHtml}${weekCardHtml(week, short)}</div>` +
+    // 月曆放喺左欄（電腦版今日卡同概況下面；手機版用 CSS order 排最底）
+    html = `<div class="me-cols"><div class="me-col-a">${heroHtml}${weekCardHtml(week, short)}<section class="panel me-cal" id="me-cal"></section></div>` +
       `<div class="me-col-b">${listHtml}</div></div>`
     // 更份資料載入後工時先算得出：每次重畫順手更新副標
     setSub(subLine(state.monday))
-    // 月曆：更類顏色要等更份資料，所以同 me-data 一齊重畫（唔同先換）
-    const cal = document.getElementById("me-cal")
-    const calHtml = calendarHtml(state.calMonth ?? today.slice(0, 7))
-    if (cal && calHtml !== shownCal) {
-      shownCal = calHtml
-      cal.innerHTML = calHtml
-    }
   } else {
     return
   }
-  if (html === shown) return
-  shown = html
-  box.innerHTML = html
+  if (html !== shown) {
+    shown = html
+    box.innerHTML = html
+  }
+  if (state.page === "week") paintCalendar()
+}
+
+// 月曆：更類顏色要等更份資料，所以同 me-data 一齊重畫（內容唔同先換；me-data 重畫咗個格就補返）
+function paintCalendar() {
+  const cal = document.getElementById("me-cal")
+  if (!cal) return
+  const calHtml = calendarHtml(state.calMonth ?? todayDate().slice(0, 7))
+  if (calHtml !== shownCal || !cal.firstChild) {
+    shownCal = calHtml
+    cal.innerHTML = calHtml
+  }
 }
 
 /* ------------------------------------------------------- 同事更表 */
@@ -1761,15 +1772,16 @@ function matesPickHtml() {
   const opts = roster.numbers.map((label, i) => label === mine ? "" :
     `<label class="mate-opt"${roster.names[i] ? ` title="${escapeHtml(roster.names[i])}"` : ""}><input type="checkbox" class="me-mate" value="${label}" data-name="${escapeHtml(roster.names[i] ?? "")}"${picked.has(label) ? " checked" : ""}>` +
     `<b>${label}</b></label>`).join("")
-  return foldPanel("mates", `${S.matesTitle} <span class="meta me-mates-count">${S.matesCount(roster.mates?.length ?? 0)}</span>`,
+  return foldPanel("mates", `${S.matesTitle} <span class="meta me-mates-count fold-status">${S.matesCount(roster.mates?.length ?? 0)}</span>`,
     `<details class="fine-box"><summary>${S.hintTitle}</summary><p class="fine">${S.matesHelp}</p></details>` +
     `<div class="mate-pick">${opts}</div>`)
 }
 
 // 設定頁每一格：有更表就預設收埋（記住打開咗嘅），未有更表（第一次用）直接攤開。
-function foldPanel(id, title, body) {
+// status：收埋時喺標題右邊寫現況（第 1 行、未上傳……）
+function foldPanel(id, title, body, status = "") {
   if (!roster) return `<section class="panel"><h3>${title}</h3>${body}</section>`
-  return `<details class="panel set-fold" data-fold="${id}"${state.setupOpen.has(id) ? " open" : ""}><summary>${title}</summary>${body}</details>`
+  return `<details class="panel set-fold" data-fold="${id}"${state.setupOpen.has(id) ? " open" : ""}><summary>${title}${status ? `<span class="meta fold-status">${escapeHtml(status)}</span>` : ""}</summary>${body}</details>`
 }
 
 function setupHtml() {
@@ -1777,27 +1789,28 @@ function setupHtml() {
   const row = roster ? rowLabelFor(roster, monday) : ""
   const codes = S.howCodes.map(([code, what]) => `<li><code>${code}</code><span>${what}</span></li>`).join("")
   return `<div class="duty-head">${roster ? `<button type="button" class="btn me-back">${S.back}</button>` : `<h2>${S.setupTitle}</h2>`}</div>` +
-    (roster ? "" : `<p class="lead">${S.setupIntro}</p>`) +
+    (roster ? `<h4 class="set-group">${S.groupRoster}</h4>` : `<p class="lead">${S.setupIntro}</p>`) +
     `<form class="me-setup set-form" autocomplete="off">` +
-    foldPanel("paste", S.step1,
+    // 貼上同行號本來係兩格，其實係同一件事（貼好更表、話俾我知今個星期喺第幾行），併做一格
+    foldPanel("paste", S.stepPaste,
     `<details class="how"><summary>${S.howTitle}</summary><p class="fine">${S.howBody}</p><ul class="how-codes">${codes}</ul>` +
     `<pre>${escapeHtml(S.howExample).replace(/\n/g, "<br>")}</pre></details>` +
     `<label><span class="sr">${S.pasteLabel}</span><textarea name="text" rows="6" spellcheck="false" placeholder="${roster ? S.pasteKeep : S.pastePlaceholder}"></textarea></label>` +
     `<div class="me-edit-row"><label class="btn filebtn">${S.fileBtn}<input type="file" class="me-file" accept=".csv,.tsv,.txt,text/plain,text/csv" hidden></label><span class="meta">${S.fileHelp}</span></div>` +
-    `<h4 class="prev-title">${S.previewTitle}</h4><div id="setup-preview">${previewHtml("", row)}</div>`) +
-    foldPanel("row", S.step2,
+    `<h4 class="prev-title">${S.previewTitle}</h4><div id="setup-preview">${previewHtml("", row)}</div>` +
     `<div class="field-line"><label for="me-row">${S.rowLabel(monday)}</label>` +
     `<input id="me-row" name="row" class="mini" type="number" inputmode="numeric" min="1" value="${row}" required>` +
-    `<button type="submit" class="btn primary">${S.ok}</button></div>`) +
+    `<button type="submit" class="btn primary">${S.ok}</button></div>`, row ? S.stdRow(row) : "") +
     `<p class="me-msg" role="status">${escapeHtml(state.message)}</p></form>` +
     (roster
       ? foldPanel("title", S.titleLabel,
         `<form class="me-title" autocomplete="off">` +
         `<div class="field-line"><label for="me-title-input"><span class="sr">${S.titleLabel}</span></label>` +
         `<input id="me-title-input" name="title" class="mini wide" maxlength="24" value="${escapeHtml(title)}" placeholder="${S.title}">` +
-        `<button type="submit" class="btn primary">${S.ok}</button></div></form>`)
+        `<button type="submit" class="btn primary">${S.ok}</button></div></form>`, title || S.title)
       : "") +
     (roster ? matesPickHtml() : "") +
+    (roster ? `<h4 class="set-group">${S.groupData}</h4>` : "") +
     (roster
       ? foldPanel("backup", S.backupTitle, `<details class="fine-box"><summary>${S.hintTitle}</summary><p class="fine">${S.backupHelp}</p></details>` +
         `<div class="me-foot"><button type="button" class="btn me-export">${S.export}</button> ` +
@@ -1805,7 +1818,7 @@ function setupHtml() {
         `<p class="fine"><button type="button" class="linkish me-export-json">${S.exportJson}</button> · ${S.exportHelp}</p>`)
       : "") +
     (syncSupported === false
-      ? foldPanel("sync", S.syncTitle, `<p class="fine">${S.syncUnsupported}</p>`)
+      ? foldPanel("sync", S.syncTitle, `<p class="fine">${S.syncUnsupported}</p>`, S.syncNone)
       : foldPanel("sync", roster ? S.syncTitle : S.syncFirstTitle, `<details class="fine-box"><summary>${S.hintTitle}</summary><p class="fine">${roster ? S.syncHelp : S.syncFirstHelp}</p></details>` +
         `<div class="field-line"><label for="me-kv-token">${S.syncToken}</label>` +
         `<input id="me-kv-token" class="mini wide mono" type="password" autocomplete="off" spellcheck="false" maxlength="64" value="${escapeHtml(kvToken())}" placeholder="a1b2c3d4...">` +
@@ -1816,7 +1829,7 @@ function setupHtml() {
         `<button type="button" class="btn ${roster ? "" : "primary "}me-kv-down">${S.syncDownload}</button></div>` +
         (bellState() === "none" && kvDirty() ? `<p class="fine me-sync-dirty">${S.syncDirty}</p>` : "") +
         `<div id="me-bell" class="me-bell-slot">${bellHtml(false)}</div>` +
-        `<p class="me-msg me-sync-msg" role="status">${escapeHtml(state.syncMsg)}</p>`))
+        `<p class="me-msg me-sync-msg" role="status">${escapeHtml(state.syncMsg)}</p>`, !kvToken() ? S.syncNone : kvDirty() ? S.syncDirtyShort : S.syncDone))
 }
 
 /* ------------------------------------------------------------ 手機日曆 */

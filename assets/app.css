@@ -923,5 +923,21 @@ button.cal-day { cursor: pointer; }
 .cal-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .cal-legend i { position: static; flex: none; margin: 0; }
 .cal-legend .cal-school { width: 14px; height: 3px; }
-/* 休息唔夠鐘：閃動只喺今日卡用；週表日卡留紅框同標籤（靜止） */
-.day[data-short="1"] { animation: none; }
+
+/* U2: 更類同 OT 係時間後面嘅細字 */
+.day-flag { margin-left: 8px; font-size: 13px; font-weight: 700; color: var(--muted); letter-spacing: 0; }
+.day[data-past="1"]:not([data-open]) .day-flag { font-size: 11px; margin-left: 5px; }
+
+/* U6: 設定頁分組標題同每格右邊現況 */
+.set-group { margin: 16px 2px 6px; font-size: 13px; font-weight: 700; color: var(--muted); letter-spacing: 0.05em; }
+.set-group:first-of-type { margin-top: 4px; }
+.set-fold > summary .fold-status { margin-left: auto; }
+
+/* U7: 月曆喺左欄。手機：.me-col-a 拆散做 grid 項目，月曆用 order 排最底（今日卡 → 本週 → 月曆）。 */
+.me-col-a { display: contents; }
+.me-col-b { order: 1; }
+.me-cols > .me-col-a > .me-cal, .me-col-a > .me-cal { order: 2; margin: 0; }
+@media (min-width: 900px) {
+  .me-col-a { display: grid; position: static; }
+  .me-col-a > .me-cal { order: 0; max-width: none; }
+}
