@@ -917,3 +917,11 @@ button.cal-day { cursor: pointer; }
 
 /* 日詳情：OT 延長咗上下班之後，細字寫原定時間 */
 .hero-ot { margin: 8px 0 10px; }
+
+/* 月曆圖例：同格入面嘅細點一樣，只係排成一行 */
+.cal-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 10px 0 0; font-size: 12px; color: var(--muted); }
+.cal-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.cal-legend i { position: static; flex: none; margin: 0; }
+.cal-legend .cal-school { width: 14px; height: 3px; }
+/* 休息唔夠鐘：閃動只喺今日卡用；週表日卡留紅框同標籤（靜止） */
+.day[data-short="1"] { animation: none; }
