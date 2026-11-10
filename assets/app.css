@@ -190,16 +190,11 @@ a.btn { display: inline-flex; align-items: center; text-decoration: none; }
 .day-main { display: grid; gap: 3px; min-width: 0; }
 .day-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .day-times { font-size: 22px; line-height: 1.2; font-weight: 800; font-variant-numeric: tabular-nums; }
-/* 休息日代號同工作日一樣粗，只係灰一級（唔再變幼）。 */
-.day[data-tone="rest"] .day-title { color: var(--muted); font-weight: 700; }
 /* 單欄排列唔再等高：休息日／假期縮成一條窄卡，一週大約一屏睇晒。 */
 .day-list > li { display: block; }
 /* B2: 休息日只出代號（粗）＋細字「休息日」。 */
 .day-sub { font-size: 12px; font-weight: 600; color: var(--muted); }
-/* B3: 左邊顏色條 —— 更份跟班別色，休息綠、待定黃、後備灰。 */
-.day[data-tone="rest"]::before { background: var(--ok); }
-.day[data-tone="leave"]::before { background: var(--mid); }
-.day[data-tone="leave"] .day-title { color: var(--muted); font-weight: 700; }
+/* B3: 左邊顏色條 —— 更份跟班別色；休息／假期紅（見下面「假日卡」）、待定黃、後備灰。 */
 .day[data-tone="tbd"]::before { background: var(--warn); }
 .day[data-tone="spare"]::before { background: var(--muted); }
 .day[data-tone="tbd"] .day-title { color: var(--warn); }
@@ -406,14 +401,10 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   min-height: 132px;
   box-shadow: 0 8px 24px rgba(16, 22, 34, 0.32);
 }
-.today[data-tone="rest"] { background: linear-gradient(145deg, #2f5847, #16281f); }
-.today[data-tone="leave"] { background: linear-gradient(145deg, #27415f, #121d2c); }
 .today[data-tone="tbd"] { background: linear-gradient(145deg, #5a4a12, #2a2308); }
 .today[data-tone="spare"] { background: linear-gradient(145deg, #3a4356, #232a3a); }
-/* 左邊色帶：休息綠、假期藍、待定黃、後備灰（同右欄日卡一致） */
+/* 左邊色帶：待定黃、後備灰；休息／假期紅喺下面「假日卡」（同右欄日卡一致） */
 .today[data-tone]::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 6px; }
-.today[data-tone="rest"]::before { background: var(--ok); }
-.today[data-tone="leave"]::before { background: var(--mid); }
 .today[data-tone="tbd"]::before { background: var(--warn); }
 .today[data-tone="spare"]::before { background: var(--muted); }
 /* 代號做大字，狀態字跟住大細分级，唔好一齊 15px 排成一句 */
@@ -734,10 +725,6 @@ button.cal-day { cursor: pointer; }
 .cal-day[data-shift="mid"] { background: color-mix(in srgb, var(--mid) 26%, var(--panel)); }
 .cal-day[data-shift="late"] { background: color-mix(in srgb, var(--late) 26%, var(--panel)); }
 .cal-day[data-shift="night"] { background: color-mix(in srgb, var(--night) 40%, var(--panel)); }
-.cal-day[data-tone="rest"] { background: color-mix(in srgb, var(--ok) 14%, var(--panel)); }
-.cal-day[data-tone="rest"] .cal-code { color: var(--ok); }
-.cal-day[data-tone="leave"] { background: color-mix(in srgb, var(--mid) 12%, var(--panel)); }
-.cal-day[data-tone="leave"] .cal-code { color: var(--mid); }
 .cal-day[data-tone="tbd"] .cal-code { color: var(--warn); }
 .cal-day[data-tone="spare"] .cal-code { color: var(--muted); }
 .cal-day[data-today="1"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
@@ -927,3 +914,6 @@ button.cal-day { cursor: pointer; }
 .cal-sheet-foot { margin-top: 10px; }
 .cal-sheet .cal-links { flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .cal-sheet .fine-box { margin-top: 10px; }
+
+/* 日詳情：OT 延長咗上下班之後，細字寫原定時間 */
+.hero-ot { margin: 8px 0 10px; }

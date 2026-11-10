@@ -18,7 +18,7 @@ import { monthDates, otClock, otFromClock, recentOt, setOt } from "../lib/tml-ot
 import { feedId, subscribeLinks } from "../lib/tml-cal.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson, syncState } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.55", commit: "dev" }
+const BUILD = { version: "0.9.56", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -58,6 +58,8 @@ const S = {
   shift: { dawn: "死早", early: "早", mid: "中", late: "夜", night: "死夜" },
   nextDay: "翌日",
   hours: (h) => `${h} 小時`,
+  otPlanned: (on, off) => `OT 前原定 ${on} – ${off}`,
+  workCardSays: (text) => `（更份卡寫 ${text}）`,
   sheetHint: (sheet, id) => `當日用 Duty Sheet ${sheet}，你嘅更可能係 ${id}，請檢查。`,
   noSheet: (id) => `搵唔到更份 ${id} 所屬嘅 Duty Sheet 資料`,
   notOnSheet: (id, sheet) => `呢日用 Duty Sheet ${sheet}，入面冇 ${id}；請改做當日嘅更份編號`,
@@ -71,7 +73,7 @@ const S = {
   matesNone: "冇（同一車站食飯重疊未夠 45 分鐘）",
   mealMatesHelp: "飯腳：同你喺同一個車站、食飯時間重疊至少 45 分鐘嘅更份。撳更份編號可以睇佢嘅行程。",
   work: "工時",
-  workMin: (m) => `${Math.floor(m / 60)} 小時${m % 60 ? ` ${m % 60} 分` : ""}`,
+  workMin: (m) => (m < 60 ? `${m} 分` : `${Math.floor(m / 60)} 小時${m % 60 ? ` ${m % 60} 分` : ""}`),
   legs: "全日行程",
   bookOn: "上班",
   bookOff: "下班",
@@ -165,6 +167,7 @@ const S = {
   calSync: "同步",
   calBusy: "整理緊更份資料…",
   calWait: "更份資料未讀完，請等一陣再撳。",
+  calLoadFail: "更份資料讀取失敗（網絡？），已經再試緊，請幾秒後再撳。",
   calDone: (n, a, c, r, when) => `已同步呢個星期 ${n} 日（新增 ${a}、更新 ${c}、刪走 ${r}）· ${when}`,
   calSame: (when) => `呢個星期冇改動，日曆已經係最新 · ${when}`,
   calLast: (when) => `呢個星期上次同步：${when}`,
@@ -327,7 +330,6 @@ const state = {
   monday: null,
   date: null,
   duty: null, // { sheet, id } of a duty opened from 飯腳
-  from: "week",
   message: "",
   editing: false,
   syncMsg: "",
@@ -344,6 +346,37 @@ const state = {
 
 // 每日備註（冇就 ""）
 const noteOf = (date) => roster?.notes?.[date] ?? ""
+
+// 瀏覽器歷史：入日詳情、更份頁都推一層，手機「返回」同頁面嘅「‹ 返回」都一步步退返（飯腳連撳都唔會卡死）。
+let navDepth = 0
+const viewSnap = () => ({ nav: 1, page: state.page, monday: state.monday, date: state.date, duty: state.duty })
+function navTo(change) {
+  try {
+    history.replaceState(viewSnap(), "") // 先記低而家呢頁，退返嗰陣原樣還原
+    change()
+    history.pushState(viewSnap(), "")
+    navDepth += 1
+  } catch {
+    change() // 唔支援 history：照舊轉頁，返回掣用 fallback
+  }
+}
+function onPopState(event) {
+  navDepth = Math.max(0, navDepth - 1)
+  if (!roster) return
+  const snap = event.state
+  if (snap?.nav) {
+    state.page = snap.page
+    state.monday = snap.monday ?? state.monday
+    state.date = snap.date ?? null
+    state.duty = snap.duty ?? null
+  } else {
+    state.page = "week"
+  }
+  state.editing = false
+  state.message = ""
+  render()
+  window.scrollTo(0, 0)
+}
 
 let roster = null
 let title = ""
@@ -699,11 +732,24 @@ function cardHours(cell) {
   return ""
 }
 
-// 路線行尾加工時（例如「錦上路 · 用膳 19:16 · 7 小時」），唔再另佔一行。
-function noteWithHours(note, cell) {
+// 路線行尾加工時，再加 OT（例如「錦上路 · 用膳 19:16 · 8.5 小時 · 更後 OT 2 小時」），唔再另佔一行。
+// 工時一定喺 OT 前面：以前靠「句入面有冇『小時』」判斷，有 OT 嗰日工時會唔見咗。
+function noteWithHours(lines, cell) {
   const hours = cardHours(cell)
-  if (!hours || (note || "").includes("小時")) return note || ""
-  return note ? `${note} · ${hours}` : hours
+  const note = lines.note || ""
+  return [note, hours && !note.includes(hours) ? hours : "", lines.ot].filter(Boolean).join(" · ")
+}
+
+// 工時：同週表、本週概況一樣以官表（duty-basic）為準；特別日子嘅 sheet 同平日共用編號，官表唔啱用。
+// 更份卡寫嘅工時唔同就細字註明，唔好靜靜顯示兩個數。
+function workRow(duty, id, entry) {
+  const official = entry.class === "special" ? null : basicOf(id)?.hours
+  if (official != null) {
+    const mine = Math.round(official * 60)
+    const diff = duty.work != null && Math.abs(duty.work - mine) >= 1
+    return `<dt>${S.work}</dt><dd>${S.workMin(mine)}${diff ? ` <small class="meta">${S.workCardSays(S.workMin(duty.work))}</small>` : ""}</dd>`
+  }
+  return duty.work != null ? `<dt>${S.work}</dt><dd>${S.workMin(duty.work)}</dd>` : ""
 }
 
 // 休息日／待定：代號（粗）＋細字狀態，唔再排成一句「休息日 RD」。
@@ -723,12 +769,13 @@ function dayLines(cell) {
     return {
       span: [cell.on, offOf(cell)],
       times: `${clockHtml(cell.on)} – ${clockHtml(offOf(cell))}`,
-      note: [routeText(d.on[1], d.off[1]) + (d.meal ? ` · ${S.meal} ${hhmm(d.meal[0])}` : ""), ot].filter(Boolean).join(" · "),
+      note: routeText(d.on[1], d.off[1]) + (d.meal ? ` · ${S.meal} ${hhmm(d.meal[0])}` : ""),
+      ot,
     }
   }
   if (cell.status === "basic") {
     const b = cell.basic
-    return { span: [cell.on, offOf(cell)], times: `${clockHtml(cell.on)} – ${clockHtml(offOf(cell))}`, note: [b.onAt && b.offAt ? routeText(b.onAt, b.offAt) : "", S.hours(b.hours), ot].filter(Boolean).join(" · ") }
+    return { span: [cell.on, offOf(cell)], times: `${clockHtml(cell.on)} – ${clockHtml(offOf(cell))}`, note: [b.onAt && b.offAt ? routeText(b.onAt, b.offAt) : "", S.hours(b.hours)].filter(Boolean).join(" · "), ot }
   }
   return { times: "", note: [summary(cell), ot].filter(Boolean).join(" · ") }
 }
@@ -759,18 +806,30 @@ function mealMatesHtml(duty, duties, sheet) {
 }
 
 // A duty without leg-by-leg data (spare duties, sheets not copied here).
-function basicDetailHtml(cell) {
+function basicDetailHtml(cell, ot = null) {
   const b = cell.basic
   const place = (at) => (at ? escapeHtml(placeName(at)) : "")
   return `<div class="duty-sub">${cell.tag ? `<span class="badge plain">${cell.tag}</span> ` : ""}<span class="badge plain">${S.shift[shiftOf(b.on, b.off)]}</span></div>` +
-    `<div class="hero"><div><small>${S.on}</small><b>${hhmm(b.on)}</b><span>${place(b.onAt)}</span></div>` +
-    `<i aria-hidden="true">→</i><div><small>${S.off}</small><b>${clockHtml(b.off)}</b><span>${place(b.offAt)}</span></div></div>` +
+    heroHtml(b.on, b.off, place(b.onAt), place(b.offAt), ot) +
     `<dl class="kv"><dt>${S.work}</dt><dd>${S.hours(b.hours)}</dd>` + (b.flag ? `<dt>DE/DL</dt><dd>${escapeHtml(b.flag)}</dd>` : "") + `</dl>` +
     `<p class="fine">${S.basicNote}</p>`
 }
 
-// The full card of one duty. liveDate (today only) marks what it is doing now.
-function dutyDetailHtml({ sheet, id }, liveDate) {
+// 上班 → 下班 大字。有更前／更後 OT 就用 OT 延長咗嘅時間，下面細字寫原定時間。
+function heroHtml(on, off, onPlace, offPlace, ot) {
+  const early = (ot?.before ?? 0) * 60
+  const late = (ot?.after ?? 0) * 60
+  const shown = { on: on - early, off: off + late }
+  return `<div class="hero"><div><small>${S.on}</small><b>${hhmm(shown.on)}</b><span>${onPlace}</span></div>` +
+    `<i aria-hidden="true">→</i><div><small>${S.off}</small><b>${clockHtml(shown.off)}</b><span>${offPlace}</span></div></div>` +
+    (early || late ? `<p class="fine hero-ot">${S.otPlanned(hhmm(on), clockText(off))}</p>` : "")
+}
+
+// 純文字嘅鐘數（過 24:00 寫「翌日」）
+const clockText = (sec) => `${hhmm(sec)}${sec >= 86400 ? S.nextDay : ""}`
+
+// The full card of one duty. liveDate (today only) marks what it is doing now; ot (the day's OT, 日詳情頁先有) extends the shown times.
+function dutyDetailHtml({ sheet, id }, liveDate, ot = null) {
   const book = dutyBook(sheet)
   if (book.status === "loading") return `<p class="empty">${S.loading}</p>`
   const duty = book.status === "ok" ? book.data.duties.find((item) => item.id === id) : null
@@ -797,10 +856,9 @@ function dutyDetailHtml({ sheet, id }, liveDate) {
   rows.sort((a, b) => a.at - b.at)
   rows.push({ kind: "book", at: duty.off[0], html: `<span class="duty-t">${hhmm(duty.off[0])}</span><span>${S.bookOff}</span><span>${placeName(duty.off[1])}</span>` })
   return `<div class="duty-sub"><span class="badge plain">${duty.group}</span> Duty Sheet ${sheet}</div>` +
-    `<div class="hero"><div><small>${S.on}</small><b>${hhmm(duty.on[0])}</b><span>${placeName(duty.on[1])}</span></div>` +
-    `<i aria-hidden="true">→</i><div><small>${S.off}</small><b>${clockHtml(duty.off[0])}</b><span>${placeName(duty.off[1])}</span></div></div>` +
+    heroHtml(duty.on[0], duty.off[0], placeName(duty.on[1]), placeName(duty.off[1]), ot) +
     `<dl class="kv">` +
-    (duty.work != null ? `<dt>${S.work}</dt><dd>${S.workMin(duty.work)}</dd>` : "") +
+    workRow(duty, id, entry) +
     (duty.meal ? `<dt>${S.meal}</dt><dd>${hhmm(duty.meal[0])}–${hhmm(duty.meal[1])} ${mealPlace(duty.meal)}</dd>` +
       `<dt>${S.mates}</dt><dd>${mealMatesHtml(duty, book.data.duties, sheet)}</dd>` : "") +
     `</dl>${duty.meal ? `<p class="fine">${S.mealMatesHelp}</p>` : ""}${nowBox}<div class="stops-head">${S.legs}</div><ol class="duty-legs">` +
@@ -1570,11 +1628,11 @@ function paintData() {
     const entry = dayEntry(roster, state.date)
     const cell = cellInfo(entry.code, state.date)
     if (cell.status === "none") html = `<p class="empty">${escapeHtml(cell.label)}${cell.note ? ` · ${cell.note}` : ""}</p>`
-    else if (cell.status === "basic") html = basicDetailHtml(cell)
+    else if (cell.status === "basic") html = basicDetailHtml(cell, entry.ot)
     else if (cell.status === "loading") html = `<p class="empty">${S.loading}</p>`
     else if (cell.status === "nosheet") html = `<p class="empty">${S.noSheet(cell.c.id)}</p>`
     else if (cell.status === "failed") html = `<p class="empty">${S.failed}</p>`
-    else html = dutyDetailHtml({ sheet: cell.c.sheet, id: cell.c.id }, state.date === todayDate() && state.date)
+    else html = dutyDetailHtml({ sheet: cell.c.sheet, id: cell.c.id }, state.date === todayDate() && state.date, entry.ot)
     html = sheetHint(entry.code, state.date) + html
   } else if (state.page === "mates") {
     html = matesTableHtml()
@@ -1605,7 +1663,7 @@ function paintData() {
         wxCornerHtml(date) +
         `<span class="day-main"><span class="day-title">${isOffTone(cell) ? offTitleHtml(entry.code, cell) : escapeHtml(cell.label)}${tags}${badges}${short.has(date) ? `<span class="badge rest-short">${S.restShort}</span>` : ""}</span>` +
         (lines.times ? `<span class="day-times">${lines.times}</span>${barHtml(lines.span)}` : "") +
-        (noteWithHours(lines.note, cell) ? `<span class="meta">${escapeHtml(noteWithHours(lines.note, cell))}</span>` : "") +
+        (noteWithHours(lines, cell) ? `<span class="meta">${escapeHtml(noteWithHours(lines, cell))}</span>` : "") +
         (noteOf(date) ? `<span class="meta day-memo">📝 ${escapeHtml(noteOf(date))}</span>` : "") +
         `</span></button></li>`
     }).join("")}</ul>`
@@ -1829,6 +1887,10 @@ async function calSyncWeek(monday) {
   for (const date of dates) {
     const { entry, cell } = await settledCell(date)
     if (!entry.code) continue
+    if (cell.status === "failed") {
+      retryData() // 讀失敗：即刻再試一次，等用戶再撳
+      return calMessage(S.calLoadFail)
+    }
     const ev = calEvent(date, entry, cell)
     if (!ev) return calMessage(S.calWait)
     events.push(ev)
@@ -2267,9 +2329,10 @@ function onClick(event) {
   const target = event.target
   const mate = target.closest(".duty-mate") ?? target.closest(".mate-cell")
   if (mate) {
-    state.from = state.page
-    state.page = "duty"
-    state.duty = { sheet: mate.dataset.sheet, id: mate.dataset.duty }
+    navTo(() => {
+      state.page = "duty"
+      state.duty = { sheet: mate.dataset.sheet, id: mate.dataset.duty }
+    })
   } else if (target.closest(".wx-more")) {
     // 今日卡天氣框：撳開／收埋長文，唔好開日詳情
     const key = target.closest(".wx-more").dataset.wx
@@ -2281,8 +2344,11 @@ function onClick(event) {
     state.pastOpen.add(target.closest(".me-day").dataset.date)
     return render()
   } else if (target.closest(".me-day")) {
-    state.page = "detail"
-    state.date = target.closest(".me-day").dataset.date
+    const date = target.closest(".me-day").dataset.date
+    navTo(() => {
+      state.page = "detail"
+      state.date = date
+    })
     state.message = ""
     state.editing = false
   } else if (target.closest(".me-lock")) {
@@ -2295,7 +2361,9 @@ function onClick(event) {
     state.editing = false
     state.message = ""
   } else if (target.closest(".me-back")) {
-    state.page = state.page === "duty" ? state.from : roster ? "week" : "setup"
+    // 有歷史就退一步（popstate 會還原上一頁）；冇（例如重新載入咗、設定頁）就返主頁
+    if (navDepth > 0 && (state.page === "duty" || state.page === "detail")) return history.back()
+    state.page = roster ? "week" : "setup"
     state.message = ""
     state.editing = false
   } else if (target.closest(".me-prev")) state.monday = addDays(state.monday, -7)
@@ -2412,6 +2480,12 @@ function wireKeys() {
     fromX = null
     if (Math.abs(dx) < 70 || Math.abs(dy) > Math.abs(dx) * 0.8) return
     if (event.target.closest(".rtable")) return
+    // 月曆範圍：左右滑換月，唔好換週
+    if (event.target.closest(".me-cal")) {
+      state.calMonth = shiftMonth(state.calMonth ?? todayDate().slice(0, 7), dx < 0 ? 1 : -1)
+      paintData()
+      return
+    }
     state.monday = addDays(state.monday, dx < 0 ? 7 : -7)
     render()
   }, { passive: true })
@@ -2484,6 +2558,7 @@ function boot() {
   }, true)
   wireKeys()
   wireSettings()
+  window.addEventListener("popstate", onPopState)
   view.addEventListener("input", (event) => {
     const form = event.target.closest?.(".me-setup")
     if (form) refreshPreview(form)
