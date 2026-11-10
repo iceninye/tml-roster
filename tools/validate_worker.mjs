@@ -256,6 +256,12 @@ r = await call("GET", "/api/hko/qem")
 check(r.status === 200 && r.body.body.mag === 4.5, "earthquake feed goes to earthquake.php")
 r = await call("GET", "/api/hko/ryes")
 check(r.status === 200 && /date=\d{8}&lang=tc$/.test(seenRyes) && r.body.body.KingsParkMicrosieverts === "0.14", "RYES asks for yesterday's report")
+r = await call("GET", "/api/hko/alerts")
+check(r.status === 200 && r.body.ok && r.body.feeds.warnsum.WHOT.code === "WHOT" && Object.keys(r.body.feeds.info).length === 0 && r.body.feeds.qem.mag === 4.5 && r.body.feeds.ryes.KingsParkMicrosieverts === "0.14", "alerts: warnings, empty warningInfo, quake and RYES come in one reply")
+hkoDown = true
+r = await call("GET", "/api/hko/alerts")
+check(r.status === 502 && r.body.reason === "upstream", "alerts: no warning summary -> 502, the app falls back to one by one")
+hkoDown = false
 r = await call("GET", "/api/hko/rhrread")
 check(r.status === 404, "only the listed HKO feeds are proxied")
 r = await call("GET", "/api/lunar/2026")
@@ -328,6 +334,20 @@ check(withSequence([{ date: "2026-11-09", summary: "x", seq: 4 }], [{ date: "202
 const links = subscribeLinks("https://tml-roster.iceninye.workers.dev/", feed)
 check(links.webcal === `webcal://tml-roster.iceninye.workers.dev/api/ics/${feed}.ics` && links.google.includes("cid=webcal%3A%2F%2F"), "subscribe links: webcal and Google cid")
 check(icsText([], { feed }).startsWith("BEGIN:VCALENDAR\r\n"), "empty calendar is still valid")
+
+// 上班前提醒（VALARM）：只加喺有時間嘅 event；冇帶 alarm 就沿用上次；0 = 關
+const timed = { date: "2026-11-16", summary: "1101103 中", on: 50000, off: 80000 }
+const allDay = { date: "2026-11-17", summary: "RD" }
+check(!icsText([timed], { feed }).includes("VALARM"), "no alarm by default")
+const alarmed = icsText([timed, allDay], { feed, alarm: 90 })
+check(alarmed.split("BEGIN:VALARM").length === 2 && alarmed.includes("TRIGGER:-PT90M"), "alarm only on the timed event")
+check(!icsText([timed], { feed, alarm: 99999 }).includes("VALARM") && !icsText([timed], { feed, alarm: "x" }).includes("VALARM"), "bad alarm value ignored")
+r = await call("PUT", `/api/cal/${TOKEN}`, { name: "我", from: "2026-11-16", to: "2026-11-22", events: [timed, allDay], alarm: 60 })
+check(r.status === 200 && r.body.alarm === 60 && (await getIcs(`/api/ics/${feed}.ics`)).text.includes("TRIGGER:-PT60M"), "alarm saved and in the feed")
+r = await call("PUT", `/api/cal/${TOKEN}`, { name: "我", from: "2026-11-16", to: "2026-11-22", events: [timed, allDay] })
+check(r.body.alarm === 60, "alarm kept when a later sync does not send it")
+r = await call("PUT", `/api/cal/${TOKEN}`, { name: "我", from: "2026-11-16", to: "2026-11-22", events: [timed, allDay], alarm: 0 })
+check(r.body.alarm === null && !(await getIcs(`/api/ics/${feed}.ics`)).text.includes("VALARM"), "alarm 0 turns it off")
 
 if (failed) {
   console.error(`${failed} check(s) failed`)

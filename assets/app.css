@@ -954,3 +954,11 @@ button.cal-day { cursor: pointer; }
 .week-menu .me-cal-week[aria-expanded="true"] { background: color-mix(in srgb, var(--accent) 18%, transparent); }
 
 .weeklabel .me-menu { padding: 4px 12px; font-size: 18px; font-weight: 700; }
+
+.cal-alarm { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 15px; }
+.cal-alarm select { padding: 6px 8px; border: 1px solid var(--edge); border-radius: 8px; background: var(--panel-2); color: inherit; font: inherit; }
+
+.offline-bar { margin: 0 0 10px; padding: 8px 12px; font-size: 14px; color: var(--text); background: color-mix(in srgb, var(--warn) 22%, transparent); border-radius: 10px; }
+.offline-bar[hidden] { display: none; }
+
+.auto-up { display: flex; align-items: center; gap: 6px; margin: 6px 0; }

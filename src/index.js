@@ -7,6 +7,7 @@
 //   POST /api/token-log       -> 產生／用新 token 時寄一封 log 電郵（裝置、時間、token）
 //   POST /api/backup          -> 將一份備份檔寄去 owner 電郵
 //   GET /api/school-holidays  -> 代讀學校假期 iCal（Google Calendar 唔俾瀏覽器直接讀），回 JSON
+//   GET /api/hko/alerts       -> 警告、特別天氣提示、地震、輻射一次過讀晒（快取 3 分鐘）
 //   GET /api/hko/<type>       -> 代讀天文台：flw|fnd 預報（快取 10 分鐘）；warnsum|warningInfo|swt 警告、
 //                                qem|feltearthquake 地震、ryes 天氣及輻射水平（快取 3 分鐘）
 //   GET /api/lunar/<year>     -> 天文台公曆與農曆對照表同節氣，讀好變 JSON（快取 30 日）
@@ -21,7 +22,7 @@
 // 呢個係「靠 URL 保密」，唔係認證 —— 攞到條 URL 嘅人讀寫得到。
 
 import { holidaysBetween, parseIcs } from "../lib/tml-ics.js"
-import { FEED_RE, cleanEvents, feedId, icsText, mergeRange, withSequence } from "../lib/tml-cal.js"
+import { FEED_RE, cleanAlarm, cleanEvents, feedId, icsText, mergeRange, withSequence } from "../lib/tml-cal.js"
 import { HKO_TYPES, hkoUrl, lunarCsvUrl, lunarTextUrl, parseLunarTable } from "../lib/tml-hko.js"
 
 const TOKEN_RE = /^[a-z0-9]{20,64}$/
@@ -417,18 +418,41 @@ const hkYesterday = () => new Date(Date.now() + 8 * 3600e3 - 86400e3).toISOStrin
 
 // 天文台資料照原樣轉交（前端自己讀），只係加快取同 CORS 唔使煩。
 // 冇警告時 warningInfo 等會回空白 body：當 {}，唔當出錯。
+// 讀一份天文台資料：成功回 { body, status }，讀唔到 body 係 null。
+async function hkoFetch(type) {
+  const ttl = type === "flw" || type === "fnd" ? WEATHER_TTL : WARN_TTL
+  const res = await fetch(hkoUrl(type, hkYesterday()), { headers: HKO_HEADERS, cf: { cacheTtl: ttl, cacheEverything: true } })
+  const text = res.ok ? await res.text() : null
+  let body = null
+  try {
+    body = text === null ? null : text.trim() ? JSON.parse(text) : {}
+  } catch {
+    body = null
+  }
+  return { body: body && typeof body === "object" ? body : null, status: res.status }
+}
+
+// GET /api/hko/alerts：警告一覽、警告詳情、特別天氣提示、地震（兩種）、輻射，一次過讀晒再合併，
+// 手機只要問一次。冇 warnsum（警告一覽，最重要嗰份）就當失敗；其他讀唔到嘅項目係 null，前端用返上次。
+const ALERT_FEEDS = { warnsum: "warnsum", info: "warningInfo", swt: "swt", qem: "qem", felt: "feltearthquake", ryes: "ryes" }
+async function hkoAlerts() {
+  const names = Object.keys(ALERT_FEEDS)
+  const results = await Promise.allSettled(names.map((name) => hkoFetch(ALERT_FEEDS[name])))
+  const feeds = {}
+  results.forEach((r, i) => {
+    feeds[names[i]] = r.status === "fulfilled" ? r.value.body : null
+  })
+  if (feeds.warnsum === null) return reply({ ok: false, reason: "upstream" }, 502)
+  return new Response(JSON.stringify({ ok: true, at: new Date().toISOString(), feeds }), {
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": `public, max-age=${WARN_TTL}` },
+  })
+}
+
 async function hkoWeather(type) {
   const ttl = type === "flw" || type === "fnd" ? WEATHER_TTL : WARN_TTL
   try {
-    const res = await fetch(hkoUrl(type, hkYesterday()), { headers: HKO_HEADERS, cf: { cacheTtl: ttl, cacheEverything: true } })
-    const text = res.ok ? await res.text() : null
-    let body = null
-    try {
-      body = text === null ? null : text.trim() ? JSON.parse(text) : {}
-    } catch {
-      body = null
-    }
-    if (!body || typeof body !== "object") return reply({ ok: false, reason: "upstream", status: res.status }, 502)
+    const { body, status } = await hkoFetch(type)
+    if (!body) return reply({ ok: false, reason: "upstream", status }, 502)
     return new Response(JSON.stringify({ ok: true, type, body }), {
       headers: { "content-type": "application/json; charset=utf-8", "cache-control": `public, max-age=${ttl}` },
     })
@@ -499,8 +523,10 @@ async function putCalendar(token, request, env) {
   const added = next.filter((ev) => inRange(ev) && !old.has(ev.date)).length
   const changed = next.filter((ev) => inRange(ev) && old.has(ev.date) && ev.seq !== old.get(ev.date).seq).length
   const removed = (stored?.events ?? []).filter((ev) => inRange(ev) && !next.some((item) => item.date === ev.date)).length
-  await env.ROSTER_KV.put(key, JSON.stringify({ name, events: next, updatedAt: now }))
-  return reply({ ok: true, feed, count: ranged ? events.length : next.length, total: next.length, added, changed, removed, updatedAt: now })
+  // alarm：上班前幾多分鐘提醒（整條訂閱一個設定）；冇帶就沿用上次，帶 0 = 關
+  const alarm = body?.alarm === undefined ? (stored?.alarm ?? null) : cleanAlarm(body.alarm)
+  await env.ROSTER_KV.put(key, JSON.stringify({ name, events: next, updatedAt: now, ...(alarm ? { alarm } : {}) }))
+  return reply({ ok: true, feed, alarm, count: ranged ? events.length : next.length, total: next.length, added, changed, removed, updatedAt: now })
 }
 
 async function getCalendar(file, env) {
@@ -508,7 +534,7 @@ async function getCalendar(file, env) {
   if (!file.endsWith(".ics") || !FEED_RE.test(feed)) return reply({ ok: false, reason: "not_found" }, 404)
   const stored = await env.ROSTER_KV.get(`cal:${feed}`, "json")
   if (!stored) return new Response("Not found", { status: 404, headers: { "cache-control": "no-store" } })
-  return new Response(icsText(stored.events ?? [], { feed, name: stored.name }), {
+  return new Response(icsText(stored.events ?? [], { feed, name: stored.name, alarm: stored.alarm }), {
     headers: {
       "content-type": "text/calendar; charset=utf-8",
       "content-disposition": `inline; filename="tml-roster.ics"`,
@@ -578,6 +604,7 @@ export default {
     // 前端用嚟問「呢個網址支唔支援同步」（GitHub Pages 版會 404）
     if (parts[0] === "api" && parts[1] === "ping") return reply({ ok: true, sync: true, mail: !!(env.RESEND_API_KEY && env.BACKUP_TO) })
     if (parts[0] === "api" && parts[1] === "school-holidays" && parts.length === 2 && request.method === "GET") return schoolHolidays()
+    if (parts[0] === "api" && parts[1] === "hko" && parts[2] === "alerts" && parts.length === 3 && request.method === "GET") return hkoAlerts()
     if (parts[0] === "api" && parts[1] === "hko" && parts.length === 3 && HKO_TYPES.includes(parts[2]) && request.method === "GET") return hkoWeather(parts[2])
     if (parts[0] === "api" && parts[1] === "lunar" && parts.length === 3 && /^20\d\d$/.test(parts[2]) && request.method === "GET") return lunarYear(Number(parts[2]))
     if (parts[0] === "api" && parts[1] === "ics" && parts.length === 3 && (request.method === "GET" || request.method === "HEAD")) return getCalendar(parts[2], env)
