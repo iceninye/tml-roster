@@ -141,6 +141,9 @@ a.btn { display: inline-flex; align-items: center; text-decoration: none; }
   border-radius: 20px;
   box-shadow: 0 8px 24px rgba(122, 42, 18, 0.28);
 }
+.today { cursor: pointer; }
+.today-open { display: grid; gap: 4px; width: 100%; padding: 0; text-align: left; }
+.today-open:focus-visible { outline: 2px solid #fff; outline-offset: 4px; border-radius: 12px; }
 .today .badge, .today[data-shift] .badge.shift { background: rgba(255, 255, 255, 0.2); color: #fff; box-shadow: none; }
 .today-label { font-size: 13px; font-weight: 600; opacity: 0.85; letter-spacing: 0.03em; }
 /* 代號一律 700 粗、同一個字級：今日卡同日子卡都係 15px。 */
@@ -941,3 +944,13 @@ button.cal-day { cursor: pointer; }
   .me-col-a { display: grid; position: static; }
   .me-col-a > .me-cal { order: 0; max-width: none; }
 }
+
+/* 週頁標題 ⋯ 選單（鎖週、同步日曆） */
+.lock-mark { margin-left: 4px; font-size: 14px; }
+.week-menu { display: grid; gap: 2px; margin: -4px auto 10px; padding: 4px; max-width: 320px; background: var(--panel-2); border: 1px solid var(--edge); border-radius: 12px; box-shadow: 0 6px 18px rgba(0,0,0,.12); }
+.week-menu button { padding: 10px 12px; text-align: left; border-radius: 8px; font-size: 15px; }
+.week-menu button:hover, .week-menu button:focus-visible { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.week-menu .me-cal-week[data-done="false"] { opacity: 1; }
+.week-menu .me-cal-week[aria-expanded="true"] { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+
+.weeklabel .me-menu { padding: 4px 12px; font-size: 18px; font-weight: 700; }
