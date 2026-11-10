@@ -19,7 +19,7 @@ import { monthDates, otClock, otFromClock, recentOt, setOt } from "../lib/tml-ot
 import { feedId, subscribeLinks } from "../lib/tml-cal.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson, syncState } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.59", commit: "dev" }
+const BUILD = { version: "0.9.60", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -61,6 +61,7 @@ const state = {
   editing: false,
   syncMsg: "",
   calMsg: "", // 手機日曆面板訊息
+  weekMenu: false, // 週頁標題 ⋯ 選單
   calOpen: null, // 首頁 🗓️ 面板打開咗嘅星期（monday）
   wxOpen: new Set(), // 今日卡天氣框：撳開咗嘅長文（警告詳情、特別天氣提示……）
   calFeed: null, // 手機日曆訂閱 id（由 token 計）
@@ -698,7 +699,6 @@ function todayFactsHtml(date, cell, live) {
     ]
     tomorrowRow = [S.factTomorrow, parts.filter(Boolean).join(" · ")]
   }
-  // 卡本身係 <button>，入面只可以用 span
   const box = (list, extra = "") => `<span class="today-facts${extra}">${list.map(([k, v, html]) => `<b>${k}</b><span>${html ?? escapeHtml(v)}</span>`).join("")}</span>`
   return (rows.length ? box(rows) : "") + box([tomorrowRow], " today-tomorrow")
 }
@@ -965,7 +965,9 @@ function todayHtml(date, entry, cell, short = false) {
     (cell.ot ? `<span class="badge ot">${S.ot}</span>` : "") +
     (entry.source === "override" ? `<span class="badge plain">${S.changed}</span>` : "") +
     holidaysOn(school, date).map((h) => `<span class="badge school">${S.factSchool}假期 · ${escapeHtml(h)}</span>`).join("")
-  return `<button type="button" class="today me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}"${short ? ' data-short="1"' : ""}>` +
+  // 整張卡撳得（.me-day 靠事件冒泡），但只有上半部係真正嘅掣，下面事項／天氣唔係，讀屏同選字都正常
+  return `<div class="today me-day" data-date="${date}" data-tone="${cell.tone ?? "duty"}" data-shift="${shift}"${short ? ' data-short="1"' : ""}>` +
+    `<button type="button" class="today-open">` +
     `<span class="today-head"><span class="today-label">${S.today} · ${S.weekdays[weekdayIndex(date)]} ${meDate(date)}${lunarHtml(date)}</span>${wxCornerHtml(date)}</span>` +
     `<span class="today-title">${tags ? `<span class="today-tags">${tags}</span>` : ""}${isOffTone(cell) ? offTitleHtml(entry.code, cell) : escapeHtml(cell.label)}${short ? `<span class="badge rest-short">${S.restShort}</span>` : ""}</span>` +
     (lines.times ? `<span class="today-times">${lines.times}</span>${todayPlacesHtml(cell)}${barHtml(lines.span, secondsInto(date, Date.now()))}${progressHtml(lines.span, date)}` : "") +
@@ -974,9 +976,10 @@ function todayHtml(date, entry, cell, short = false) {
     (lines.times && otText({ ...cell.ot, whole: false }) ? `<span class="today-note">${escapeHtml(otText({ ...cell.ot, whole: false }))}</span>` : "") +
     (live ? `<span class="today-live"><i class="pulse"></i><span>${S.now}：${escapeHtml(dutyPhaseText(live))} <small>${S.until(hhmm(live.until))}</small></span></span>` : "") +
     (noteOf(date) ? `<span class="today-note today-memo">📝 ${escapeHtml(noteOf(date))}</span>` : "") +
+    `</button>` +
     todayFactsHtml(date, cell, live) +
     todayWeatherHtml(date) +
-    `</button>`
+    `</div>`
 }
 
 // 一週概況：計法喺 lib/tml-week.js，呢度只係餵現時嘅 roster 同已載入嘅更份資料。
@@ -1347,9 +1350,10 @@ function renderPage() {
     `<div class="me-nav"><button type="button" class="btn me-prev" aria-label="${S.prev}">‹</button>` +
     `<div class="weeklabel"><b>${weekLabel(dates)}</b>` +
     `<span>${state.monday === current ? S.weekNo(S.thisWeek, isoWeek(state.monday).week) : `${S.weekNo("", isoWeek(state.monday).week)} · <button type="button" class="link me-this">${S.backThis}</button>`}` +
-    `<button type="button" class="lock me-lock" aria-pressed="${locked}" title="${locked ? S.unlock : S.lock}" aria-label="${locked ? S.unlock : S.lock}">${locked ? "🔒" : "🔓"}</button>` +
-    (syncSupported !== false ? calButtonHtml(state.monday) : "") + `</span></div>` +
+    (locked ? `<span class="lock-mark" title="${S.lockedWeek}">🔒</span>` : "") +
+    `<button type="button" class="lock me-menu" aria-haspopup="true" aria-expanded="${state.weekMenu}" title="${S.weekMenu}" aria-label="${S.weekMenu}">⋯</button></span></div>` +
     `<button type="button" class="btn me-next" aria-label="${S.next}">›</button></div>` +
+    (state.weekMenu ? weekMenuHtml(locked) : "") +
     (state.calOpen === state.monday ? calSheetHtml(state.monday) : "") +
     `<div id="me-bell" class="me-bell-slot">${bellHtml(true)}</div>` +
     `<div id="me-data"></div>` +
@@ -1678,10 +1682,16 @@ function calMessage(text) {
   render()
 }
 
+function weekMenuHtml(locked) {
+  return `<div class="week-menu" role="group" aria-label="${S.weekMenu}">` +
+    `<button type="button" class="me-lock" aria-pressed="${locked}">${locked ? "🔓 " + S.unlockShort : "🔒 " + S.lockShort}</button>` +
+    (syncSupported !== false ? calButtonHtml(state.monday) : "") + `</div>`
+}
+
 function calButtonHtml(monday) {
   const week = isoWeek(monday).week
   const done = !!calWeeks()[monday]
-  return `<button type="button" class="lock me-cal-week" data-done="${done}" aria-expanded="${state.calOpen === monday}" title="${S.calBtn(week)}" aria-label="${S.calBtn(week)}">🗓️</button>`
+  return `<button type="button" class="me-cal-week" data-done="${done}" aria-expanded="${state.calOpen === monday}">🗓️ ${S.calBtn(week)}</button>`
 }
 
 function calLinksHtml() {
@@ -2083,6 +2093,11 @@ function submitCode(form) {
 
 function onClick(event) {
   const target = event.target
+  // 點選單以外嘅地方就收埋 ⋯ 選單
+  if (state.weekMenu && !target.closest(".week-menu, .me-menu")) {
+    state.weekMenu = false
+    render()
+  }
   const mate = target.closest(".duty-mate") ?? target.closest(".mate-cell")
   if (mate) {
     navTo(() => {
@@ -2107,7 +2122,12 @@ function onClick(event) {
     })
     state.message = ""
     state.editing = false
+  } else if (target.closest(".me-menu")) {
+    state.weekMenu = !state.weekMenu
+    render()
+    return
   } else if (target.closest(".me-lock")) {
+    state.weekMenu = false
     const next = toggleLock(roster, state.monday)
     if (next !== roster) saveRoster(next)
   } else if (target.closest(".me-code-edit")) {
@@ -2164,6 +2184,10 @@ function onClick(event) {
     return
   } else if (target.closest(".me-cal-week") || target.closest(".me-cal-sync")) {
     // 🗓️ 一撳即刻同步嗰個星期，同時打開細面板（結果、訂閱連結）
+    if (state.weekMenu) {
+      state.weekMenu = false
+      render()
+    }
     calSync(state.monday)
     return
   } else if (target.closest(".me-cal-close")) {
