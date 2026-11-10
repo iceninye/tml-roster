@@ -18,7 +18,7 @@ import { monthDates, otClock, otFromClock, recentOt, setOt } from "../lib/tml-ot
 import { feedId, subscribeLinks } from "../lib/tml-cal.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson, syncState } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.56", commit: "dev" }
+const BUILD = { version: "0.9.57", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -85,14 +85,14 @@ const S = {
     if (m < 60) return `${m} 分`
     return `${Math.floor(m / 60)} 小時${m % 60 ? ` ${m % 60} 分` : ""}`
   },
-  factOn: "返工",
-  factOff: "放工",
+  factOn: "上班",
+  factOff: "下班",
   factNext: "下一程",
   factHand: "落車",
   factMeal: "用膳",
   factNextDuty: "下一更",
   inTime: (d) => `仲有 ${d}`,
-  offDone: "已放工",
+  offDone: "已下班",
   pickUp: (run, place) => `${place} 接 Run ${run}`,
   takeFrom: (id) => `由 ${id} 交`,
   prepAt: (run, place) => `${place} 出車準備 Run ${run}`,
@@ -129,7 +129,9 @@ const S = {
   back: "‹ 返回",
   backThis: "回到本週",
 
-  stdRow: (n) => `Standard Roster 第 ${n} 行`,
+  stdRow: (n) => `第 ${n} 行`,
+  subDays: (n) => `${n} 日`,
+  subHours: (m) => `${Math.round((m / 60) * 10) / 10} 小時`,
   titleLabel: "更表名稱",
   weekHint: "撳任何一日睇全日行程；特別日子（例如 8022、8023）可以喺該日入面手動改。",
   sumDays: (n) => `開工 ${n} 日`,
@@ -160,7 +162,7 @@ const S = {
   phoneCalTitle: "同步手機日曆",
   calBtn: (week) => `將第${week}週同步去手機日曆`,
   calSheetTitle: (week) => `第${week}週 · 手機日曆`,
-  calHelp: "每撳一次 🗓️ 就將嗰個星期嘅更（返工時間、地點、OT、備註；休息日同假期係全日）上載去你嘅日曆訂閱：新日子會加入、改咗嘅會更新、嗰個星期唔再有嘅會刪走，其他星期唔郁。第一次同步之後撳「iPhone 訂閱」或者「Google 日曆訂閱」加入手機日曆（只需做一次）。手機日曆自己定時重讀：iPhone 喺「設定 › 日曆 › 帳號 › 取得新資料」揀每 15 分鐘或每小時；Google 日曆由 Google 決定，通常幾個鐘到一日。用同一條同步 token；訂閱網址由 token 計出但倒推唔返 token，只讀，唔好傳出去。",
+  calHelp: "每撳一次 🗓️ 就將嗰個星期嘅更（上班時間、地點、OT、備註；休息日同假期係全日）上載去你嘅日曆訂閱：新日子會加入、改咗嘅會更新、嗰個星期唔再有嘅會刪走，其他星期唔郁。第一次同步之後撳「iPhone 訂閱」或者「Google 日曆訂閱」加入手機日曆（只需做一次）。手機日曆自己定時重讀：iPhone 喺「設定 › 日曆 › 帳號 › 取得新資料」揀每 15 分鐘或每小時；Google 日曆由 Google 決定，通常幾個鐘到一日。用同一條同步 token；訂閱網址由 token 計出但倒推唔返 token，只讀，唔好傳出去。",
   calLinksTitle: "訂閱連結（第一次先要）",
   calClose: "收埋",
   calNoToken: "要先喺設定 ⚙ 嘅「跨裝置同步」產生或者貼上 token。",
@@ -264,6 +266,9 @@ const S = {
   calNext: "下個月",
   calThis: "本月",
   calSchool: "學校假期",
+  calLegOt: "有 OT",
+  calLegChanged: "手動改過",
+  calLegMemo: "有備註",
   calWeekHead: "週",
   calWeek: (n) => `第 ${n} 週`,
   // OT（lib/tml-ot.js）
@@ -316,7 +321,7 @@ const S = {
   wxOld: (t) => `未能更新，以下係 ${t} 嘅預報`,
   wxNone: "未有天氣預報（連線後會自動讀取）",
   lunar: (text) => `農曆${text}`,
-  termIn: (term, n) => (n === 1 ? `明日${term}` : `${n} 日後${term}`),
+  termIn: (term, n) => (n === 1 ? `明天${term}` : `${n} 日後${term}`),
   tomorrowWork: (code, on, off) => `${code} ${on}–${off}`,
 }
 
@@ -1288,7 +1293,8 @@ function subLine(monday) {
   if (row == null) return S.title
   const today = todayDate()
   const month = weekSummary(monthDates(weekDates(monday).includes(today) ? today : monday))
-  return `${S.stdRow(row)}${s.days ? ` · ${S.sumDays(s.days)} · ${S.sumWork} ${S.workMin(s.minutes)}` : ""} · ${S.otMonth(month.ot)}`
+  // 手機一行放得落：「第 1 行 · 5 日 · 36.5 小時 · 本月 OT 2 小時」
+  return `${S.stdRow(row)}${s.days ? ` · ${S.subDays(s.days)} · ${S.subHours(s.minutes)}` : ""} · ${S.otMonth(month.ot)}`
 }
 
 /* ------------------------------------------------------------------ OT */
@@ -1420,6 +1426,7 @@ function calendarHtml(month) {
     `<div class="cal-title"><b>${S.calTitle(y, m)}</b>${month === thisMonth ? "" : ` <button type="button" class="link me-cal-this">${S.calThis}</button>`}</div>` +
     `<button type="button" class="btn icon me-cal-next" aria-label="${S.calNext}">›</button></div>` +
     `<div class="cal-grid"><span class="cal-wd cal-wk-head">${S.calWeekHead}</span>${S.weekdays.map((d) => `<span class="cal-wd">${d.replace("週", "")}</span>`).join("")}${rows.join("")}</div>` +
+    `<p class="cal-legend"><span><i class="cal-ot" aria-hidden="true"></i>${S.calLegOt}</span><span><i class="cal-changed" aria-hidden="true"></i>${S.calLegChanged}</span><span><i class="cal-memo" aria-hidden="true"></i>${S.calLegMemo}</span><span><i class="cal-school" aria-hidden="true"></i>${S.calSchool}</span></p>` +
     (list ? `<div class="cal-school-box"><b>${S.calSchool}</b><ul class="cal-school-list">${list}</ul></div>` : "")
 }
 
