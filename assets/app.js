@@ -19,7 +19,7 @@ import { monthDates, otClock, otFromClock, recentOt, setOt } from "../lib/tml-ot
 import { feedId, subscribeLinks } from "../lib/tml-cal.js"
 import { TOKEN_RE, fingerprint, guessDevice, hkStamp, logToken, mailWhy, newToken, postJson, syncState } from "../lib/tml-cloud.js"
 
-const BUILD = { version: "0.9.61", commit: "dev" }
+const BUILD = { version: "0.9.62", commit: "dev" }
 const thisDevice = () => guessDevice(globalThis.navigator?.userAgent ?? "")
 const ROSTER_KEY = "tml-roster"
 // 頁首標題（用戶自己改名，只存喺呢部機）
@@ -65,6 +65,7 @@ const state = {
   calMsg: "", // 手機日曆面板訊息
   weekMenu: false, // 週頁標題 ⋯ 選單
   calOpen: null, // 首頁 🗓️ 面板打開咗嘅星期（monday）
+  calStored: null, // 手機日曆訂閱入面而家有嘅星期（monday 陣列，Worker 回覆先知）
   wxOpen: new Set(), // 今日卡天氣框：撳開咗嘅長文（警告詳情、特別天氣提示……）
   calFeed: null, // 手機日曆訂閱 id（由 token 計）
   calMonth: null, // 月曆睇緊邊個月 "YYYY-MM"（null = 今個月）
@@ -1705,6 +1706,7 @@ async function calSyncWeek(monday) {
   }
   if (!body?.ok) return calMessage(S.calFail)
   writePref(CAL_AT, body.updatedAt)
+  calStoredFrom(body)
   const weeks = calWeeks()
   weeks[monday] = body.updatedAt
   // 只留最近 30 個星期嘅記錄
@@ -1712,6 +1714,58 @@ async function calSyncWeek(monday) {
   state.calFeed = body.feed
   const when = hkStamp(body.updatedAt)
   calMessage(body.added + body.changed + body.removed ? S.calDone(body.count, body.added, body.changed, body.removed, when) : S.calSame(when))
+}
+
+// Worker 回覆嘅 dates -> 訂閱入面有邊幾個星期（舊 Worker 冇 dates 就唔列）
+function calStoredFrom(body) {
+  state.calStored = Array.isArray(body?.dates) ? [...new Set(body.dates.map(mondayOf))].sort() : null
+}
+
+// 由手機日曆移除一個星期（之前同步過、而家唔想留喺日曆嘅星期）：同一個 PUT，嗰 7 日冇 event = 全部刪走
+async function calDrop(monday) {
+  if (calRunning || !kvToken()) return
+  calRunning = true
+  try {
+    const dates = weekDates(monday)
+    let body = null
+    try {
+      const res = await fetch(`/api/cal/${encodeURIComponent(kvToken())}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: title || S.title, from: dates[0], to: dates[6], events: [] }),
+      })
+      body = await res.json().catch(() => null)
+    } catch {
+      body = null
+    }
+    if (!body?.ok) return calMessage(S.calFail)
+    writePref(CAL_AT, body.updatedAt)
+    calStoredFrom(body)
+    const weeks = calWeeks()
+    delete weeks[monday]
+    writePref(CAL_WEEKS, JSON.stringify(weeks))
+    calMessage(S.calDropped(isoWeek(monday).week, shortRange(monday), body.removed))
+  } finally {
+    calRunning = false
+  }
+}
+
+const shortRange = (monday) => {
+  const md = (date) => date.slice(5).split("-").map(Number).join("/")
+  return `${md(monday)}–${md(addDays(monday, 6))}`
+}
+
+// 面板：列出手機日曆入面而家有嘅星期，其他星期可以逐個移除
+function calStoredHtml(monday) {
+  const list = state.calStored
+  if (!list?.length) return ""
+  const today = mondayOf(todayDate())
+  const rows = list.map((m) => {
+    const tag = m === monday ? ` <span class="cal-stored-tag">${S.calStoredThis}</span>` : m < today ? ` <span class="cal-stored-tag">${S.calStoredPast}</span>` : ""
+    const drop = m === monday ? "" : `<button type="button" class="btn me-cal-drop" data-monday="${m}">${S.calDrop}</button>`
+    return `<li><span>${S.weekNo("", isoWeek(m).week)} · ${shortRange(m)}${tag}</span>${drop}</li>`
+  })
+  return `<div class="cal-stored"><p class="fine">${S.calStoredTitle}</p><ul>${rows.join("")}</ul></div>`
 }
 
 const ALARM_CHOICES = [0, 30, 60, 90, 120]
@@ -1763,6 +1817,7 @@ function calSheetHtml(monday) {
     `<div class="cal-sheet-head"><b>🗓️ ${S.calSheetTitle(week)}</b>` +
     `<button type="button" class="btn me-cal-close" aria-label="${S.calClose}">✕</button></div>` +
     `<p class="me-msg me-cal-msg" role="status">${escapeHtml(state.calMsg || (last ? S.calLast(hkStamp(last)) : S.calNever))}</p>` +
+    calStoredHtml(monday) +
     `<label class="cal-alarm">${S.calAlarm}<select class="me-cal-alarm">${ALARM_CHOICES.map((n) => `<option value="${n}"${n === calAlarm() ? " selected" : ""}>${n ? S.calAlarmMin(n) : S.calAlarmOff}</option>`).join("")}</select></label>` +
     `<div class="row cal-sheet-foot"><button type="button" class="btn primary me-cal-sync">${S.calSync}</button></div>` +
     calLinksHtml() +
@@ -2262,6 +2317,9 @@ function onClick(event) {
       render()
     }
     calSync(state.monday)
+    return
+  } else if (target.closest(".me-cal-drop")) {
+    calDrop(target.closest(".me-cal-drop").dataset.monday)
     return
   } else if (target.closest(".me-cal-close")) {
     state.calOpen = null

@@ -526,7 +526,8 @@ async function putCalendar(token, request, env) {
   // alarm：上班前幾多分鐘提醒（整條訂閱一個設定）；冇帶就沿用上次，帶 0 = 關
   const alarm = body?.alarm === undefined ? (stored?.alarm ?? null) : cleanAlarm(body.alarm)
   await env.ROSTER_KV.put(key, JSON.stringify({ name, events: next, updatedAt: now, ...(alarm ? { alarm } : {}) }))
-  return reply({ ok: true, feed, alarm, count: ranged ? events.length : next.length, total: next.length, added, changed, removed, updatedAt: now })
+  // dates：訂閱入面而家有嘅所有日子，前端用嚟列出「日曆入面有邊幾個星期」
+  return reply({ ok: true, feed, alarm, count: ranged ? events.length : next.length, total: next.length, added, changed, removed, updatedAt: now, dates: next.map((ev) => ev.date) })
 }
 
 async function getCalendar(file, env) {
