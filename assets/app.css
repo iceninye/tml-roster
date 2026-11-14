@@ -962,3 +962,10 @@ button.cal-day { cursor: pointer; }
 .offline-bar[hidden] { display: none; }
 
 .auto-up { display: flex; align-items: center; gap: 6px; margin: 6px 0; }
+.cal-stored { margin-top: 8px; }
+.cal-stored .fine { margin: 0 0 4px; }
+.cal-stored ul { list-style: none; margin: 0; padding: 0; }
+.cal-stored li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; border-top: 1px solid var(--edge); font-size: 15px; }
+.cal-stored li:first-child { border-top: 0; }
+.cal-stored .btn { min-height: 32px; padding: 4px 10px; font-size: 14px; }
+.cal-stored-tag { color: var(--muted, inherit); font-size: 13px; }

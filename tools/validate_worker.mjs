@@ -328,6 +328,12 @@ check(ics.text.includes("UID:2026-11-09@") && ics.text.includes("SUMMARY:1101103
 r = await call("PUT", `/api/cal/${TOKEN}`, { name: "我", from: "2026-11-16", to: "2026-11-22", events: [{ ...wk[0], summary: "1101103 中" }] })
 check(r.status === 200 && r.body.added + r.body.changed + r.body.removed === 0, "same week again: nothing changes")
 check((await call("PUT", `/api/cal/${TOKEN}`, { from: "2026-11-16", to: "2026-11-22", events: evs })).status === 400, "week sync refuses days outside the week")
+check(JSON.stringify(r.body.dates) === JSON.stringify(["2026-11-09", "2026-11-10", "2026-11-16"]), "week sync replies with every date in the feed (panel lists stored weeks)")
+// 面板「移除」：嗰個星期冇 event = 全部刪走，其他星期照留
+r = await call("PUT", `/api/cal/${TOKEN}`, { name: "我", from: "2026-11-16", to: "2026-11-22", events: [] })
+check(r.status === 200 && r.body.removed === 1 && r.body.count === 0 && JSON.stringify(r.body.dates) === JSON.stringify(["2026-11-09", "2026-11-10"]), "dropping a week removes only its days")
+ics = await getIcs(`/api/ics/${feed}.ics`)
+check(ics.text.includes("UID:2026-11-09@") && !ics.text.includes("2026-11-16@"), "dropped week leaves the feed, other week stays")
 check(mergeRange([{ date: "2026-01-01", summary: "old" }], [], "2026-11-16", "2026-11-22", "2026-09-01").length === 0, "very old days are pruned")
 check(cleanEvents([{ date: "2026-11-09", summary: "x", on: 100, off: 50 }])?.[0].on === undefined, "end before start -> all-day")
 check(withSequence([{ date: "2026-11-09", summary: "x", seq: 4 }], [{ date: "2026-11-09", summary: "x" }], "t")[0].seq === 4, "same content keeps SEQUENCE")
